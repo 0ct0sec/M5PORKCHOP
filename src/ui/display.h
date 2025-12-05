@@ -10,10 +10,10 @@
 #define BOTTOM_BAR_H 14
 #define MAIN_H (DISPLAY_H - TOP_BAR_H - BOTTOM_BAR_H)
 
-// Colors
+// Colors - Pink on Black theme
 #define COLOR_BG TFT_BLACK
-#define COLOR_FG TFT_WHITE
-#define COLOR_ACCENT TFT_MAGENTA
+#define COLOR_FG 0xFC9F  // Hot pink
+#define COLOR_ACCENT 0xF81F  // Magenta/Pink
 #define COLOR_WARNING TFT_YELLOW
 #define COLOR_DANGER TFT_RED
 #define COLOR_SUCCESS TFT_GREEN

@@ -89,6 +89,6 @@ void loop() {
     // Update display
     Display::update();
     
-    // Small delay to prevent watchdog issues
-    delay(10);
+    // Slower update rate for smoother animation
+    delay(50);
 }

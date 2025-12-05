@@ -10,69 +10,53 @@ bool Avatar::earsUp = true;
 uint32_t Avatar::lastBlinkTime = 0;
 uint32_t Avatar::blinkInterval = 3000;
 
-// Avatar ASCII frames (5 lines each, centered on 240px width)
+// Avatar ASCII frames (3 lines each, no legs, centered on 240px width)
 const char* AVATAR_NEUTRAL[] = {
-    "   ^  ^   ",
-    "  (o oo)  ",
-    " -(____)- ",
-    "   |  |   ",
-    "   ''  '' "
+    "  ^  ^  ",
+    " (o oo) ",
+    "-(____)-"
 };
 
 const char* AVATAR_HAPPY[] = {
-    "   ^  ^   ",
-    "  (^ oo^) ",
-    " -(____)<-",
-    "   |  |   ",
-    "  ~~  ~~  "
+    "  ^  ^  ",
+    " (^ o^) ",
+    "-(____)-"
 };
 
 const char* AVATAR_EXCITED[] = {
-    "   !  !   ",
-    "  (@oo @) ",
-    "<-(____)->",
-    "   |  |   ",
-    "  ** **   "
+    "  !  !  ",
+    " (@o @) ",
+    "<(____)>"
 };
 
 const char* AVATAR_HUNTING[] = {
-    "   >  <   ",
-    "  (>oo <) ",
-    " \\(____)/",
-    "   |  |   ",
-    "   ..  .. "
+    "  >  <  ",
+    " (>o <) ",
+    "\\(____)/"
 };
 
 const char* AVATAR_SLEEPY[] = {
-    "   v  v   ",
-    "  (-oo -) ",
-    " -(____)-z",
-    "   |  |  z",
-    "   ''  ''z"
+    "  v  v  ",
+    " (-o -) ",
+    "-(____)-z"
 };
 
 const char* AVATAR_SAD[] = {
-    "   v  v   ",
-    "  (T ooT) ",
-    " -(____)- ",
-    "   |  |   ",
-    "   ''  '' "
+    "  v  v  ",
+    " (T oT) ",
+    "-(____)- "
 };
 
 const char* AVATAR_ANGRY[] = {
-    "   \\  /   ",
-    "  (>oo <) ",
-    " #(____)# ",
-    "   |  |   ",
-    "   ** **  "
+    "  \\  /  ",
+    " (>o <) ",
+    "#(__)#"
 };
 
 const char* AVATAR_BLINK[] = {
-    "   ^  ^   ",
-    "  (- oo-) ",
-    " -(____)- ",
-    "   |  |   ",
-    "   ''  '' "
+    "  ^  ^  ",
+    " (- o-) ",
+    "-(____)-"
 };
 
 void Avatar::init() {
@@ -80,7 +64,7 @@ void Avatar::init() {
     isBlinking = false;
     earsUp = true;
     lastBlinkTime = millis();
-    blinkInterval = random(2000, 5000);
+    blinkInterval = random(4000, 8000);  // Slower blink animation
 }
 
 void Avatar::setState(AvatarState state) {
@@ -96,12 +80,12 @@ void Avatar::wiggleEars() {
 }
 
 void Avatar::draw(M5Canvas& canvas) {
-    // Check if we should blink
+    // Check if we should blink (slower animation)
     uint32_t now = millis();
     if (now - lastBlinkTime > blinkInterval) {
         isBlinking = true;
         lastBlinkTime = now;
-        blinkInterval = random(2000, 5000);
+        blinkInterval = random(4000, 8000);  // Slower blink
     }
     
     // Select frame based on state
@@ -121,16 +105,16 @@ void Avatar::draw(M5Canvas& canvas) {
         }
     }
     
-    drawFrame(canvas, frame, 5);
+    drawFrame(canvas, frame, 3);  // 3 lines now (no legs)
 }
 
 void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines) {
     canvas.setTextDatum(top_center);
-    canvas.setTextSize(2);  // Larger ASCII art
+    canvas.setTextSize(3);  // Bigger font for avatar
     canvas.setTextColor(COLOR_ACCENT);
     
-    int startY = 5;  // Start from top of main canvas
-    int lineHeight = 16;
+    int startY = 8;  // Start from top of main canvas
+    int lineHeight = 24;  // Larger line height for bigger font
     
     for (uint8_t i = 0; i < lines; i++) {
         canvas.drawString(frame[i], DISPLAY_W / 2, startY + i * lineHeight);
