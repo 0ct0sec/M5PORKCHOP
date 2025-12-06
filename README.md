@@ -21,10 +21,15 @@ Your digital piglet companion reacts to discoveries:
 - ML-based network classification
 
 ### WARHOG Mode
-- GPS-enabled wardriving
-- Automatic network logging
-- Export to CSV, Wigle, or Kismet formats
-- Real-time statistics display
+- GPS-enabled wardriving with real-time coordinate display
+- Automatic network logging with ML feature extraction
+- Memory-safe design (auto-save at 2000 entries)
+- Export formats:
+  - **CSV**: Simple spreadsheet format
+  - **Wigle**: Upload to wigle.net
+  - **Kismet NetXML**: For Kismet-compatible tools
+  - **ML Training**: 32-feature vectors for Edge Impulse
+- Bottom bar shows: `U:unique S:saved [lat,lon] S:satellites`
 
 ### Machine Learning
 - 32-feature extraction from WiFi beacon frames
@@ -129,7 +134,8 @@ porkchop/
 │   ├── ui/
 │   │   ├── display.cpp/h     # Triple-canvas display system
 │   │   ├── menu.cpp/h        # Main menu
-│   │   └── settings_menu.cpp/h  # Interactive settings
+│   │   ├── settings_menu.cpp/h  # Interactive settings
+│   │   └── captures_menu.cpp/h  # View saved handshakes
 │   ├── piglet/
 │   │   ├── avatar.cpp/h      # Derpy ASCII piglet with direction flip
 │   │   └── mood.cpp/h        # Context-aware phrase system

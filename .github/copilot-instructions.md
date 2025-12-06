@@ -25,7 +25,7 @@ M5Porkchop is a WiFi security research tool for the M5Cardputer (ESP32-S3 based)
 
 ### Modes
 - `src/modes/oink.cpp/h` - OinkMode: WiFi scanning, channel hopping, promiscuous mode, handshake capture
-- `src/modes/warhog.cpp/h` - WarhogMode: GPS-enabled wardriving, CSV export
+- `src/modes/warhog.cpp/h` - WarhogMode: GPS-enabled wardriving, multiple export formats (CSV, Wigle, Kismet, ML Training)
 
 ### UI Layer
 - `src/ui/display.cpp/h` - Triple-buffered canvas system (topBar, mainCanvas, bottomBar), 240x135 display
@@ -57,6 +57,7 @@ M5Porkchop is a WiFi security research tool for the M5Cardputer (ESP32-S3 based)
 │                                        │
 ├────────────────────────────────────────┤
 │ BOTTOM_BAR (14px) - Stats: N:x HS:x D:x│
+│ WARHOG: U:x S:x [lat,lon] S:sats       │
 └────────────────────────────────────────┘
 ```
 
@@ -75,9 +76,9 @@ M5Porkchop is a WiFi security research tool for the M5Cardputer (ESP32-S3 based)
 
 ```
 PorkchopMode:
-  IDLE -> OINK_MODE | WARHOG_MODE | MENU | SETTINGS | ABOUT
+  IDLE -> OINK_MODE | WARHOG_MODE | MENU | SETTINGS | CAPTURES | ABOUT
   MENU -> (any mode via menu selection)
-  SETTINGS/ABOUT -> MENU (via Enter or backtick)
+  SETTINGS/CAPTURES/ABOUT -> MENU (via Enter or backtick)
 ```
 
 **Important**: `previousMode` only stores "real" modes (IDLE, OINK_MODE, WARHOG_MODE), never MENU/SETTINGS/ABOUT, to prevent navigation loops.
@@ -199,6 +200,24 @@ In WARHOG mode, features are extracted for each network:
 WarhogMode::exportMLTraining("/sd/training.csv");
 ```
 Outputs all 32 features + BSSID, SSID, label, GPS coords.
+
+## WARHOG Mode Details
+
+### Memory Management
+- Max 2000 entries (~240KB) to prevent memory exhaustion
+- Auto-saves to CSV and clears when limit reached
+- Statistics reset on overflow to stay in sync
+
+### Export Formats
+- **CSV**: Simple format with BSSID, SSID, RSSI, channel, auth, GPS coords
+- **Wigle**: Compatible with wigle.net uploads
+- **Kismet NetXML**: For Kismet-compatible tools
+- **ML Training**: 32-feature vector with labels for Edge Impulse
+
+### Data Safety
+- SSIDs are properly escaped (CSV quotes, XML entities)
+- Control characters stripped from SSID fields
+- Incremental file appending (no data loss on crash)
 
 ### Edge Impulse Integration
 1. Train model at studio.edgeimpulse.com

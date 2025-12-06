@@ -173,10 +173,21 @@ void Display::drawBottomBar() {
     String stats;
     
     if (mode == PorkchopMode::WARHOG_MODE) {
-        // WARHOG: show unique networks and saved records
+        // WARHOG: show unique networks, saved records, and GPS coords
         uint32_t unique = WarhogMode::getTotalNetworks();
         uint32_t saved = WarhogMode::getSavedCount();
-        stats = "U:" + String(unique) + " S:" + String(saved);
+        GPSData gps = GPS::getData();
+        
+        if (GPS::hasFix()) {
+            // Show coords with satellite count: "U:5 S:3 [42.36,-71.05]"
+            char buf[64];
+            snprintf(buf, sizeof(buf), "U:%lu S:%lu [%.2f,%.2f] S:%d", 
+                     unique, saved, gps.latitude, gps.longitude, gps.satellites);
+            stats = String(buf);
+        } else {
+            // No fix - show satellite count searching
+            stats = "U:" + String(unique) + " S:" + String(saved) + " GPS:" + String(gps.satellites) + "sat";
+        }
     } else {
         // Default: Networks, Handshakes, Deauths
         uint16_t netCount = porkchop.getNetworkCount();

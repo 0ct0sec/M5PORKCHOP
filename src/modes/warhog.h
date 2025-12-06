@@ -58,7 +58,6 @@ public:
     
 private:
     static bool running;
-    static bool scanComplete;
     static uint32_t lastScanTime;
     static uint32_t scanInterval;
     

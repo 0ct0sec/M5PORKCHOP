@@ -10,9 +10,11 @@
 #include <SPI.h>
 #include <SD.h>
 
+// Maximum entries to prevent memory exhaustion (~120 bytes each, 2000 = ~240KB)
+static const size_t MAX_ENTRIES = 2000;
+
 // Static members
 bool WarhogMode::running = false;
-bool WarhogMode::scanComplete = false;
 uint32_t WarhogMode::lastScanTime = 0;
 uint32_t WarhogMode::scanInterval = 5000;
 std::vector<WardrivingEntry> WarhogMode::entries;
@@ -44,6 +46,15 @@ void WarhogMode::start() {
     
     Serial.println("[WARHOG] Starting...");
     
+    // Clear previous session data
+    entries.clear();
+    totalNetworks = 0;
+    openNetworks = 0;
+    wepNetworks = 0;
+    wpaNetworks = 0;
+    savedCount = 0;
+    currentFilename = "";
+    
     // Initialize WiFi in STA mode for scanning
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
@@ -52,7 +63,6 @@ void WarhogMode::start() {
     GPS::wake();
     
     running = true;
-    scanComplete = false;
     lastScanTime = 0;  // Trigger immediate scan
     newCount = 0;
     
@@ -90,16 +100,20 @@ void WarhogMode::update() {
         lastPhraseTime = now;
     }
     
-    // Periodic scanning
-    if (now - lastScanTime >= scanInterval) {
-        performScan();
-        lastScanTime = now;
+    // Check if async scan completed
+    int scanResult = WiFi.scanComplete();
+    if (scanResult >= 0) {
+        // Scan done with results
+        processScanResults();
+    } else if (scanResult == WIFI_SCAN_FAILED) {
+        // Scan failed, reset
+        WiFi.scanDelete();
     }
     
-    // Process results when scan complete
-    if (scanComplete) {
-        processScanResults();
-        scanComplete = false;
+    // Periodic scanning - only start new scan if not already scanning
+    if (now - lastScanTime >= scanInterval && scanResult != WIFI_SCAN_RUNNING) {
+        performScan();
+        lastScanTime = now;
     }
 }
 
@@ -108,7 +122,7 @@ void WarhogMode::triggerScan() {
 }
 
 bool WarhogMode::isScanComplete() {
-    return scanComplete;
+    return WiFi.scanComplete() >= 0;
 }
 
 void WarhogMode::performScan() {
@@ -152,6 +166,20 @@ void WarhogMode::processScanResults() {
         int idx = findEntry(bssid);
         
         if (idx < 0) {
+            // Check memory limit before adding
+            if (entries.size() >= MAX_ENTRIES) {
+                Serial.println("[WARHOG] Max entries reached, saving and clearing");
+                saveNewEntries();  // Save current entries
+                entries.clear();   // Clear to make room
+                previousCount = 0; // Reset so newCount calculation is correct
+                // Reset stats to match cleared entries
+                totalNetworks = 0;
+                openNetworks = 0;
+                wepNetworks = 0;
+                wpaNetworks = 0;
+                savedCount = 0;
+            }
+            
             // New network
             WardrivingEntry entry = {0};
             memcpy(entry.bssid, bssid, 6);
@@ -224,7 +252,35 @@ void WarhogMode::processScanResults() {
     }
     
     WiFi.scanDelete();
-    scanComplete = true;
+}
+
+// Helper to escape XML special characters
+static String escapeXML(const char* str) {
+    String result;
+    for (int i = 0; str[i] && i < 64; i++) {
+        switch (str[i]) {
+            case '&':  result += "&amp;"; break;
+            case '<':  result += "&lt;"; break;
+            case '>':  result += "&gt;"; break;
+            case '"':  result += "&quot;"; break;
+            case '\'': result += "&apos;"; break;
+            default:   result += str[i]; break;
+        }
+    }
+    return result;
+}
+
+// Helper to write CSV-escaped SSID field (quoted, doubles internal quotes, strips control chars)
+static void writeCSVField(File& f, const char* ssid) {
+    f.print("\"");
+    for (int i = 0; i < 32 && ssid[i]; i++) {
+        if (ssid[i] == '"') {
+            f.print("\"\"");
+        } else if (ssid[i] >= 32) {  // Skip control characters (newlines, etc)
+            f.print(ssid[i]);
+        }
+    }
+    f.print("\"");
 }
 
 void WarhogMode::saveNewEntries() {
@@ -260,12 +316,8 @@ void WarhogMode::saveNewEntries() {
                     e.bssid[3], e.bssid[4], e.bssid[5]);
             
             // Escape SSID for CSV
-            f.print("\"");
-            for (int i = 0; i < 32 && e.ssid[i]; i++) {
-                if (e.ssid[i] == '"') f.print("\"\"");
-                else f.print(e.ssid[i]);
-            }
-            f.print("\",");
+            writeCSVField(f, e.ssid);
+            f.print(",");
             
             f.printf("%d,%d,%s,%.6f,%.6f,%.1f,%lu\n",
                     e.rssi, e.channel, authModeToString(e.authmode).c_str(),
@@ -308,12 +360,8 @@ bool WarhogMode::exportCSV(const char* path) {
                 e.bssid[3], e.bssid[4], e.bssid[5]);
         
         // Escape SSID for CSV
-        f.print("\"");
-        for (int i = 0; i < 32 && e.ssid[i]; i++) {
-            if (e.ssid[i] == '"') f.print("\"\"");
-            else f.print(e.ssid[i]);
-        }
-        f.print("\",");
+        writeCSVField(f, e.ssid);
+        f.print(",");
         
         f.printf("%d,%d,%s,%.6f,%.6f,%.1f,%lu\n",
                 e.rssi, e.channel, authModeToString(e.authmode).c_str(),
@@ -340,17 +388,25 @@ bool WarhogMode::exportWigle(const char* path) {
                 e.bssid[0], e.bssid[1], e.bssid[2],
                 e.bssid[3], e.bssid[4], e.bssid[5]);
         
-        f.print("\"");
-        for (int i = 0; i < 32 && e.ssid[i]; i++) {
-            if (e.ssid[i] == '"') f.print("\"\"");
-            else f.print(e.ssid[i]);
-        }
-        f.print("\",");
+        writeCSVField(f, e.ssid);
+        f.print(",");
         
         f.printf("%s,", authModeToString(e.authmode).c_str());
         
-        // Timestamp - would need RTC for proper date
-        f.printf("2024-01-01 00:00:00,");
+        // Timestamp from GPS or use current date
+        GPSData gps = GPS::getData();
+        if (gps.date > 0 && gps.time > 0) {
+            // Parse DDMMYY and HHMMSSCC format
+            uint8_t day = gps.date / 10000;
+            uint8_t month = (gps.date / 100) % 100;
+            uint8_t year = gps.date % 100;
+            uint8_t hour = gps.time / 1000000;
+            uint8_t minute = (gps.time / 10000) % 100;
+            uint8_t second = (gps.time / 100) % 100;
+            f.printf("20%02d-%02d-%02d %02d:%02d:%02d,", year, month, day, hour, minute, second);
+        } else {
+            f.printf("2025-01-01 00:00:00,");
+        }
         
         f.printf("%d,%d,%.6f,%.6f,%.1f,10.0,WIFI\n",
                 e.channel, e.rssi,
@@ -377,7 +433,7 @@ bool WarhogMode::exportKismet(const char* path) {
         f.printf("<BSSID>%02X:%02X:%02X:%02X:%02X:%02X</BSSID>\n",
                 e.bssid[0], e.bssid[1], e.bssid[2],
                 e.bssid[3], e.bssid[4], e.bssid[5]);
-        f.printf("<SSID>%s</SSID>\n", e.ssid);
+        f.printf("<SSID>%s</SSID>\n", escapeXML(e.ssid).c_str());
         f.printf("<channel>%d</channel>\n", e.channel);
         f.printf("<encryption>%s</encryption>\n", authModeToString(e.authmode).c_str());
         f.println("<gps-info>");
@@ -390,7 +446,7 @@ bool WarhogMode::exportKismet(const char* path) {
     
     f.println("</detection-run>");
     f.close();
-    
+    Serial.printf("[WARHOG] Kismet export: %d entries to %s\n", entries.size(), path);
     return true;
 }
 
@@ -466,12 +522,8 @@ bool WarhogMode::exportMLTraining(const char* path) {
                 e.bssid[3], e.bssid[4], e.bssid[5]);
         
         // SSID (escaped)
-        f.print("\"");
-        for (int i = 0; i < 32 && e.ssid[i]; i++) {
-            if (e.ssid[i] == '"') f.print("\"\"");
-            else f.print(e.ssid[i]);
-        }
-        f.print("\",");
+        writeCSVField(f, e.ssid);
+        f.print(",");
         
         // Convert features to vector
         FeatureExtractor::toFeatureVector(e.features, featureVec);
