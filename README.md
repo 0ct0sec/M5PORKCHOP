@@ -1,5 +1,3 @@
-# M5Porkchop - ML-Enhanced Security Companion
-
 ```
  ██▓███   ▒█████   ██▀███   ██ ▄█▀ ▄████▄   ██░ ██  ▒█████   ██▓███  
 ▓██░  ██▒▒██▒  ██▒▓██ ▒ ██▒ ██▄█▒ ▒██▀ ▀█  ▓██░ ██▒▒██▒  ██▒▓██░  ██▒
@@ -13,177 +11,270 @@
                                   ░                                  
 ```
 
-A tamagotchi-like security companion for the M5Cardputer, featuring:
-- **OINK Mode**: Packet sniffing, network discovery, and handshake capture
-- **WARHOG Mode**: GPS-enabled wardriving with export to Wigle/Kismet formats
-- **ML-powered detection**: Heuristic + Edge Impulse for rogue AP detection
+--[ Contents
 
-## Features
+    1 - Introduction
+    2 - What the hell is this thing
+    3 - Capabilities
+        3.1 - OINK Mode
+        3.2 - WARHOG Mode
+        3.3 - Machine Learning
+    4 - Hardware
+    5 - Building & Flashing
+    6 - Controls
+    7 - Configuration
+    8 - ML Training Pipeline
+    9 - Code Structure
+    10 - Legal sh*t
+    11 - Greetz
 
-### Piglet Personality
-Your digital piglet companion reacts to discoveries:
-- Gets excited when capturing handshakes
-- Becomes sleepy during quiet periods
-- Shows hunting focus when scanning
 
-### OINK Mode
-- Channel hopping WiFi scanner
-- Promiscuous mode packet capture
-- EAPOL/WPA handshake detection
-- Deauth capability (for authorized testing only)
-- ML-based network classification
+--[ 1 - Introduction
 
-### WARHOG Mode
-- GPS-enabled wardriving with real-time coordinate display
-- Automatic network logging with ML feature extraction
-- Memory-safe design (auto-save at 2000 entries)
-- Export formats:
-  - **CSV**: Simple spreadsheet format
-  - **Wigle**: Upload to wigle.net
-  - **Kismet NetXML**: For Kismet-compatible tools
-  - **ML Training**: 32-feature vectors for Edge Impulse
-- Bottom bar shows: `U:unique S:saved [lat,lon] S:satellites`
+    Listen up. You're looking at PORKCHOP - a pocket-sized WiFi hunting
+    companion that lives in your M5Cardputer. Think pwnagotchi had a baby
+    with a tamagotchi, except this one oinks and has zero chill when it
+    catches a handshake.
+    
+    The piglet personality isn't just for show. It reacts to what you're
+    doing - gets hyped when you pop a 4-way, goes full WARHOG when you're
+    driving around mapping networks, and gets sleepy when nothing's
+    happening. Feed it handshakes and it'll love you forever.
 
-### Machine Learning
-- 32-feature extraction from WiFi beacon frames
-- Enhanced heuristic classifier detecting:
-  - **Rogue APs** - Strong signal, abnormal beacon timing, missing vendor IEs
-  - **Evil Twins** - Hidden networks with suspiciously strong signal
-  - **Vulnerable Networks** - Open, WEP, WPA1-only, WPS enabled
-  - **Deauth Targets** - Non-WPA3 networks without PMF protection
-- Edge Impulse SDK scaffold for custom model training
-- ML training data export (CSV with all 32 features + GPS coords)
 
-## Hardware Requirements
+--[ 2 - What the hell is this thing
 
-- M5Cardputer (ESP32-S3)
-- AT6668 GPS Module (optional, for WARHOG mode)
-- MicroSD card for data storage
+    PORKCHOP is built on the ESP32-S3 platform running on M5Cardputer
+    hardware. It's designed for:
 
-## Quick Start
+        - Passive WiFi reconnaissance
+        - WPA/WPA2 handshake capture
+        - GPS-enabled wardriving
+        - ML-powered rogue AP detection
+        - Looking cute while doing questionable things
 
-1. Flash the firmware via PlatformIO: `pio run -t upload -e m5cardputer`
-2. Press `O` for OINK mode, `W` for WARHOG mode
-3. Use `` ` `` (backtick) to access the menu
-4. Configure settings via Settings menu (persistent to SPIFFS)
+    Your digital companion reacts to discoveries like any good attack pet
+    should. Captures make it happy. Boredom makes it sad. It's basically
+    you, but as an ASCII pig.
 
-## Controls
 
-| Key | Action |
-|-----|--------|
-| `O` | Enter OINK mode |
-| `W` | Enter WARHOG mode |
-| `S` | Enter Settings |
-| `` ` `` | Toggle menu / Back |
-| `;` | Navigate up / Decrease value |
-| `.` | Navigate down / Increase value |
-| `Enter` | Select / Toggle / Confirm |
+--[ 3 - Capabilities
 
-## Settings
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Sound | Enable/disable beeps | ON |
-| Brightness | Display brightness | 80% |
-| CH Hop | Channel hop interval (ms) | 500 |
-| Scan Time | Scan duration (ms) | 2000 |
-| Deauth | Enable deauth attacks | ON |
-| GPS | Enable GPS module | ON |
-| GPS PwrSave | GPS power saving mode | ON |
+----[ 3.1 - OINK Mode
 
-## Building
+    The bread and butter. Press 'O' and let the piglet loose:
 
-```bash
-# Install PlatformIO
-pip install platformio
+        * Channel hopping across all 802.11 channels
+        * Promiscuous mode packet capture  
+        * EAPOL frame detection and 4-way handshake reconstruction
+        * Deauth capability for... "authorized testing purposes"
+        * Real-time ML classification of suspicious APs
+        * Auto-attack mode cycles through targets automatically
+        * Targeted deauth prioritizes discovered clients
+        * PCAP export to SD for post-processing
 
-# Build
-pio run
 
-# Upload
-pio run -t upload
+----[ 3.2 - WARHOG Mode
 
-# Monitor
-pio device monitor
-```
+    GPS + WiFi = tactical mapping. Hook up an AT6668 and go mobile:
 
-## ML Training
+        * Real-time GPS coordinate display on bottom bar
+        * Automatic network discovery and logging
+        * Memory-safe design (auto-saves at 2000 entries)
+        * Feature extraction for ML training
+        * Multiple export formats:
+            - CSV: Simple, spreadsheet-ready
+            - Wigle: Upload your wardriving data to wigle.net
+            - Kismet NetXML: For your Kismet workflow
+            - ML Training: 32-feature vectors for model training
 
-### Collecting Training Data
 
-1. Run WARHOG mode to scan networks with GPS
-2. Networks are automatically feature-extracted
-3. Export ML training data to SD card:
-   ```cpp
-   WarhogMode::exportMLTraining("/sd/training.csv");
-   ```
-4. Label the data manually (edit CSV):
-   - 0 = unknown
-   - 1 = normal
-   - 2 = rogue_ap
-   - 3 = evil_twin
-   - 4 = vulnerable
+----[ 3.3 - Machine Learning
 
-### Training with Edge Impulse
+    PORKCHOP doesn't just capture - it thinks. The ML system extracts
+    32 features from every beacon frame:
 
-1. Create project at [studio.edgeimpulse.com](https://studio.edgeimpulse.com)
-2. Upload labeled CSV (32 features per sample)
-3. Design impulse: Raw data → Neural Network classifier
-4. Train and test the model
-5. Export as "C++ Library" for ESP32
-6. Copy `edge-impulse-sdk/` folder to `lib/`
-7. Uncomment `#define EDGE_IMPULSE_ENABLED` in `src/ml/edge_impulse.h`
-8. Rebuild - real ML inference replaces heuristics!
+        * Signal characteristics (RSSI, noise patterns)
+        * Beacon timing analysis (interval, jitter)
+        * Vendor IE fingerprinting
+        * Security configuration analysis
+        * Historical behavior patterns
 
-## File Structure
+    Built-in heuristic classifier detects:
 
-```
-porkchop/
-├── src/
-│   ├── main.cpp              # Entry point
-│   ├── core/
-│   │   ├── porkchop.cpp/h    # Main state machine
-│   │   └── config.cpp/h      # Configuration management
-│   ├── ui/
-│   │   ├── display.cpp/h     # Triple-canvas display system
-│   │   ├── menu.cpp/h        # Main menu
-│   │   ├── settings_menu.cpp/h  # Interactive settings
-│   │   └── captures_menu.cpp/h  # View saved handshakes
-│   ├── piglet/
-│   │   ├── avatar.cpp/h      # Derpy ASCII piglet with direction flip
-│   │   └── mood.cpp/h        # Context-aware phrase system
-│   ├── gps/
-│   │   └── gps.cpp/h         # TinyGPS++ wrapper
-│   ├── ml/
-│   │   ├── features.cpp/h    # 32-feature WiFi extraction
-│   │   ├── inference.cpp/h   # Heuristic + Edge Impulse classifier
-│   │   └── edge_impulse.h    # Edge Impulse SDK scaffold
-│   └── modes/
-│       ├── oink.cpp/h        # WiFi scanning mode
-│       └── warhog.cpp/h      # GPS wardriving mode
-├── .github/
-│   └── copilot-instructions.md  # AI coding assistant context
-└── platformio.ini            # Build configuration
-```
+        [!] ROGUE_AP    - Strong signal + abnormal timing + missing IEs
+        [!] EVIL_TWIN   - Hidden SSID + suspiciously strong signal
+        [!] VULNERABLE  - Open/WEP/WPA1-only/WPS enabled
+        [!] DEAUTH_TGT  - No WPA3 or PMF = free real estate
 
-## Legal Disclaimer
+    Want real ML? Train your own model on Edge Impulse and drop it in.
+    The scaffold is ready.
 
-This tool is intended for **authorized security research and educational purposes only**. 
 
-- Only use on networks you own or have explicit permission to test
-- Deauth attacks may be illegal in your jurisdiction
-- The authors assume no liability for misuse
+--[ 4 - Hardware
 
-## Credits
+    Required:
+        * M5Cardputer (ESP32-S3 based)
+        * MicroSD card for data storage
 
-- Inspired by [pwnagotchi](https://github.com/evilsocket/pwnagotchi)
-- Built for [M5Cardputer](https://docs.m5stack.com/en/core/Cardputer)
-- ML powered by [Edge Impulse](https://edgeimpulse.com/)
+    Optional:
+        * AT6668 GPS Module (WARHOG mode)
+        * Questionable ethics
 
-## License
 
-MIT License - See LICENSE file for details
+--[ 5 - Building & Flashing
 
----
+    We use PlatformIO because we're not savages.
 
-*Oink oink!*
+        # Install if you haven't
+        $ pip install platformio
+
+        # Build it
+        $ pio run -e m5cardputer
+
+        # Flash it
+        $ pio run -t upload -e m5cardputer
+
+        # Watch it work
+        $ pio device monitor
+
+    If it doesn't compile, skill issue. Check your dependencies.
+
+
+--[ 6 - Controls
+
+    The M5Cardputer's keyboard is tiny but functional:
+
+        +-------+----------------------------------+
+        | Key   | What it does                     |
+        +-------+----------------------------------+
+        | O     | Enter OINK mode (hunting)        |
+        | W     | Enter WARHOG mode (wardriving)   |
+        | S     | Settings menu                    |
+        | `     | Toggle menu / Go back            |
+        | ;     | Navigate up / Decrease value     |
+        | .     | Navigate down / Increase value   |
+        | Enter | Select / Toggle / Confirm        |
+        +-------+----------------------------------+
+
+
+--[ 7 - Configuration
+
+    Settings persist to SPIFFS. Your piglet remembers.
+
+        +------------+-------------------------------+---------+
+        | Setting    | Description                   | Default |
+        +------------+-------------------------------+---------+
+        | Sound      | Beeps when things happen      | ON      |
+        | Brightness | Display brightness            | 80%     |
+        | CH Hop     | Channel hop interval (ms)     | 500     |
+        | Scan Time  | Per-channel scan duration     | 2000    |
+        | Deauth     | Enable deauth attacks         | ON      |
+        | GPS        | Enable GPS module             | ON      |
+        | GPS PwrSave| Power saving for GPS          | ON      |
+        +------------+-------------------------------+---------+
+
+
+--[ 8 - ML Training Pipeline
+
+    Want to train your own model? Here's the workflow:
+
+    Step 1: Collect data
+        - Run WARHOG mode in various environments
+        - Let it build up a nice dataset
+        - Export ML training data to SD card
+
+    Step 2: Label your data
+        - 0 = unknown (unlabeled)
+        - 1 = normal (legitimate APs)
+        - 2 = rogue_ap (suspicious)
+        - 3 = evil_twin (impersonating)
+        - 4 = vulnerable (weak security)
+
+    Step 3: Train on Edge Impulse
+        - Create project at studio.edgeimpulse.com
+        - Upload your labeled CSV
+        - Design impulse: Raw data -> Neural Network
+        - Train, test, iterate
+
+    Step 4: Deploy
+        - Export as "C++ Library" for ESP32
+        - Drop edge-impulse-sdk/ into lib/
+        - Uncomment EDGE_IMPULSE_ENABLED
+        - Rebuild and flash
+
+    Now your piglet has a real brain.
+
+
+--[ 9 - Code Structure
+
+    porkchop/
+    |
+    +-- src/
+    |   +-- main.cpp              # Entry point, main loop
+    |   +-- core/
+    |   |   +-- porkchop.cpp/h    # State machine, mode management
+    |   |   +-- config.cpp/h      # Configuration (SPIFFS persistence)
+    |   |
+    |   +-- ui/
+    |   |   +-- display.cpp/h     # Triple-canvas display system
+    |   |   +-- menu.cpp/h        # Main menu with callbacks
+    |   |   +-- settings_menu.cpp/h   # Interactive settings
+    |   |   +-- captures_menu.cpp/h   # Browse captured handshakes
+    |   |
+    |   +-- piglet/
+    |   |   +-- avatar.cpp/h      # Derpy ASCII pig (flips L/R)
+    |   |   +-- mood.cpp/h        # Context-aware phrase system
+    |   |
+    |   +-- gps/
+    |   |   +-- gps.cpp/h         # TinyGPS++ wrapper, power mgmt
+    |   |
+    |   +-- ml/
+    |   |   +-- features.cpp/h    # 32-feature WiFi extraction
+    |   |   +-- inference.cpp/h   # Heuristic + Edge Impulse classifier
+    |   |   +-- edge_impulse.h    # SDK scaffold
+    |   |
+    |   +-- modes/
+    |       +-- oink.cpp/h        # WiFi scanning, deauth, capture
+    |       +-- warhog.cpp/h      # GPS wardriving, exports
+    |
+    +-- .github/
+    |   +-- copilot-instructions.md   # AI assistant context
+    |
+    +-- platformio.ini            # Build config
+
+
+--[ 10 - Legal sh*t
+
+    LISTEN CAREFULLY.
+
+    This tool is for AUTHORIZED SECURITY RESEARCH and EDUCATIONAL
+    PURPOSES ONLY.
+
+        * Only use on networks YOU OWN or have EXPLICIT WRITTEN PERMISSION
+        * Deauth attacks are ILLEGAL in most jurisdictions without consent
+        * Wardriving laws vary by location - know your local regulations
+        * The authors assume ZERO LIABILITY for misuse
+        * Don't be an a**hole
+
+    If you use this to pwn your neighbor's WiFi, you deserve whatever
+    happens to you. We made a cute pig, not a get-out-of-jail-free card.
+
+
+--[ 11 - Greetz
+
+    Shouts to the legends:
+
+        * evilsocket & the pwnagotchi project - the original inspiration
+        * M5Stack - for making affordable hacking hardware
+        * Edge Impulse - democratizing ML on embedded
+        * The ESP32 community - keeping the hacking spirit alive
+        * You - for reading this far
+
+    "The WiFi is free if you're brave enough."
+
+OINK! OINK!
+
+==[EOF]==
+
