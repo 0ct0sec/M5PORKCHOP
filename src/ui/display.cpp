@@ -284,6 +284,38 @@ bool Display::showConfirmBox(const String& title, const String& message) {
     return false;  // Timeout = No
 }
 
+// Boot splash - 3 screens: OINK OINK, MY NAME IS, PORKCHOP
+void Display::showBootSplash() {
+    // Screen 1: OINK OINK
+    M5.Display.fillScreen(COLOR_BG);
+    M5.Display.setTextColor(COLOR_FG);
+    M5.Display.setTextDatum(middle_center);
+    M5.Display.setTextSize(4);
+    M5.Display.drawString("OINK", DISPLAY_W / 2, DISPLAY_H / 2 - 20);
+    M5.Display.drawString("OINK", DISPLAY_W / 2, DISPLAY_H / 2 + 20);
+    delay(800);
+    
+    // Screen 2: MY NAME IS
+    M5.Display.fillScreen(COLOR_BG);
+    M5.Display.setTextSize(3);
+    M5.Display.drawString("MY NAME IS", DISPLAY_W / 2, DISPLAY_H / 2);
+    delay(800);
+    
+    // Screen 3: PORKCHOP in big stylized text
+    M5.Display.fillScreen(COLOR_BG);
+    M5.Display.setTextDatum(middle_center);
+    M5.Display.setTextSize(3);
+    M5.Display.drawString("PORKCHOP", DISPLAY_W / 2, DISPLAY_H / 2 - 15);
+    
+    // Subtitle
+    M5.Display.setTextSize(1);
+    M5.Display.drawString("Basically you, but as an ASCII pig.", DISPLAY_W / 2, DISPLAY_H / 2 + 20);
+    M5.Display.drawString("BETA", DISPLAY_W / 2, DISPLAY_H / 2 + 35);
+    
+    delay(1200);
+}
+
+
 void Display::showProgress(const String& title, uint8_t percent) {
     mainCanvas.fillSprite(COLOR_BG);
     mainCanvas.setTextColor(COLOR_FG);

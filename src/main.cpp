@@ -36,10 +36,13 @@ void setup() {
     // Init display system
     Display::init();
     
+    // Show boot splash (3 screens: OINK OINK, MY NAME IS, PORKCHOP)
+    Display::showBootSplash();
+    
     // Apply saved brightness
     M5.Display.setBrightness(Config::personality().brightness * 255 / 100);
     
-    Display::showProgress("Booting...", 10);
+    Display::showProgress("Loading...", 10);
     
     // Initialize piglet personality
     Avatar::init();

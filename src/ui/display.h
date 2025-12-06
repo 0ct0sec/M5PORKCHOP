@@ -34,6 +34,7 @@ public:
     
     // Helper functions
     static void pushAll();
+    static void showBootSplash();  // 3-screen boot animation
     static void showInfoBox(const String& title, const String& line1, 
                            const String& line2 = "", bool blocking = true);
     static bool showConfirmBox(const String& title, const String& message);
