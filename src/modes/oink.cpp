@@ -277,7 +277,7 @@ void OinkMode::processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) 
         }
         
         networks.push_back(net);
-        Mood::onNewNetwork();
+        Mood::onNewNetwork(net.ssid);
         
         Serial.printf("[OINK] New network: %s (ch%d, %ddBm)\n", 
                      net.ssid[0] ? net.ssid : "<hidden>", net.channel, net.rssi);
@@ -398,8 +398,8 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
                  hs.hasM3() ? "3" : "-",
                  hs.hasM4() ? "4" : "-");
     
-    // Trigger mood on capture
-    Mood::onHandshakeCaptured();
+    // Trigger mood on capture with AP name
+    Mood::onHandshakeCaptured(hs.ssid);
     
     // Auto-save if we got a complete handshake
     if (hs.isComplete() && !hs.saved) {

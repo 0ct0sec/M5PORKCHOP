@@ -95,12 +95,28 @@ void Mood::update() {
     updateAvatarState();
 }
 
-void Mood::onHandshakeCaptured() {
+void Mood::onHandshakeCaptured(const char* apName) {
     happiness = min(happiness + 30, 100);
     lastActivityTime = millis();
     
-    int idx = random(0, sizeof(PHRASES_EXCITED) / sizeof(PHRASES_EXCITED[0]));
-    currentPhrase = PHRASES_EXCITED[idx];
+    // Show AP name in phrase if available
+    if (apName && strlen(apName) > 0) {
+        String ap = String(apName);
+        if (ap.length() > 12) ap = ap.substring(0, 12) + "..";
+        const char* templates[] = {
+            "Got %s!",
+            "%s pwned!",
+            "Yummy %s!",
+            "%s captured!"
+        };
+        int idx = random(0, 4);
+        char buf[48];
+        snprintf(buf, sizeof(buf), templates[idx], ap.c_str());
+        currentPhrase = buf;
+    } else {
+        int idx = random(0, sizeof(PHRASES_EXCITED) / sizeof(PHRASES_EXCITED[0]));
+        currentPhrase = PHRASES_EXCITED[idx];
+    }
     lastPhraseChange = millis();
     
     // Double beep for handshake! (user requested two beeps)
@@ -109,12 +125,28 @@ void Mood::onHandshakeCaptured() {
     M5.Speaker.tone(2000, 100);  // Second beep (higher pitch)
 }
 
-void Mood::onNewNetwork() {
+void Mood::onNewNetwork(const char* apName) {
     happiness = min(happiness + 10, 100);
     lastActivityTime = millis();
     
-    int idx = random(0, sizeof(PHRASES_HAPPY) / sizeof(PHRASES_HAPPY[0]));
-    currentPhrase = PHRASES_HAPPY[idx];
+    // Show AP name in phrase if available
+    if (apName && strlen(apName) > 0) {
+        String ap = String(apName);
+        if (ap.length() > 12) ap = ap.substring(0, 12) + "..";
+        const char* templates[] = {
+            "Found %s!",
+            "Sniffed %s",
+            "Hello %s!",
+            "New: %s"
+        };
+        int idx = random(0, 4);
+        char buf[48];
+        snprintf(buf, sizeof(buf), templates[idx], ap.c_str());
+        currentPhrase = buf;
+    } else {
+        int idx = random(0, sizeof(PHRASES_HAPPY) / sizeof(PHRASES_HAPPY[0]));
+        currentPhrase = PHRASES_HAPPY[idx];
+    }
     lastPhraseChange = millis();
 }
 

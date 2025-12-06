@@ -299,27 +299,25 @@ void Display::drawModeInfo(M5Canvas& canvas, PorkchopMode mode) {
         int y = MAIN_H - 35;
         
         if (!networks.empty()) {
-            // Show most recent network
+            // Show most recent network - SSID only, no MAC
             const auto& net = networks.back();
-            char bssidStr[18];
-            snprintf(bssidStr, sizeof(bssidStr), "%02X:%02X:%02X:%02X:%02X:%02X",
-                     net.bssid[0], net.bssid[1], net.bssid[2],
-                     net.bssid[3], net.bssid[4], net.bssid[5]);
+            String ssid = String(net.ssid);
+            if (ssid.length() == 0) ssid = "<hidden>";
             
-            canvas.drawString(String(net.ssid).substring(0, 15), 2, y);
-            canvas.drawString("CH:" + String(net.channel) + " " + String(net.rssi) + "dB", DISPLAY_W - 60, y);
+            canvas.drawString(ssid.substring(0, 18), 2, y);
+            canvas.drawString("CH:" + String(net.channel), DISPLAY_W - 45, y);
             y += 10;
             canvas.setTextColor(COLOR_ACCENT);
-            canvas.drawString(bssidStr, 2, y);
+            canvas.drawString(String(net.rssi) + "dB  N:" + String(networks.size()), 2, y);
         } else {
             canvas.drawString("Scanning for networks...", 2, y);
         }
         
-        // Show handshake status
-        if (!handshakes.empty()) {
-            const auto& hs = handshakes.back();
+        // Show handshake count
+        uint16_t hsCount = OinkMode::getCompleteHandshakeCount();
+        if (hsCount > 0) {
             canvas.setTextColor(COLOR_SUCCESS);
-            canvas.drawString("HS:" + String(OinkMode::getCompleteHandshakeCount()), DISPLAY_W - 35, y);
+            canvas.drawString("HS:" + String(hsCount), DISPLAY_W - 35, y);
         }
     } else if (mode == PorkchopMode::WARHOG_MODE) {
         // Show wardriving info

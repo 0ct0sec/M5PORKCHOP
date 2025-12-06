@@ -11,8 +11,8 @@ public:
     static void draw(M5Canvas& canvas);
     
     // Mood triggers
-    static void onHandshakeCaptured();
-    static void onNewNetwork();
+    static void onHandshakeCaptured(const char* apName = nullptr);
+    static void onNewNetwork(const char* apName = nullptr);
     static void onMLPrediction(float confidence);
     static void onNoActivity(uint32_t seconds);
     static void onWiFiLost();
