@@ -248,11 +248,46 @@ void Mood::updateAvatarState() {
 }
 
 void Mood::draw(M5Canvas& canvas) {
-    // Draw mood phrase below avatar
+    // Draw comic speech bubble on right side
+    int bubbleX = 100;  // Start of bubble (after piglet)
+    int bubbleY = 5;
+    int bubbleW = DISPLAY_W - bubbleX - 5;
+    int bubbleH = 50;
+    
+    // Draw bubble outline
+    canvas.drawRoundRect(bubbleX, bubbleY, bubbleW, bubbleH, 8, COLOR_FG);
+    
+    // Draw speech bubble pointer (triangle pointing left to piglet)
+    int triX = bubbleX - 1;
+    int triY = bubbleY + bubbleH / 2;
+    canvas.fillTriangle(triX, triY, triX - 10, triY + 5, triX, triY + 10, COLOR_FG);
+    // Fill inside of triangle to match background
+    canvas.drawLine(triX, triY + 1, triX, triY + 9, COLOR_BG);
+    
+    // Draw phrase inside bubble (wrap if needed)
     canvas.setTextDatum(top_center);
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
-    canvas.drawString(currentPhrase, DISPLAY_W / 2, MAIN_H - 15);
+    canvas.setTextColor(COLOR_ACCENT);
+    
+    // Word wrap for longer phrases
+    String phrase = currentPhrase;
+    int maxChars = 16;  // Max chars per line
+    int textX = bubbleX + bubbleW / 2;
+    
+    if (phrase.length() <= maxChars) {
+        canvas.drawString(phrase, textX, bubbleY + 20);
+    } else {
+        // Split into two lines
+        int splitPos = phrase.lastIndexOf(' ', maxChars);
+        if (splitPos < 0) splitPos = maxChars;
+        
+        String line1 = phrase.substring(0, splitPos);
+        String line2 = phrase.substring(splitPos + 1);
+        if (line2.length() > maxChars) line2 = line2.substring(0, maxChars - 2) + "..";
+        
+        canvas.drawString(line1, textX, bubbleY + 12);
+        canvas.drawString(line2, textX, bubbleY + 26);
+    }
 }
 
 const String& Mood::getCurrentPhrase() {
