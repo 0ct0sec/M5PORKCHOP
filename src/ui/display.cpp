@@ -11,6 +11,7 @@
 #include "../gps/gps.h"
 #include "menu.h"
 #include "settings_menu.h"
+#include "captures_menu.h"
 
 // Static member initialization
 M5Canvas Display::topBar(&M5.Display);
@@ -71,6 +72,10 @@ void Display::update() {
         case PorkchopMode::SETTINGS:
             SettingsMenu::update();
             SettingsMenu::draw(mainCanvas);
+            break;
+            
+        case PorkchopMode::CAPTURES:
+            CapturesMenu::draw(mainCanvas);
             break;
             
         case PorkchopMode::ABOUT:

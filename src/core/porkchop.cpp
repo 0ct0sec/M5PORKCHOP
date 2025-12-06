@@ -5,6 +5,7 @@
 #include "../ui/display.h"
 #include "../ui/menu.h"
 #include "../ui/settings_menu.h"
+#include "../ui/captures_menu.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../modes/oink.h"
@@ -39,8 +40,9 @@ void Porkchop::init() {
     std::vector<MenuItem> mainMenuItems = {
         {"OINK Mode", 1},
         {"WARHOG Mode", 2},
-        {"Settings", 3},
-        {"About", 4}
+        {"Captures", 3},
+        {"Settings", 4},
+        {"About", 5}
     };
     Menu::setItems(mainMenuItems);
     Menu::setTitle("PORKCHOP");
@@ -50,8 +52,9 @@ void Porkchop::init() {
         switch (actionId) {
             case 1: setMode(PorkchopMode::OINK_MODE); break;
             case 2: setMode(PorkchopMode::WARHOG_MODE); break;
-            case 3: setMode(PorkchopMode::SETTINGS); break;
-            case 4: setMode(PorkchopMode::ABOUT); break;
+            case 3: setMode(PorkchopMode::CAPTURES); break;
+            case 4: setMode(PorkchopMode::SETTINGS); break;
+            case 5: setMode(PorkchopMode::ABOUT); break;
         }
         Menu::clearSelected();
     });
@@ -70,9 +73,10 @@ void Porkchop::update() {
 void Porkchop::setMode(PorkchopMode mode) {
     if (mode == currentMode) return;
     
-    // Only save "real" modes as previous (not SETTINGS/ABOUT/MENU)
+    // Only save "real" modes as previous (not SETTINGS/ABOUT/MENU/CAPTURES)
     if (currentMode != PorkchopMode::SETTINGS && 
         currentMode != PorkchopMode::ABOUT && 
+        currentMode != PorkchopMode::CAPTURES &&
         currentMode != PorkchopMode::MENU) {
         previousMode = currentMode;
     }
@@ -112,6 +116,9 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::SETTINGS:
             SettingsMenu::show();
+            break;
+        case PorkchopMode::CAPTURES:
+            CapturesMenu::show();
             break;
     }
     
@@ -221,6 +228,12 @@ void Porkchop::updateMode() {
             break;
         case PorkchopMode::WARHOG_MODE:
             WarhogMode::update();
+            break;
+        case PorkchopMode::CAPTURES:
+            CapturesMenu::update();
+            if (!CapturesMenu::isActive()) {
+                setMode(PorkchopMode::MENU);
+            }
             break;
         default:
             break;

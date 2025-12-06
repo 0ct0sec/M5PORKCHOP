@@ -854,6 +854,17 @@ void OinkMode::autoSaveCheck() {
             if (saveHandshakePCAP(hs, filename)) {
                 hs.saved = true;
                 Serial.printf("[OINK] Handshake saved: %s\n", filename);
+                
+                // Save SSID to companion .txt file for later reference
+                char txtFilename[64];
+                snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X.txt",
+                        hs.bssid[0], hs.bssid[1], hs.bssid[2],
+                        hs.bssid[3], hs.bssid[4], hs.bssid[5]);
+                File txtFile = SD.open(txtFilename, FILE_WRITE);
+                if (txtFile) {
+                    txtFile.println(hs.ssid);
+                    txtFile.close();
+                }
             }
         }
     }

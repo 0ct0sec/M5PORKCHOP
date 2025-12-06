@@ -12,6 +12,7 @@ enum class PorkchopMode : uint8_t {
     WARHOG_MODE,    // Wardriving mode
     MENU,           // Menu navigation
     SETTINGS,       // Settings screen
+    CAPTURES,       // View captured handshakes
     ABOUT           // About screen
 };
 
