@@ -130,8 +130,8 @@ private:
     static uint16_t beaconFrameLen;
     static bool beaconCaptured;
     
-    // Promiscuous mode callback (IRAM for ISR performance)
-    static void IRAM_ATTR promiscuousCallback(void* buf, wifi_promiscuous_pkt_type_t type);
+    // Promiscuous mode callback (runs in WiFi task context, not ISR)
+    static void promiscuousCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     
     static void processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi);
     static void processProbeResponse(const uint8_t* payload, uint16_t len, int8_t rssi);

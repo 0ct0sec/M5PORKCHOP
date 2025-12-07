@@ -12,8 +12,10 @@
 #include <SD.h>
 #include <algorithm>
 
-// Spinlock for ISR synchronization
-static portMUX_TYPE oinkMux = portMUX_INITIALIZER_UNLOCKED;
+// Simple flag to avoid concurrent access between promiscuous callback and main thread
+// The promiscuous callback runs in WiFi task context (not true ISR), but still needs
+// synchronization to prevent race conditions on networks/handshakes vectors
+static volatile bool oinkBusy = false;
 
 // Static members
 bool OinkMode::running = false;
@@ -166,6 +168,9 @@ void OinkMode::update() {
     if (!running) return;
     
     uint32_t now = millis();
+    
+    // Guard access to networks/handshakes vectors from promiscuous callback
+    oinkBusy = true;
     
     // Auto-attack state machine (like M5Gotchi)
     switch (autoState) {
@@ -351,6 +356,9 @@ void OinkMode::update() {
         }
         lastScanTime = now;
     }
+    
+    // Release lock - allow promiscuous callback to process packets
+    oinkBusy = false;
 }
 
 void OinkMode::startScan() {
@@ -456,8 +464,12 @@ void OinkMode::hopChannel() {
     esp_wifi_set_channel(currentChannel, WIFI_SECOND_CHAN_NONE);
 }
 
-void IRAM_ATTR OinkMode::promiscuousCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
+void OinkMode::promiscuousCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
     if (!running) return;
+    
+    // Skip if main thread is accessing networks/handshakes vectors
+    // This prevents race conditions - we'll catch this packet on next beacon
+    if (oinkBusy) return;
     
     wifi_promiscuous_pkt_t* pkt = (wifi_promiscuous_pkt_t*)buf;
     uint16_t len = pkt->rx_ctrl.sig_len;
@@ -468,10 +480,8 @@ void IRAM_ATTR OinkMode::promiscuousCallback(void* buf, wifi_promiscuous_pkt_typ
     
     if (len < 24) return;  // Minimum 802.11 header
     
-    // Atomic increment for packet count (ISR-safe)
-    portENTER_CRITICAL_ISR(&oinkMux);
+    // Simple increment - callback runs in WiFi task, not ISR
     packetCount++;
-    portEXIT_CRITICAL_ISR(&oinkMux);
     
     const uint8_t* payload = pkt->payload;
     uint8_t frameSubtype = (payload[0] >> 4) & 0x0F;
