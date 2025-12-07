@@ -46,6 +46,11 @@ public:
     static void setWiFiStatus(bool connected);
     static void setMLStatus(bool active);
     
+    // Screen dimming
+    static void resetDimTimer();      // Call on any user input
+    static void updateDimming();      // Call in update loop
+    static bool isDimmed() { return dimmed; }
+    
 private:
     static M5Canvas topBar;
     static M5Canvas mainCanvas;
@@ -54,6 +59,10 @@ private:
     static bool gpsStatus;
     static bool wifiStatus;
     static bool mlStatus;
+    
+    // Dimming state
+    static uint32_t lastActivityTime;
+    static bool dimmed;
     
     static void drawTopBar();
     static void drawBottomBar();

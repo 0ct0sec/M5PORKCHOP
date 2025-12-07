@@ -61,6 +61,24 @@ void SettingsMenu::loadFromConfig() {
         "Screen glow level"
     });
     
+    // Dim timeout (seconds, 0 = never)
+    items.push_back({
+        "Dim After",
+        SettingType::VALUE,
+        (int)Config::personality().dimTimeout,
+        0, 300, 10, "s", "",
+        "0 = never dim"
+    });
+    
+    // Dim level (0-100%, 0 = screen off)
+    items.push_back({
+        "Dim Level",
+        SettingType::VALUE,
+        (int)Config::personality().dimLevel,
+        0, 50, 5, "%", "",
+        "0 = screen off"
+    });
+    
     // Channel hop interval
     items.push_back({
         "CH Hop",
@@ -180,40 +198,43 @@ void SettingsMenu::saveToConfig() {
     auto& w = Config::wifi();
     w.otaSSID = items[0].textValue;
     w.otaPassword = items[1].textValue;
-    w.channelHopInterval = items[4].value;
-    w.scanDuration = items[5].value;
-    w.enableDeauth = items[6].value == 1;
+    w.channelHopInterval = items[6].value;
+    w.scanDuration = items[7].value;
+    w.enableDeauth = items[8].value == 1;
     Config::setWiFi(w);
     
-    // Sound and Brightness
+    // Sound, Brightness, and Dimming
     auto& p = Config::personality();
     p.soundEnabled = items[2].value == 1;
     p.brightness = items[3].value;
+    p.dimTimeout = items[4].value;
+    p.dimLevel = items[5].value;
     Config::setPersonality(p);
     
-    // Apply brightness to display
+    // Apply brightness to display (if not dimmed, reset timer too)
+    Display::resetDimTimer();
     M5.Display.setBrightness(items[3].value * 255 / 100);
     
     // GPS settings
     auto& g = Config::gps();
-    g.enabled = items[7].value == 1;
-    g.powerSave = items[8].value == 1;
-    g.updateInterval = items[9].value;  // Scan interval in seconds
+    g.enabled = items[9].value == 1;
+    g.powerSave = items[10].value == 1;
+    g.updateInterval = items[11].value;  // Scan interval in seconds
     
     // Convert baud index to actual baud rate
     static const uint32_t baudRates[] = {9600, 38400, 57600, 115200};
-    g.baudRate = baudRates[items[10].value];
+    g.baudRate = baudRates[items[12].value];
     
-    g.timezoneOffset = items[11].value;
+    g.timezoneOffset = items[13].value;
     Config::setGPS(g);
     
     // ML settings
     auto& m = Config::ml();
-    m.collectionMode = static_cast<MLCollectionMode>(items[12].value);
+    m.collectionMode = static_cast<MLCollectionMode>(items[14].value);
     Config::setML(m);
     
     // SD Logging
-    SDLog::setEnabled(items[13].value == 1);
+    SDLog::setEnabled(items[15].value == 1);
     
     // Save to file
     Config::save();

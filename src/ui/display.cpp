@@ -21,6 +21,8 @@ M5Canvas Display::bottomBar(&M5.Display);
 bool Display::gpsStatus = false;
 bool Display::wifiStatus = false;
 bool Display::mlStatus = false;
+uint32_t Display::lastActivityTime = 0;
+bool Display::dimmed = false;
 
 extern Porkchop porkchop;
 
@@ -38,10 +40,17 @@ void Display::init() {
     mainCanvas.setTextSize(1);
     bottomBar.setTextSize(1);
     
+    // Initialize dimming state
+    lastActivityTime = millis();
+    dimmed = false;
+    
     Serial.println("[DISPLAY] Initialized");
 }
 
 void Display::update() {
+    // Check for screen dimming
+    updateDimming();
+    
     drawTopBar();
     
     // Draw main content based on mode
@@ -554,4 +563,28 @@ void Display::drawFileTransferScreen(M5Canvas& canvas) {
     
     canvas.setTextColor(COLOR_ACCENT);
     canvas.drawString("[Bksp] to stop", DISPLAY_W / 2, MAIN_H - 12);
+}
+
+void Display::resetDimTimer() {
+    lastActivityTime = millis();
+    if (dimmed) {
+        // Restore full brightness
+        dimmed = false;
+        uint8_t brightness = Config::personality().brightness;
+        M5.Display.setBrightness(brightness * 255 / 100);
+    }
+}
+
+void Display::updateDimming() {
+    uint16_t timeout = Config::personality().dimTimeout;
+    if (timeout == 0) return;  // Dimming disabled
+    
+    uint32_t elapsed = (millis() - lastActivityTime) / 1000;
+    
+    if (!dimmed && elapsed >= timeout) {
+        // Time to dim
+        dimmed = true;
+        uint8_t dimLevel = Config::personality().dimLevel;
+        M5.Display.setBrightness(dimLevel * 255 / 100);
+    }
 }

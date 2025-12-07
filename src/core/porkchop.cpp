@@ -182,6 +182,7 @@ void Porkchop::handleInput() {
     bool g0Pressed = (digitalRead(0) == LOW);  // G0 is active LOW
     
     if (g0Pressed && !g0WasPressed) {
+        Display::resetDimTimer();  // Wake screen on G0
         Serial.printf("[PORKCHOP] G0 pressed! Current mode: %d\n", (int)currentMode);
         if (currentMode != PorkchopMode::IDLE) {
             Serial.println("[PORKCHOP] Returning to IDLE");
@@ -195,6 +196,9 @@ void Porkchop::handleInput() {
     }
     
     if (!M5Cardputer.Keyboard.isChange()) return;
+    
+    // Any keyboard input resets the screen dim timer
+    Display::resetDimTimer();
     
     auto keys = M5Cardputer.Keyboard.keysState();
     
