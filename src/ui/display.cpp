@@ -8,6 +8,7 @@
 #include "../piglet/avatar.h"
 #include "../modes/oink.h"
 #include "../modes/warhog.h"
+#include "../modes/piggyblues.h"
 #include "../gps/gps.h"
 #include "../web/fileserver.h"
 #include "menu.h"
@@ -68,6 +69,7 @@ void Display::update() {
             
         case PorkchopMode::OINK_MODE:
         case PorkchopMode::WARHOG_MODE:
+        case PorkchopMode::PIGGYBLUES_MODE:
             // Draw piglet avatar and mood bubble (info embedded in bubble)
             Avatar::draw(mainCanvas);
             Mood::draw(mainCanvas);
@@ -143,6 +145,10 @@ void Display::drawTopBar() {
         case PorkchopMode::WARHOG_MODE:
             modeStr = "WARHOG";
             modeColor = COLOR_DANGER;
+            break;
+        case PorkchopMode::PIGGYBLUES_MODE:
+            modeStr = "PIGGY BLUES";
+            modeColor = COLOR_ACCENT;
             break;
         case PorkchopMode::MENU:
             modeStr = "MENU";
@@ -242,6 +248,16 @@ void Display::drawBottomBar() {
         } else {
             snprintf(buf, sizeof(buf), "N:%d HS:%d D:%lu CH:%d", netCount, hsCount, deauthCount, channel);
         }
+        stats = String(buf);
+    } else if (mode == PorkchopMode::PIGGYBLUES_MODE) {
+        // PIGGYBLUES: TX:total A:apple G:android S:samsung W:windows
+        uint32_t total = PiggyBluesMode::getTotalPackets();
+        uint16_t apple = PiggyBluesMode::getAppleCount();
+        uint16_t android = PiggyBluesMode::getAndroidCount();
+        uint16_t samsung = PiggyBluesMode::getSamsungCount();
+        uint16_t windows = PiggyBluesMode::getWindowsCount();
+        char buf[48];
+        snprintf(buf, sizeof(buf), "TX:%lu A:%d G:%d S:%d W:%d", total, apple, android, samsung, windows);
         stats = String(buf);
     } else {
         // Default: Networks, Handshakes, Deauths

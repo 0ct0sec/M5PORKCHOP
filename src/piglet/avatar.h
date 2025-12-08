@@ -27,6 +27,8 @@ public:
     static void setGrassMoving(bool moving);
     static bool isGrassMoving() { return grassMoving; }
     static void setGrassSpeed(uint16_t ms);  // Speed in ms per shift (lower = faster)
+    static void setGrassPattern(const char* pattern);  // Custom pattern (max 26 chars)
+    static void resetGrassPattern();  // Reset to random binary pattern
     
 private:
     static AvatarState currentState;

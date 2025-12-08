@@ -63,6 +63,7 @@ const char* PHRASES_IDLE[] = {
     "oink?",
     "[O] hunt",
     "[W] roam",
+    "[B] spam BLE",
     "piggy awaits",
     "hack the planet",
     "snout on standby"
@@ -93,6 +94,18 @@ const char* PHRASES_WARHOG_FOUND[] = {
     "another one",
     "bagged n tagged",
     "mine now lol"
+};
+
+// Piggy Blues BLE spam phrases
+const char* PHRASES_PIGGYBLUES[] = {
+    "FLOODING THE SPECTRUM",
+    "BEACON STORM INBOUND",
+    "SNIFFING AIRWAVES",
+    "YOUR NOTIFICATIONS ARE MINE",
+    "PACKETS AWAY",
+    "OWNING THE 2.4GHZ",
+    "SIGNAL HIJACK ACTIVE",
+    "BLUEJACKING IN PROGRESS"
 };
 
 // Deauth success - short MAC format %02X%02X
@@ -488,3 +501,13 @@ void Mood::onWarhogFound(const char* apName, uint8_t channel) {
     currentPhrase = PHRASES_WARHOG_FOUND[idx];
     lastPhraseChange = millis();
 }
+
+void Mood::onPiggyBluesUpdate() {
+    lastActivityTime = millis();
+    happiness = min(100, happiness + 2);
+    
+    int idx = random(0, sizeof(PHRASES_PIGGYBLUES) / sizeof(PHRASES_PIGGYBLUES[0]));
+    currentPhrase = PHRASES_PIGGYBLUES[idx];
+    lastPhraseChange = millis();
+}
+

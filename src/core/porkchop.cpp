@@ -11,6 +11,7 @@
 #include "../piglet/avatar.h"
 #include "../modes/oink.h"
 #include "../modes/warhog.h"
+#include "../modes/piggyblues.h"
 #include "../web/fileserver.h"
 #include "config.h"
 
@@ -43,6 +44,7 @@ void Porkchop::init() {
     std::vector<MenuItem> mainMenuItems = {
         {"OINK Mode", 1, "Hunt for handshakes"},
         {"WARHOG Mode", 2, "Wardrive with GPS"},
+        {"PIGGY BLUES Mode", 8, "BLE notification spam"},
         {"File Transfer", 3, "WiFi file server"},
         {"Captures", 4, "View saved loot"},
         {"Log Viewer", 7, "Debug log tail"},
@@ -62,6 +64,7 @@ void Porkchop::init() {
             case 5: setMode(PorkchopMode::SETTINGS); break;
             case 6: setMode(PorkchopMode::ABOUT); break;
             case 7: setMode(PorkchopMode::LOG_VIEWER); break;
+            case 8: setMode(PorkchopMode::PIGGYBLUES_MODE); break;
         }
         Menu::clearSelected();
     });
@@ -102,6 +105,9 @@ void Porkchop::setMode(PorkchopMode mode) {
         case PorkchopMode::WARHOG_MODE:
             WarhogMode::stop();
             break;
+        case PorkchopMode::PIGGYBLUES_MODE:
+            PiggyBluesMode::stop();
+            break;
         case PorkchopMode::MENU:
             Menu::hide();
             break;
@@ -135,6 +141,15 @@ void Porkchop::setMode(PorkchopMode mode) {
             Avatar::setState(AvatarState::EXCITED);
             Display::showToast("Sniffing the air...");
             WarhogMode::start();
+            break;
+        case PorkchopMode::PIGGYBLUES_MODE:
+            Avatar::setState(AvatarState::ANGRY);
+            PiggyBluesMode::start();
+            // If user aborted warning dialog, return to menu
+            if (!PiggyBluesMode::isRunning()) {
+                currentMode = PorkchopMode::MENU;
+                Menu::show();
+            }
             break;
         case PorkchopMode::MENU:
             Menu::show();
@@ -255,6 +270,10 @@ void Porkchop::handleInput() {
                 case 'W':
                     setMode(PorkchopMode::WARHOG_MODE);
                     break;
+                case 'b': // Piggy Blues mode
+                case 'B':
+                    setMode(PorkchopMode::PIGGYBLUES_MODE);
+                    break;
                 case 's': // Settings
                 case 'S':
                     setMode(PorkchopMode::SETTINGS);
@@ -292,6 +311,9 @@ void Porkchop::updateMode() {
             break;
         case PorkchopMode::WARHOG_MODE:
             WarhogMode::update();
+            break;
+        case PorkchopMode::PIGGYBLUES_MODE:
+            PiggyBluesMode::update();
             break;
         case PorkchopMode::CAPTURES:
             CapturesMenu::update();

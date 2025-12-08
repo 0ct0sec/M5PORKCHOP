@@ -10,6 +10,7 @@ enum class PorkchopMode : uint8_t {
     IDLE = 0,       // Main screen, piglet idle
     OINK_MODE,      // Deauth + sniff mode
     WARHOG_MODE,    // Wardriving mode
+    PIGGYBLUES_MODE,// BLE notification spam
     MENU,           // Menu navigation
     SETTINGS,       // Settings screen
     CAPTURES,       // View captured handshakes

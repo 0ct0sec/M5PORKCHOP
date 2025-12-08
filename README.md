@@ -18,9 +18,10 @@
     3 - Capabilities
         3.1 - OINK Mode
         3.2 - WARHOG Mode
-        3.3 - File Transfer Mode
-        3.4 - Machine Learning
-        3.5 - Enhanced ML Mode
+        3.3 - PIGGY BLUES Mode
+        3.4 - File Transfer Mode
+        3.5 - Machine Learning
+        3.6 - Enhanced ML Mode
     4 - Hardware
     5 - Building & Flashing
     6 - Controls
@@ -92,7 +93,29 @@
             - ML Training: 32-feature vectors for model training
 
 
-----[ 3.3 - File Transfer Mode
+----[ 3.3 - PIGGY BLUES Mode
+
+    When you feel like spreading digital chaos, press 'B' and watch 
+    nearby phones lose their minds:
+
+        * BLE notification spam for Apple, Android, Samsung, Windows
+        * Apple Nearby Action floods - fake AirPods pairing requests
+        * Google FastPair bombardment - endless earbuds popups
+        * Samsung Galaxy Buds/Watch pairing spam
+        * Windows SwiftPair beacon storms
+        * Smart targeting - scans for nearby devices and prioritizes
+          payloads matching detected vendors
+        * Random chaos mode when no targets identified
+
+    The piglet gets real chatty in this mode. Something about 
+    "spreading the oink" and "making friends the hard way."
+
+    WARNING: This will annoy everyone around you. Educational use only.
+    Don't be that guy at the coffee shop. Actually, maybe be that guy
+    once, for science.
+
+
+----[ 3.4 - File Transfer Mode
 
     Need to grab those juicy PCAPs off your piglet? WiFi file transfer:
 
@@ -107,7 +130,7 @@
     pig will stare at you blankly wondering what you expected.
 
 
-----[ 3.4 - Machine Learning
+----[ 3.5 - Machine Learning
 
     PORKCHOP doesn't just capture - it thinks. The ML system extracts
     32 features from every beacon frame:
@@ -129,7 +152,7 @@
     The scaffold is ready.
 
 
-----[ 3.5 - Enhanced ML Mode
+----[ 3.6 - Enhanced ML Mode
 
     Two collection modes for different threat models:
 

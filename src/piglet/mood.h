@@ -28,6 +28,7 @@ public:
     static void onIdle();
     static void onWarhogUpdate();
     static void onWarhogFound(const char* apName = nullptr, uint8_t channel = 0);
+    static void onPiggyBluesUpdate();  // BLE spam mode phrases
     
     // Get current mood phrase
     static const String& getCurrentPhrase();

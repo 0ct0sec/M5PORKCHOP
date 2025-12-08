@@ -225,6 +225,19 @@ void Avatar::setGrassSpeed(uint16_t ms) {
     grassSpeed = ms;
 }
 
+void Avatar::setGrassPattern(const char* pattern) {
+    strncpy(grassPattern, pattern, 26);
+    grassPattern[26] = '\0';
+}
+
+void Avatar::resetGrassPattern() {
+    // Reset to random binary pattern (like init)
+    for (int i = 0; i < 26; i++) {
+        grassPattern[i] = (random(0, 10) < 7) ? '1' : '0';
+    }
+    grassPattern[26] = '\0';
+}
+
 void Avatar::updateGrass() {
     if (!grassMoving) return;
     
