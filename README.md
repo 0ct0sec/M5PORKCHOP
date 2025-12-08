@@ -221,8 +221,8 @@
     +----------------------------------------+
     |                                        |
     |      ?  ?     ,----------------------. |
-    |     (o 00) < | *sniff sniff*         | | <- Main Canvas
-    |     (    )   | Found something tasty!| |    (107px)
+    |     (o 00) < | sniff n drift        | | <- Main Canvas
+    |     (    )   | found 42 truffles    | |    (107px)
     |              `----------------------'  |
     |                                        |
     +----------------------------------------+
@@ -231,13 +231,22 @@
 
     The piglet has moods. Watch the face change as it hunts:
 
-        NEUTRAL     HAPPY       HUNTING     SLEEPY      SAD
-         ?  ?        ^  ^        /  \        v  v        .  .
-        (o 00)      (^ 00)      (> 00)      (- 00)      (T 00)
-        (    )      (    )      (    )      (    )      (    )
+        NEUTRAL     HAPPY       EXCITED     HUNTING     SLEEPY      SAD
+         ?  ?        ^  ^        !  !        /  \        v  v        .  .
+        (o 00)      (^ 00)      (@ 00)      (> 00)      (- 00)      (T 00)
+        (    )      (    )      (    )      (    )      (    )      (    )
 
     (Yes, we spent actual development time on pig facial expressions.
     No regrets.)
+
+    Sample phrases you'll see:
+
+        HAPPY:     "snout pwns all" "truffle shuffle" "hog on a roll"
+        EXCITED:   "OINK OINK OINK" "truffle in the bag" "0day buffet"
+        HUNTING:   "snout to ground" "hunting truffles" "where da truffles"
+        SLEEPY:    "bored piggy" "zzz oink zzz" "no truffles here"
+        SAD:       "starving piggy" "404 no truffle" "need dem truffles"
+        WARHOG:    "hog on patrol" "wardrive n thrive" "wigle wiggle"
 
     Top Bar:    Current mode, hardware status (SD/GPS/WiFi icons)
     Main:       Your derpy companion + whatever it's thinking
