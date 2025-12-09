@@ -5,8 +5,10 @@
 M5Porkchop is a WiFi security research tool for the M5Cardputer (ESP32-S3 based) with a "piglet" mascot personality. It features:
 - **OINK Mode**: WiFi scanning, handshake capture, deauth attacks
 - **WARHOG Mode**: Wardriving with GPS logging
+- **PIGGYBLUES Mode**: BLE notification spam (AppleJuice, FastPair, Samsung, SwiftPair)
 - Interactive ASCII piglet avatar with mood-based phrases
 - Settings menu with persistent configuration
+- SD card logging and log viewer
 
 ## Documentation Style
 
@@ -34,15 +36,20 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 ### Core Components
 - `src/core/porkchop.cpp/h` - Main state machine, mode management, event system
 - `src/core/config.cpp/h` - Configuration structs (GPSConfig, WiFiConfig, PersonalityConfig), load/save to SPIFFS
+- `src/core/sdlog.cpp/h` - SD card logging with tag-based log() function, date-stamped log files
+- `src/core/wsl_bypasser.cpp/h` - ESP32 WiFi frame injection for deauth/disassoc
 
 ### Modes
 - `src/modes/oink.cpp/h` - OinkMode: WiFi scanning, channel hopping, promiscuous mode, handshake capture
 - `src/modes/warhog.cpp/h` - WarhogMode: GPS-enabled wardriving, multiple export formats (CSV, Wigle, Kismet, ML Training)
+- `src/modes/piggyblues.cpp/h` - PiggyBluesMode: BLE notification spam targeting Apple/Android/Samsung/Windows devices
 
 ### UI Layer
-- `src/ui/display.cpp/h` - Triple-buffered canvas system (topBar, mainCanvas, bottomBar), 240x135 display
+- `src/ui/display.cpp/h` - Triple-buffered canvas system (topBar, mainCanvas, bottomBar), 240x135 display, showToast()
 - `src/ui/menu.cpp/h` - Main menu with callback system
 - `src/ui/settings_menu.cpp/h` - Interactive settings with TOGGLE, VALUE, ACTION, TEXT item types
+- `src/ui/captures_menu.cpp/h` - Captured handshakes viewer
+- `src/ui/log_viewer.cpp/h` - SD card log file viewer with scrolling
 
 ### Web Interface
 - `src/web/fileserver.cpp/h` - WiFi AP file server for SD card access, black/white web UI
@@ -85,30 +92,36 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 - **`.`** - Next/Down/Increase value
 - **Enter** - Select/Toggle/Confirm
 - **Backtick (`)** - Open menu / Exit to previous mode
-- **O/W/S** - Quick mode shortcuts from IDLE (Oink/Warhog/Settings)
+- **O/W/B/S** - Quick mode shortcuts from IDLE (Oink/Warhog/piggyBlues/Settings)
 - **G0 button** - Physical button on top, returns to IDLE from any mode (uses GPIO0 direct read)
 
 ## Mode State Machine
 
 ```
 PorkchopMode:
-  IDLE -> OINK_MODE | WARHOG_MODE | MENU | SETTINGS | CAPTURES | ABOUT | FILE_TRANSFER
+  IDLE -> OINK_MODE | WARHOG_MODE | PIGGYBLUES_MODE | MENU | SETTINGS | CAPTURES | ABOUT | FILE_TRANSFER | LOG_VIEWER
   MENU -> (any mode via menu selection)
-  SETTINGS/CAPTURES/ABOUT/FILE_TRANSFER -> MENU (via Enter or backtick)
+  SETTINGS/CAPTURES/ABOUT/FILE_TRANSFER/LOG_VIEWER -> MENU (via Enter or backtick)
   G0 button -> IDLE (from any mode)
 ```
 
-**Important**: `previousMode` only stores "real" modes (IDLE, OINK_MODE, WARHOG_MODE), never MENU/SETTINGS/ABOUT, to prevent navigation loops.
+**Important**: `previousMode` only stores "real" modes (IDLE, OINK_MODE, WARHOG_MODE, PIGGYBLUES_MODE), never MENU/SETTINGS/ABOUT, to prevent navigation loops.
 
 ## Phrase System
 
 Mood phrases are context-aware arrays in `mood.cpp`:
 - `PHRASES_HAPPY[]` - On handshake capture
+- `PHRASES_EXCITED[]` - Major events (many networks, high activity)
 - `PHRASES_HUNTING[]` - During OINK mode scanning
+- `PHRASES_SLEEPY[]` - Low activity periods
+- `PHRASES_SAD[]` - No activity
+- `PHRASES_IDLE[]` - Idle state
 - `PHRASES_WARHOG[]` - During WARHOG mode
 - `PHRASES_WARHOG_FOUND[]` - When new AP with GPS is logged
-- `PHRASES_SAD[]` - No activity
-- `PHRASES_IDLE[]` / `PHRASES_MENU_IDLE[]` - Menu/idle state
+- `PHRASES_PIGGYBLUES_TARGETED[]` - When BLE target acquired
+- `PHRASES_PIGGYBLUES_STATUS[]` - During BLE spam activity
+- `PHRASES_PIGGYBLUES_IDLE[]` - PiggyBlues idle/scanning
+- `PHRASES_DEAUTH_SUCCESS[]` - After successful deauth
 
 Call appropriate `Mood::onXxx()` method to trigger phrase updates.
 
@@ -186,6 +199,36 @@ No automated tests currently. Test on hardware:
 2. Check phrase display in each mode
 3. Confirm settings save/load across reboots
 4. Test GPS lock and wardriving CSV export
+
+## PIGGYBLUES Mode Details
+
+### Overview
+BLE notification spam mode that sends crafted advertisements to trigger notifications on nearby devices. Targets:
+- **Apple** (AppleJuice) - AirPods pairing popups
+- **Android** (FastPair) - Google Fast Pair notifications  
+- **Samsung** - Buds pairing dialogs
+- **Windows** (SwiftPair) - Bluetooth device notifications
+
+### Architecture
+- Uses NimBLE 2.x for BLE advertising
+- Periodic device scanning to find targets (blocking 3-second scan)
+- Round-robin payload rotation across vendor types
+- Configurable burst interval and target count
+
+### Key Functions
+- `scanForDevices()` - Blocking BLE scan, shows "Probing BLE..." toast
+- `sendAppleJuice()` / `sendAndroidFastPair()` / `sendSamsungSpam()` / `sendWindowsSwiftPair()` - Vendor-specific payloads
+- `identifyVendor()` - Classifies devices from manufacturer data
+
+### Configuration
+- `cfgScanDuration` - BLE scan duration in ms (default 3000)
+- `cfgBurstInterval` - Time between advertisement bursts
+- `cfgMaxTargets` - Maximum simultaneous targets
+
+### Safety
+- Warning dialog on first start (user must confirm)
+- BLE stack recovery on advertising failures
+- Proper NimBLE deinit on stop
 
 ## ML System
 
