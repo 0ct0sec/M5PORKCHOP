@@ -252,6 +252,9 @@ bool PiggyBluesMode::showWarningDialog() {
     // Slightly larger to fit warning text
     M5Canvas& canvas = Display::getMain();
     
+    // Set bottom bar overlay for duration of dialog
+    Display::setBottomOverlay("NO LOLLYGAGGIN'");
+    
     int boxW = 200;
     int boxH = 70;
     int boxX = (DISPLAY_W - boxW) / 2;
@@ -291,9 +294,11 @@ bool PiggyBluesMode::showWarningDialog() {
         
         if (M5Cardputer.Keyboard.isChange()) {
             if (M5Cardputer.Keyboard.isKeyPressed('`')) {
+                Display::clearBottomOverlay();
                 return false;
             }
             if (M5Cardputer.Keyboard.isKeyPressed('y') || M5Cardputer.Keyboard.isKeyPressed('Y')) {
+                Display::clearBottomOverlay();
                 return true;
             }
         }
@@ -302,6 +307,7 @@ bool PiggyBluesMode::showWarningDialog() {
     }
     
     // Timeout = abort
+    Display::clearBottomOverlay();
     return false;
 }
 

@@ -41,6 +41,10 @@ public:
     static void showProgress(const String& title, uint8_t percent);
     static void showToast(const String& message);  // Quick non-blocking message
     
+    // Bottom bar overlay (for confirmation dialogs)
+    static void setBottomOverlay(const String& message);  // Set custom bottom bar text
+    static void clearBottomOverlay();                     // Clear overlay, restore normal
+    
     // Status indicators
     static void setGPSStatus(bool hasFix);
     static void setWiFiStatus(bool connected);
@@ -63,6 +67,9 @@ private:
     // Dimming state
     static uint32_t lastActivityTime;
     static bool dimmed;
+    
+    // Bottom bar overlay
+    static String bottomOverlay;
     
     static void drawTopBar();
     static void drawBottomBar();

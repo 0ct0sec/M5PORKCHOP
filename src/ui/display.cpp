@@ -24,6 +24,7 @@ bool Display::wifiStatus = false;
 bool Display::mlStatus = false;
 uint32_t Display::lastActivityTime = 0;
 bool Display::dimmed = false;
+String Display::bottomOverlay = "";
 
 extern Porkchop porkchop;
 
@@ -201,6 +202,13 @@ void Display::drawBottomBar() {
     bottomBar.setTextColor(COLOR_ACCENT);  // Use accent color for stats
     bottomBar.setTextSize(1);
     bottomBar.setTextDatum(top_left);
+    
+    // Check for overlay message (used during confirmation dialogs)
+    if (bottomOverlay.length() > 0) {
+        bottomBar.setTextDatum(top_center);
+        bottomBar.drawString(bottomOverlay, DISPLAY_W / 2, 3);
+        return;
+    }
     
     PorkchopMode mode = porkchop.getMode();
     String stats;
@@ -432,6 +440,14 @@ void Display::showToast(const String& message) {
     mainCanvas.drawString(message, DISPLAY_W / 2, boxY + boxH / 2);
     
     pushAll();
+}
+
+void Display::setBottomOverlay(const String& message) {
+    bottomOverlay = message;
+}
+
+void Display::clearBottomOverlay() {
+    bottomOverlay = "";
 }
 
 void Display::setGPSStatus(bool hasFix) {
