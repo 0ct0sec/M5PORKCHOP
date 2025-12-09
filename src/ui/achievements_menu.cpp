@@ -149,16 +149,17 @@ void AchievementsMenu::draw(M5Canvas& canvas) {
             canvas.fillRect(0, y - 1, canvas.width(), lineHeight, COLOR_FG);
             canvas.setTextColor(TFT_BLACK);
         } else {
-            canvas.setTextColor(hasIt ? COLOR_FG : TFT_DARKGREY);
+            // Use dimmer pink (0x7A8A) for locked, full pink for unlocked
+            canvas.setTextColor(hasIt ? COLOR_FG : 0x7A8A);
         }
         
         // Lock/unlock indicator
         canvas.setCursor(4, y);
         canvas.print(hasIt ? "[X]" : "[ ]");
         
-        // Achievement name
+        // Achievement name (show ??? if locked)
         canvas.setCursor(28, y);
-        canvas.print(ACHIEVEMENTS[i].name);
+        canvas.print(hasIt ? ACHIEVEMENTS[i].name : "???");
         
         y += lineHeight;
     }
@@ -184,23 +185,23 @@ void AchievementsMenu::drawDetail(M5Canvas& canvas) {
     
     bool hasIt = (XP::getAchievements() & ACHIEVEMENTS[selectedIndex].flag) != 0;
     
-    // Achievement name centered at top
+    // Achievement name centered at top (show UNKNOWN if locked)
     canvas.setTextColor(COLOR_FG);
     canvas.setTextSize(1);
     canvas.setTextDatum(top_center);
-    canvas.drawString(ACHIEVEMENTS[selectedIndex].name, canvas.width() / 2, 22);
+    canvas.drawString(hasIt ? ACHIEVEMENTS[selectedIndex].name : "UNKNOWN", canvas.width() / 2, 22);
     
-    // Status
+    // Status (use pig pink for unlocked, grey for locked)
     canvas.setTextDatum(top_center);
-    canvas.setTextColor(hasIt ? TFT_GREEN : TFT_DARKGREY);
+    canvas.setTextColor(hasIt ? COLOR_FG : TFT_DARKGREY);
     canvas.drawString(hasIt ? "UNLOCKED" : "LOCKED", canvas.width() / 2, 36);
     
-    // How to get it
+    // How to get it (show ??? if locked)
     canvas.setTextColor(COLOR_FG);
     canvas.setTextDatum(top_center);
     
     // Word wrap the howTo text (max ~30 chars per line)
-    String howTo = ACHIEVEMENTS[selectedIndex].howTo;
+    String howTo = hasIt ? ACHIEVEMENTS[selectedIndex].howTo : "???";
     int y = 52;
     while (howTo.length() > 0) {
         String line;
