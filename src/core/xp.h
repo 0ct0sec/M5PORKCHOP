@@ -53,6 +53,7 @@ struct PorkXPData {
     uint32_t achievements;      // Achievement bitfield
     uint32_t lifetimeNetworks;  // Counter
     uint32_t lifetimeHS;        // Counter
+    uint32_t lifetimePMKID;     // PMKID counter
     uint32_t lifetimeDeauths;   // Counter
     uint32_t lifetimeDistance;  // Meters
     uint32_t lifetimeBLE;       // BLE packets
@@ -72,10 +73,12 @@ struct SessionStats {
     uint32_t distanceM;
     uint32_t blePackets;
     uint32_t startTime;
+    uint32_t firstNetworkTime;  // Time first network was found (for speed run)
     bool gpsLockAwarded;
     bool session30Awarded;
     bool session60Awarded;
     bool session120Awarded;
+    bool nightOwlAwarded;       // Hunt after midnight
 };
 
 class XP {

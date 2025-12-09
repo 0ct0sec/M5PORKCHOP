@@ -14,6 +14,7 @@ enum class PorkchopMode : uint8_t {
     MENU,           // Menu navigation
     SETTINGS,       // Settings screen
     CAPTURES,       // View captured handshakes
+    ACHIEVEMENTS,   // View achievements
     ABOUT,          // About screen
     FILE_TRANSFER,  // WiFi file transfer mode
     LOG_VIEWER      // View SD card logs

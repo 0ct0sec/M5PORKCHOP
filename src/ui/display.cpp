@@ -15,6 +15,7 @@
 #include "menu.h"
 #include "settings_menu.h"
 #include "captures_menu.h"
+#include "achievements_menu.h"
 
 // Static member initialization
 M5Canvas Display::topBar(&M5.Display);
@@ -92,6 +93,10 @@ void Display::update() {
             
         case PorkchopMode::CAPTURES:
             CapturesMenu::draw(mainCanvas);
+            break;
+            
+        case PorkchopMode::ACHIEVEMENTS:
+            AchievementsMenu::draw(mainCanvas);
             break;
             
         case PorkchopMode::ABOUT:

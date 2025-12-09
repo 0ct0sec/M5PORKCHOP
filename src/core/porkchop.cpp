@@ -6,6 +6,7 @@
 #include "../ui/menu.h"
 #include "../ui/settings_menu.h"
 #include "../ui/captures_menu.h"
+#include "../ui/achievements_menu.h"
 #include "../ui/log_viewer.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
@@ -56,6 +57,7 @@ void Porkchop::init() {
         {"PIGGY BLUES Mode", 8, "BLE notification spam"},
         {"File Transfer", 3, "WiFi file server"},
         {"Captures", 4, "View saved loot"},
+        {"Achievements", 9, "View unlocked feats"},
         {"Log Viewer", 7, "Debug log tail"},
         {"Settings", 5, "Tweak the pig"},
         {"About", 6, "Credits and info"}
@@ -74,6 +76,7 @@ void Porkchop::init() {
             case 6: setMode(PorkchopMode::ABOUT); break;
             case 7: setMode(PorkchopMode::LOG_VIEWER); break;
             case 8: setMode(PorkchopMode::PIGGYBLUES_MODE); break;
+            case 9: setMode(PorkchopMode::ACHIEVEMENTS); break;
         }
         Menu::clearSelected();
     });
@@ -98,10 +101,11 @@ void Porkchop::setMode(PorkchopMode mode) {
     // Store the mode we're leaving for cleanup
     PorkchopMode oldMode = currentMode;
     
-    // Only save "real" modes as previous (not SETTINGS/ABOUT/MENU/CAPTURES/FILE_TRANSFER/LOG_VIEWER)
+    // Only save "real" modes as previous (not SETTINGS/ABOUT/MENU/CAPTURES/ACHIEVEMENTS/FILE_TRANSFER/LOG_VIEWER)
     if (currentMode != PorkchopMode::SETTINGS && 
         currentMode != PorkchopMode::ABOUT && 
         currentMode != PorkchopMode::CAPTURES &&
+        currentMode != PorkchopMode::ACHIEVEMENTS &&
         currentMode != PorkchopMode::MENU &&
         currentMode != PorkchopMode::FILE_TRANSFER &&
         currentMode != PorkchopMode::LOG_VIEWER) {
@@ -128,6 +132,9 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::CAPTURES:
             CapturesMenu::hide();
+            break;
+        case PorkchopMode::ACHIEVEMENTS:
+            AchievementsMenu::hide();
             break;
         case PorkchopMode::FILE_TRANSFER:
             FileServer::stop();
@@ -172,6 +179,9 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::CAPTURES:
             CapturesMenu::show();
+            break;
+        case PorkchopMode::ACHIEVEMENTS:
+            AchievementsMenu::show();
             break;
         case PorkchopMode::FILE_TRANSFER:
             Avatar::setState(AvatarState::HAPPY);
@@ -339,6 +349,12 @@ void Porkchop::updateMode() {
         case PorkchopMode::CAPTURES:
             CapturesMenu::update();
             if (!CapturesMenu::isActive()) {
+                setMode(PorkchopMode::MENU);
+            }
+            break;
+        case PorkchopMode::ACHIEVEMENTS:
+            AchievementsMenu::update();
+            if (!AchievementsMenu::isActive()) {
                 setMode(PorkchopMode::MENU);
             }
             break;

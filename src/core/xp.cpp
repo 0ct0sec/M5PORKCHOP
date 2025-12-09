@@ -2,6 +2,7 @@
 
 #include "xp.h"
 #include "../ui/display.h"
+#include <M5Unified.h>
 
 // Static member initialization
 PorkXPData XP::data = {0};
@@ -138,6 +139,7 @@ void XP::load() {
     data.achievements = prefs.getUInt("achieve", 0);
     data.lifetimeNetworks = prefs.getUInt("networks", 0);
     data.lifetimeHS = prefs.getUInt("hs", 0);
+    data.lifetimePMKID = prefs.getUInt("pmkid", 0);
     data.lifetimeDeauths = prefs.getUInt("deauths", 0);
     data.lifetimeDistance = prefs.getUInt("distance", 0);
     data.lifetimeBLE = prefs.getUInt("ble", 0);
@@ -157,6 +159,7 @@ void XP::save() {
     prefs.putUInt("achieve", data.achievements);
     prefs.putUInt("networks", data.lifetimeNetworks);
     prefs.putUInt("hs", data.lifetimeHS);
+    prefs.putUInt("pmkid", data.lifetimePMKID);
     prefs.putUInt("deauths", data.lifetimeDeauths);
     prefs.putUInt("distance", data.lifetimeDistance);
     prefs.putUInt("ble", data.lifetimeBLE);
@@ -194,21 +197,36 @@ void XP::addXP(XPEvent event) {
         case XPEvent::NETWORK_OPEN:
             data.lifetimeNetworks++;
             session.networks++;
+            if (session.firstNetworkTime == 0) session.firstNetworkTime = millis();
             break;
         case XPEvent::NETWORK_HIDDEN:
             data.lifetimeNetworks++;
             data.hiddenNetworks++;
             session.networks++;
+            if (session.firstNetworkTime == 0) session.firstNetworkTime = millis();
             break;
         case XPEvent::NETWORK_WPA3:
             data.lifetimeNetworks++;
             data.wpa3Networks++;
             session.networks++;
+            if (session.firstNetworkTime == 0) session.firstNetworkTime = millis();
             break;
         case XPEvent::HANDSHAKE_CAPTURED:
-        case XPEvent::PMKID_CAPTURED:
             data.lifetimeHS++;
             session.handshakes++;
+            // Check for clutch capture (handshake at <10% battery)
+            if (M5.Power.getBatteryLevel() < 10 && !hasAchievement(ACH_CLUTCH_CAPTURE)) {
+                unlockAchievement(ACH_CLUTCH_CAPTURE);
+            }
+            break;
+        case XPEvent::PMKID_CAPTURED:
+            data.lifetimeHS++;
+            data.lifetimePMKID++;
+            session.handshakes++;
+            // Check for clutch capture (PMKID at <10% battery)
+            if (M5.Power.getBatteryLevel() < 10 && !hasAchievement(ACH_CLUTCH_CAPTURE)) {
+                unlockAchievement(ACH_CLUTCH_CAPTURE);
+            }
             break;
         case XPEvent::DEAUTH_SUCCESS:
             data.lifetimeDeauths++;
@@ -491,6 +509,32 @@ void XP::checkAchievements() {
     // 1000 BLE packets
     if (data.lifetimeBLE >= 1000 && !hasAchievement(ACH_CHAOS_AGENT)) {
         unlockAchievement(ACH_CHAOS_AGENT);
+    }
+    
+    // PMKID captured
+    if (data.lifetimePMKID >= 1 && !hasAchievement(ACH_PMKID_HUNTER)) {
+        unlockAchievement(ACH_PMKID_HUNTER);
+    }
+    
+    // 50 networks in 10 minutes (600000ms)
+    if (session.networks >= 50 && session.firstNetworkTime > 0 && !hasAchievement(ACH_SPEED_RUN)) {
+        uint32_t elapsed = millis() - session.firstNetworkTime;
+        if (elapsed <= 600000) {
+            unlockAchievement(ACH_SPEED_RUN);
+        }
+    }
+    
+    // Hunt after midnight (check system time if valid)
+    if (!session.nightOwlAwarded && !hasAchievement(ACH_NIGHT_OWL)) {
+        time_t now = time(nullptr);
+        if (now > 1700000000) {  // Valid time (after 2023)
+            struct tm* timeinfo = localtime(&now);
+            if (timeinfo && timeinfo->tm_hour >= 0 && timeinfo->tm_hour < 5) {
+                // It's between midnight and 5am
+                unlockAchievement(ACH_NIGHT_OWL);
+                session.nightOwlAwarded = true;
+            }
+        }
     }
 }
 
