@@ -96,16 +96,37 @@ const char* PHRASES_WARHOG_FOUND[] = {
     "mine now lol"
 };
 
-// Piggy Blues BLE spam phrases
-const char* PHRASES_PIGGYBLUES[] = {
-    "FLOODING THE SPECTRUM",
-    "BEACON STORM INBOUND",
-    "SNIFFING AIRWAVES",
-    "YOUR NOTIFICATIONS ARE MINE",
-    "PACKETS AWAY",
-    "OWNING THE 2.4GHZ",
-    "SIGNAL HIJACK ACTIVE",
-    "BLUEJACKING IN PROGRESS"
+// Piggy Blues BLE spam phrases - with format specifiers
+// %s=vendor %d=rssi %d=targets %d=total
+const char* PHRASES_PIGGYBLUES_TARGETED[] = {
+    "%s pwned @ %ddB",
+    "0wning %s [%ddB]",
+    "%s gets the oink",
+    "rekt: %s %ddB",
+    "%s -> notification hell",
+    "pop pop %s",
+    "%s catching strays",
+    "bluejackin %s"
+};
+
+// Status phrases showing scan results
+const char* PHRASES_PIGGYBLUES_STATUS[] = {
+    "%d targets [%d found]",
+    "hunting %d/%d marks",
+    "%d locked, %d scanned",
+    "owning %d of %d",
+    "%d active victims"
+};
+
+// Idle/scanning phrases
+const char* PHRASES_PIGGYBLUES_IDLE[] = {
+    "beacon storm brewing",
+    "2.4ghz is my domain",
+    "ur notifications r mine",
+    "flooding the airwaves",
+    "chaos mode engaged",
+    "spreading the oink",
+    "making friends (forcibly)"
 };
 
 // Deauth success - short MAC format %02X%02X
@@ -502,12 +523,27 @@ void Mood::onWarhogFound(const char* apName, uint8_t channel) {
     lastPhraseChange = millis();
 }
 
-void Mood::onPiggyBluesUpdate() {
+void Mood::onPiggyBluesUpdate(const char* vendor, int8_t rssi, uint8_t targetCount, uint8_t totalFound) {
     lastActivityTime = millis();
     happiness = min(100, happiness + 2);
     
-    int idx = random(0, sizeof(PHRASES_PIGGYBLUES) / sizeof(PHRASES_PIGGYBLUES[0]));
-    currentPhrase = PHRASES_PIGGYBLUES[idx];
+    char buf[48];
+    
+    if (vendor != nullptr && rssi != 0) {
+        // Targeted phrase with vendor info
+        int idx = random(0, sizeof(PHRASES_PIGGYBLUES_TARGETED) / sizeof(PHRASES_PIGGYBLUES_TARGETED[0]));
+        snprintf(buf, sizeof(buf), PHRASES_PIGGYBLUES_TARGETED[idx], vendor, rssi);
+        currentPhrase = buf;
+    } else if (targetCount > 0) {
+        // Status phrase with target counts
+        int idx = random(0, sizeof(PHRASES_PIGGYBLUES_STATUS) / sizeof(PHRASES_PIGGYBLUES_STATUS[0]));
+        snprintf(buf, sizeof(buf), PHRASES_PIGGYBLUES_STATUS[idx], targetCount, totalFound);
+        currentPhrase = buf;
+    } else {
+        // Idle phrase
+        int idx = random(0, sizeof(PHRASES_PIGGYBLUES_IDLE) / sizeof(PHRASES_PIGGYBLUES_IDLE[0]));
+        currentPhrase = PHRASES_PIGGYBLUES_IDLE[idx];
+    }
     lastPhraseChange = millis();
 }
 

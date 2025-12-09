@@ -195,6 +195,10 @@ static NimBLEAdvertising* pAdvertising = nullptr;
 static uint32_t lastScanTime = 0;
 static uint32_t lastMoodUpdateTime = 0;
 
+// Last target info for mood display
+static BLEVendor lastVendorUsed = BLEVendor::UNKNOWN;
+static int8_t lastRssiUsed = 0;
+
 void PiggyBluesMode::init() {
     running = false;
     confirmed = false;
@@ -293,8 +297,10 @@ void PiggyBluesMode::start() {
     
     confirmed = true;
     
-    // Initialize NimBLE
-    NimBLEDevice::init("");
+    // Initialize NimBLE only if not already initialized
+    if (!NimBLEDevice::isInitialized()) {
+        NimBLEDevice::init("");
+    }
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);  // Max power for range
     NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);  // Use random address
     
@@ -321,14 +327,26 @@ void PiggyBluesMode::stop() {
     
     Serial.println("[PIGGYBLUES] Stopping...");
     
-    // Stop advertising
-    if (pAdvertising) {
-        pAdvertising->stop();
+    // Stop scan first if running
+    NimBLEScan* pScan = NimBLEDevice::getScan();
+    if (pScan && pScan->isScanning()) {
+        pScan->stop();
+        delay(50);
     }
+    pScan->clearResults();
     
-    // Deinitialize BLE
-    NimBLEDevice::deinit(true);
-    pAdvertising = nullptr;
+    // Stop advertising
+    if (pAdvertising && pAdvertising->isAdvertising()) {
+        pAdvertising->stop();
+        delay(50);
+    }
+    // Keep pAdvertising pointer - we'll reuse it on restart
+    
+    // Give BLE stack time to settle
+    delay(100);
+    
+    // DON'T call deinit - ESP32-S3 has issues reinitializing BLE after deinit
+    // Just keep BLE initialized but idle
     
     running = false;
     confirmed = false;
@@ -359,9 +377,19 @@ void PiggyBluesMode::update() {
         lastBurstTime = now;
     }
     
-    // Update mood occasionally
+    // Update mood occasionally with target info
     if (now - lastMoodUpdateTime > 3000) {
-        Mood::onPiggyBluesUpdate();
+        const char* vendorStr = nullptr;
+        if (lastVendorUsed != BLEVendor::UNKNOWN) {
+            switch (lastVendorUsed) {
+                case BLEVendor::APPLE: vendorStr = "Apple"; break;
+                case BLEVendor::ANDROID: vendorStr = "Android"; break;
+                case BLEVendor::SAMSUNG: vendorStr = "Samsung"; break;
+                case BLEVendor::WINDOWS: vendorStr = "Windows"; break;
+                default: break;
+            }
+        }
+        Mood::onPiggyBluesUpdate(vendorStr, lastRssiUsed, activeCount, (uint8_t)targets.size());
         lastMoodUpdateTime = now;
     }
 }
@@ -622,6 +650,9 @@ void PiggyBluesMode::sendRandomPayload() {
         uint8_t targetIdx = activeTargets[random(0, activeCount)];
         if (targetIdx < targets.size()) {
             BLEVendor vendor = targets[targetIdx].vendor;
+            lastVendorUsed = vendor;
+            lastRssiUsed = targets[targetIdx].rssi;
+            
             switch (vendor) {
                 case BLEVendor::APPLE:
                     sendAppleJuice();
@@ -642,6 +673,8 @@ void PiggyBluesMode::sendRandomPayload() {
     }
     
     // Fallback: random chaos mode (no targets or unknown vendor)
+    lastVendorUsed = BLEVendor::UNKNOWN;
+    lastRssiUsed = 0;
     int choice = random(0, 4);
     switch (choice) {
         case 0: sendAppleJuice(); break;
