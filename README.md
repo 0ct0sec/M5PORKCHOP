@@ -22,6 +22,7 @@
         3.4 - File Transfer Mode
         3.5 - Machine Learning
         3.6 - Enhanced ML Mode
+        3.7 - XP System
     4 - Hardware
     5 - Building & Flashing
     6 - Controls
@@ -185,6 +186,49 @@
         * Non-standard beacon    Not 100ms = software AP.
         * No HT capabilities     Ancient router or spoofed.
         * WPS on open network    Classic honeypot fingerprint.
+
+
+----[ 3.7 - XP System
+
+    Your piglet has ambitions. Every network sniffed, every handshake
+    grabbed, every deauth fired - it all counts. The XP system tracks
+    your progress from BACON N00B all the way up through 40 ranks of
+    increasingly unhinged titles.
+
+    We're not gonna spoil the progression. Grind and find out.
+
+    The bottom of your screen shows your current rank and progress bar.
+    Level up and you'll see that popup. Your pig has opinions about
+    your achievements. Embrace them.
+
+    XP values - what makes the pig happy:
+
+        +------------------------+--------+
+        | Event                  | XP     |
+        +------------------------+--------+
+        | Network discovered     | 1      |
+        | Hidden SSID found      | 3      |
+        | Open network (lol)     | 3      |
+        | WPA3 network spotted   | 10     |
+        | Handshake captured     | 50     |
+        | PMKID captured         | 75     |
+        | Deauth success         | 15     |
+        | AP logged with GPS     | 2      |
+        | 1km wardriving         | 25     |
+        | GPS lock acquired      | 5      |
+        | BLE spam burst         | 2      |
+        | 30min session          | 10     |
+        | 1hr session            | 25     |
+        | 2hr session (touch grass) | 50  |
+        +------------------------+--------+
+
+    Top tier ranks reference hacker legends and grindhouse cinema. If
+    you hit level 40 and don't recognize the name, you've got homework.
+
+    XP persists in NVS - survives reboots, even reflashing. Your pig
+    remembers everything. The only way to reset is to wipe NVS manually.
+    We don't provide instructions because if you need them, you're not
+    ready to lose your progress.
 
 
 --[ 4 - Hardware

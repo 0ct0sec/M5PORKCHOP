@@ -32,56 +32,56 @@ static const uint16_t XP_VALUES[] = {
     20      // LOW_BATTERY_CAPTURE
 };
 
-// 40 rank titles - Phrack swine flavor (synced with copilot-instructions.md)
+// 40 rank titles - hacker/grindhouse/tarantino + pig flavor
 static const char* RANK_TITLES[] = {
-    // Tier 1: The Beginning (1-5)
-    "SCRIPT PIGGY",
-    "BACON BIT",
-    "SQUEALING NOOB",
-    "PIGPEN CURIOUS",
-    "SLOP BUCKET SURFER",
-    // Tier 2: Getting Serious (6-10)
-    "TROUGH DIVER",
-    "MUD DAUBER",
-    "SNOUT POKER",
-    "CURLY TAIL CODER",
-    "PIGLET PROBER",
+    // Tier 1: Noob (1-5)
+    "BACON N00B",
+    "SCRIPT PIGG0",
+    "PIGLET 0DAY",
+    "SNOUT SCAN",
+    "SLOP NMAP",
+    // Tier 2: Beginner (6-10)
+    "BEACON BOAR",
+    "CHAN H4M",
+    "PROBE PORK",
+    "SSID SW1NE",
+    "PKT PIGLET",
     // Tier 3: Intermediate (11-15)
-    "OINKER OPERATIVE",
-    "PORK PILOT",
-    "SAUSAGE LINKER",
-    "HOG HANDLER",
-    "BOAR BORER",
-    // Tier 4: Advanced (16-20)
-    "SWINE SWINDLER",
-    "ROOTER ELITE",
-    "SNORT SPECIALIST",
-    "HAMBONE HACKER",
-    "BRISTLE BREACHER",
-    // Tier 5: Expert (21-25)
-    "OINK-SEC ENGINEER",
-    "SNOUT SNIFFER PRO",
-    "PORK BARREL HACKER",
-    "TRUFFLE HUNTER",
-    "SWINE DEBUGGER",
-    // Tier 6: Elite (26-30)
-    "HAM SANDWICH ARTIST",
-    "PORKCHOP OPERATOR",
-    "MASTER SWINEHERD",
-    "OINK OVERLORD",
-    "BARON VON BACON",
-    // Tier 7: Legendary (31-35)
-    "SQUEALER SUPREME",
-    "GRANDMASTER GROINKER",
-    "PORCINE PENETRATOR",
-    "LEGENDARY SNORTER",
-    "MYTHIC MUDWALLOWER",
-    // Tier 8: Godtier (36-40)
-    "APEX APORKALYPSE",
-    "DIVINE SWINEHERD",
-    "COSMIC PORKCHOP",
-    "ETERNAL OINKER",
-    "LEGENDARY PORKCHOP"
+    "DEAUTH H0G",
+    "HANDSHAKE HAM",
+    "PMKID PORK",
+    "EAPOL B0AR",
+    "SAUSAGE SYNC",
+    // Tier 4: Skilled (16-20)
+    "WARDRIVE HOG",
+    "GPS L0CK PIG",
+    "BLE SPAM HAM",
+    "TRUFFLE R00T",
+    "INJECT P1G",
+    // Tier 5: Advanced (21-25)
+    "KARMA SW1NE",
+    "EVIL TWIN H0G",
+    "KERNEL BAC0N",
+    "MON1TOR BOAR",
+    "WPA3 WARTH0G",
+    // Tier 6: Expert (26-30)
+    "KRACK SW1NE",
+    "FR4G ATTACK",
+    "DRAGONBL00D",
+    "DEATH PR00F",
+    "PLANET ERR0R",
+    // Tier 7: Elite (31-35)
+    "P0RK FICTION",
+    "RESERVOIR H0G",
+    "HATEFUL 0INK",
+    "JACK1E B0AR",
+    "80211 WARL0RD",
+    // Tier 8: Legendary (36-40)
+    "MACHETE SW1NE",
+    "CRUNCH P1G",
+    "DARK TANGENT",
+    "PHIBER 0PT1K",
+    "MUDGE UNCHA1NED"
 };
 static const uint8_t MAX_LEVEL = 40;
 
@@ -517,7 +517,7 @@ void XP::drawBar(M5Canvas& canvas) {
     canvas.setTextDatum(top_left);
     
     // Calculate right-aligned elements first
-    const int BAR_LEN = 16;
+    const int BAR_LEN = 12;  // 12 chars to fit longer titles
     uint8_t progress = getProgress();
     int filledBlocks = (progress * BAR_LEN + 50) / 100;  // Round to nearest
     

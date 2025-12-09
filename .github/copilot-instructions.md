@@ -6,7 +6,7 @@ M5Porkchop is a WiFi security research tool for the M5Cardputer (ESP32-S3 based)
 - **OINK Mode**: WiFi scanning, handshake capture, deauth attacks
 - **WARHOG Mode**: Wardriving with GPS logging
 - **PIGGYBLUES Mode**: BLE notification spam (AppleJuice, FastPair, Samsung, SwiftPair)
-- **RPG XP System**: Level up from SCRIPT PIGGY to LEGENDARY PORKCHOP (40 ranks)
+- **RPG XP System**: Level up from BACON N00B to MUDGE UNCHA1NED (40 ranks)
 - Interactive ASCII piglet avatar with mood-based phrases
 - Settings menu with persistent configuration
 - SD card logging and log viewer
@@ -501,26 +501,26 @@ SESSION_2HR        = 50    // 2 hours active (dedication)
 ### Rank Titles (40 Levels)
 Exponential XP curve - quick early levels, months at high levels:
 ```
-L1:  SCRIPT PIGGY           L21: OINK-SEC ENGINEER
-L2:  BACON BIT              L22: SNOUT SNIFFER PRO
-L3:  SQUEALING NOOB         L23: PORK BARREL HACKER
-L4:  PIGPEN CURIOUS         L24: TRUFFLE HUNTER
-L5:  SLOP BUCKET SURFER     L25: SWINE DEBUGGER
-L6:  TROUGH DIVER           L26: HAM SANDWICH ARTIST
-L7:  MUD DAUBER             L27: PORKCHOP OPERATOR
-L8:  SNOUT POKER            L28: MASTER SWINEHERD
-L9:  CURLY TAIL CODER       L29: OINK OVERLORD
-L10: PIGLET PROBER          L30: BARON VON BACON
-L11: OINKER OPERATIVE       L31: SQUEALER SUPREME
-L12: PORK PILOT             L32: GRANDMASTER GROINKER
-L13: SAUSAGE LINKER         L33: PORCINE PENETRATOR
-L14: HOG HANDLER            L34: LEGENDARY SNORTER
-L15: BOAR BORER             L35: MYTHIC MUDWALLOWER
-L16: SWINE SWINDLER         L36: APEX APORKALYPSE
-L17: ROOTER ELITE           L37: DIVINE SWINEHERD
-L18: SNORT SPECIALIST       L38: COSMIC PORKCHOP
-L19: HAMBONE HACKER         L39: ETERNAL OINKER
-L20: BRISTLE BREACHER       L40: LEGENDARY PORKCHOP
+L1:  BACON N00B          L21: KARMA SW1NE
+L2:  SCRIPT PIGG0        L22: EVIL TWIN H0G
+L3:  PIGLET 0DAY         L23: KERNEL BAC0N
+L4:  SNOUT SCAN          L24: MON1TOR BOAR
+L5:  SLOP NMAP           L25: WPA3 WARTH0G
+L6:  BEACON BOAR         L26: KRACK SW1NE
+L7:  CHAN H4M            L27: FR4G ATTACK
+L8:  PROBE PORK          L28: DRAGONBL00D
+L9:  SSID SW1NE          L29: DEATH PR00F
+L10: PKT PIGLET          L30: PLANET ERR0R
+L11: DEAUTH H0G          L31: P0RK FICTION
+L12: HANDSHAKE HAM       L32: RESERVOIR H0G
+L13: PMKID PORK          L33: HATEFUL 0INK
+L14: EAPOL B0AR          L34: JACK1E B0AR
+L15: SAUSAGE SYNC        L35: 80211 WARL0RD
+L16: WARDRIVE HOG        L36: MACHETE SW1NE
+L17: GPS L0CK PIG        L37: CRUNCH P1G
+L18: BLE SPAM HAM        L38: DARK TANGENT
+L19: TRUFFLE R00T        L39: PHIBER 0PT1K
+L20: INJECT P1G          L40: MUDGE UNCHA1NED
 ```
 
 ### Achievements (16 Bitflags)
