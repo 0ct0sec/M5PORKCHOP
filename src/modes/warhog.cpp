@@ -16,9 +16,18 @@
 #include <freertos/task.h>
 
 // Maximum entries in RAM to prevent memory exhaustion
-// Each entry ~200 bytes, 500 entries = ~100KB (safe for ESP32-S3 with 320KB DRAM)
+// Each WardrivingEntry ~140 bytes, 500 entries = ~70KB (safe for ESP32-S3 with 320KB DRAM)
 // After saving, entries are removed from RAM but BSSID tracked in seenBSSIDs set
 static const size_t MAX_ENTRIES = 500;
+
+// Maximum BSSIDs tracked in seenBSSIDs set
+// Each std::set node = 24 bytes (8 byte key + 16 byte tree overhead)
+// 5000 entries = ~120KB - leaves headroom for other allocations
+static const size_t MAX_SEEN_BSSIDS = 5000;
+
+// Heap threshold for emergency cleanup (bytes)
+static const size_t HEAP_WARNING_THRESHOLD = 40000;
+static const size_t HEAP_CRITICAL_THRESHOLD = 25000;
 
 // SD card retry settings (SD can be busy with other operations)
 static const int SD_RETRY_COUNT = 3;
@@ -290,6 +299,25 @@ void WarhogMode::update() {
     uint32_t now = millis();
     static uint32_t lastPhraseTime = 0;
     static bool lastGPSState = false;
+    static uint32_t lastHeapCheck = 0;
+    
+    // Periodic heap monitoring (every 30 seconds)
+    if (now - lastHeapCheck >= 30000) {
+        uint32_t freeHeap = ESP.getFreeHeap();
+        Serial.printf("[WARHOG] Heap: %lu free, Entries: %lu, SeenBSSIDs: %lu, BeaconCache: %lu\n",
+                      freeHeap, entries.size(), seenBSSIDs.size(), beaconFeatures.size());
+        
+        if (freeHeap < HEAP_CRITICAL_THRESHOLD) {
+            Serial.println("[WARHOG] CRITICAL: Low heap! Emergency cleanup...");
+            Display::showToast("Low memory!");
+            // Emergency: clear tracking data to prevent crash
+            seenBSSIDs.clear();
+            beaconFeatures.clear();
+        } else if (freeHeap < HEAP_WARNING_THRESHOLD) {
+            Serial.println("[WARHOG] WARNING: Heap getting low");
+        }
+        lastHeapCheck = now;
+    }
     
     // Update grass animation based on GPS fix status
     bool hasGPSFix = GPS::hasFix();
@@ -664,7 +692,10 @@ void WarhogMode::saveNewEntries() {
                     e.latitude, e.longitude, e.altitude, e.timestamp);
             
             e.saved = true;
-            seenBSSIDs.insert(bssidToKey(e.bssid));  // Track as seen
+            // Track BSSID to prevent re-processing (skip if set is full)
+            if (seenBSSIDs.size() < MAX_SEEN_BSSIDS) {
+                seenBSSIDs.insert(bssidToKey(e.bssid));
+            }
             newSaved++;
             savedCount++;
         } else if (e.saved) {
@@ -691,8 +722,10 @@ void WarhogMode::compactSavedEntries() {
     for (const auto& e : entries) {
         uint64_t key = bssidToKey(e.bssid);
         if (e.saved) {
-            // Already on disk - just track BSSID
-            seenBSSIDs.insert(key);
+            // Already on disk - track BSSID (skip if set is full)
+            if (seenBSSIDs.size() < MAX_SEEN_BSSIDS) {
+                seenBSSIDs.insert(key);
+            }
         } else {
             // Not saved yet (no GPS) - keep in RAM
             unsaved.push_back(e);
@@ -703,8 +736,8 @@ void WarhogMode::compactSavedEntries() {
     entries = std::move(unsaved);
     entries.shrink_to_fit();  // Release unused memory
     
-    SDLOG("WARHOG", "Compacted: freed %lu entries, kept %lu unsaved, tracking %lu BSSIDs",
-          freed, entries.size(), seenBSSIDs.size());
+    SDLOG("WARHOG", "Compacted: freed %lu entries, kept %lu unsaved, tracking %lu/%lu BSSIDs",
+          freed, entries.size(), seenBSSIDs.size(), (unsigned long)MAX_SEEN_BSSIDS);
 }
 
 bool WarhogMode::hasGPSFix() {

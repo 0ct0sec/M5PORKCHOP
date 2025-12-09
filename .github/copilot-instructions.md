@@ -370,10 +370,38 @@ oinkBusy = false;
 
 ### WARHOG Mode - seenBSSIDs Set Growth
 The `seenBSSIDs` std::set grows during wardriving session:
-- 8 bytes per entry (uint64_t BSSID key)
-- 10,000 networks = ~80KB (ESP32-S3 has 320KB RAM)
+- 24 bytes per entry (8 byte uint64_t key + 16 byte red-black tree node overhead)
+- Capped at MAX_SEEN_BSSIDS (5,000) = ~120KB max
 - Cleared on `start()`, not during session
-**Why**: Prevents re-processing already-saved networks. Growth is bounded by session length and cleared on restart.
+- When limit reached, new inserts are skipped (some networks may be re-saved to CSV)
+**Why**: Prevents re-processing already-saved networks. Capped to prevent OOM on long walks. Duplicates in CSV are acceptable.
+
+### WARHOG Mode - Heap Monitoring and Emergency Cleanup
+Periodic heap monitoring (every 30s) with emergency cleanup:
+```cpp
+if (freeHeap < HEAP_CRITICAL_THRESHOLD) {  // 25KB
+    seenBSSIDs.clear();
+    beaconFeatures.clear();
+}
+```
+**Side effect**: All networks will be re-detected as "new" and re-saved to CSV after emergency cleanup.
+**Why**: Better to have CSV duplicates than crash. User can dedupe CSV offline if needed.
+
+### WARHOG Mode - beaconMapBusy Race Window
+The `beaconMapBusy` guard has a small theoretical race window:
+```cpp
+// In processScanResults:
+beaconMapBusy = true;
+// ... access beaconFeatures ...
+
+// In promiscuousCallback (WiFi task context):
+if (beaconMapBusy) return;  // Skip if busy
+```
+**Why**: Not a mutex, but sufficient. Callback just skips processing if busy - missing a few beacons is acceptable. Not a crash risk.
+
+### WARHOG Mode - Static Locals in update()
+Static local variables (`lastPhraseTime`, `lastGPSState`, `lastHeapCheck`) persist across `start()`/`stop()` cycles.
+**Why**: Minor timing glitch on restart, not worth the complexity of explicit reset. No crash risk.
 
 ### WARHOG Mode - SD Retry with openFileWithRetry()
 SD card operations use retry pattern (3 attempts, 10ms delay):

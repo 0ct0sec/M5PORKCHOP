@@ -104,7 +104,7 @@ def label_sample(row: dict) -> str:
 
 
 def prepare_data(input_path: str, output_path: str):
-    """Read, label, and convert data for Edge Impulse."""
+    """Read, deduplicate, label, and convert data for Edge Impulse."""
     
     with open(input_path, 'r', newline='', encoding='utf-8') as infile:
         reader = csv.DictReader(infile)
@@ -117,9 +117,19 @@ def prepare_data(input_path: str, output_path: str):
             print(f"Note: {len(missing)} expected columns not in CSV (using 0.0)")
         
         rows = []
+        seen_bssids = set()  # Track unique BSSIDs for deduplication
+        duplicates_removed = 0
         label_counts = {name: 0 for name in LABELS.values()}
         
         for row in reader:
+            # Deduplicate by BSSID (keep first occurrence with best RSSI)
+            bssid = row.get('bssid', '').upper().strip()
+            if bssid:
+                if bssid in seen_bssids:
+                    duplicates_removed += 1
+                    continue
+                seen_bssids.add(bssid)
+            
             # Assign label
             label = label_sample(row)
             label_counts[label] += 1
@@ -145,7 +155,9 @@ def prepare_data(input_path: str, output_path: str):
     # Summary
     print(f"Input:  {input_path}")
     print(f"Output: {output_path}")
-    print(f"Samples: {len(rows)}")
+    print(f"Total rows: {len(rows) + duplicates_removed}")
+    print(f"Duplicates removed: {duplicates_removed}")
+    print(f"Unique samples: {len(rows)}")
     print(f"Features: {len(FEATURE_COLUMNS)}")
     print(f"\nLabel distribution:")
     for label, count in sorted(label_counts.items(), key=lambda x: -x[1]):
