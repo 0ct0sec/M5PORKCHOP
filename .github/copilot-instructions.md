@@ -51,6 +51,7 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 - `src/ui/menu.cpp/h` - Main menu with callback system
 - `src/ui/settings_menu.cpp/h` - Interactive settings with TOGGLE, VALUE, ACTION, TEXT item types
 - `src/ui/captures_menu.cpp/h` - Captured handshakes viewer
+- `src/ui/achievements_menu.cpp/h` - Achievements viewer with unlock descriptions
 - `src/ui/log_viewer.cpp/h` - SD card log file viewer with scrolling
 
 ### Web Interface
@@ -103,13 +104,13 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 
 ```
 PorkchopMode:
-  IDLE -> OINK_MODE | WARHOG_MODE | PIGGYBLUES_MODE | MENU | SETTINGS | CAPTURES | ABOUT | FILE_TRANSFER | LOG_VIEWER
+  IDLE -> OINK_MODE | WARHOG_MODE | PIGGYBLUES_MODE | MENU | SETTINGS | CAPTURES | ACHIEVEMENTS | ABOUT | FILE_TRANSFER | LOG_VIEWER
   MENU -> (any mode via menu selection)
-  SETTINGS/CAPTURES/ABOUT/FILE_TRANSFER/LOG_VIEWER -> MENU (via Enter or backtick)
+  SETTINGS/CAPTURES/ACHIEVEMENTS/ABOUT/FILE_TRANSFER/LOG_VIEWER -> MENU (via Enter or backtick)
   G0 button -> IDLE (from any mode)
 ```
 
-**Important**: `previousMode` only stores "real" modes (IDLE, OINK_MODE, WARHOG_MODE, PIGGYBLUES_MODE), never MENU/SETTINGS/ABOUT, to prevent navigation loops.
+**Important**: `previousMode` only stores "real" modes (IDLE, OINK_MODE, WARHOG_MODE, PIGGYBLUES_MODE), never MENU/SETTINGS/ACHIEVEMENTS/ABOUT, to prevent navigation loops.
 
 ## Phrase System
 
@@ -524,16 +525,35 @@ L20: INJECT P1G          L40: MUDGE UNCHA1NED
 ```
 
 ### Achievements (16 Bitflags)
+16 secret badges stored in `data.achievements` bitfield. Viewable via Achievements menu.
+
 ```cpp
-ACH_FIRST_BLOOD   = 0x0001  // First handshake
-ACH_PACKET_HOG    = 0x0002  // 100 handshakes lifetime
-ACH_WARDRIVER     = 0x0004  // 1000 networks logged
-ACH_ROAD_HOG      = 0x0008  // 10km wardriving
-ACH_GHOST_HUNTER  = 0x0010  // 50 hidden networks
-ACH_CHAOS_AGENT   = 0x0020  // 100 deauths
-ACH_SESSION_GRIND = 0x0040  // 2hr session
-ACH_BLE_SPAMMER   = 0x0080  // 500 BLE bursts
+ACH_FIRST_BLOOD     = 1 << 0   // First handshake
+ACH_CENTURION       = 1 << 1   // 100 networks in one session
+ACH_MARATHON_PIG    = 1 << 2   // 10km walked in session
+ACH_NIGHT_OWL       = 1 << 3   // Hunt between midnight-5am
+ACH_GHOST_HUNTER    = 1 << 4   // 10 hidden networks
+ACH_APPLE_FARMER    = 1 << 5   // 100 Apple BLE packets
+ACH_WARDRIVER       = 1 << 6   // 1000 networks lifetime
+ACH_DEAUTH_KING     = 1 << 7   // 100 successful deauths
+ACH_PMKID_HUNTER    = 1 << 8   // Capture PMKID (not implemented yet)
+ACH_WPA3_SPOTTER    = 1 << 9   // Find WPA3 network
+ACH_GPS_MASTER      = 1 << 10  // 100 GPS-tagged networks
+ACH_TOUCH_GRASS     = 1 << 11  // 50km total lifetime
+ACH_SILICON_PSYCHO  = 1 << 12  // 5000 networks lifetime
+ACH_CLUTCH_CAPTURE  = 1 << 13  // Handshake at <10% battery
+ACH_SPEED_RUN       = 1 << 14  // 50 networks in 10 minutes
+ACH_CHAOS_AGENT     = 1 << 15  // 1000 BLE packets
 ```
+
+### Achievements Menu
+`src/ui/achievements_menu.cpp/h` - Accessible from main menu ("Proof of pwn").
+
+- Shows all 16 achievements with `[X]` unlocked / `[ ]` locked
+- Locked achievements show `???` for name (no spoilers)
+- Enter key shows toast-style detail popup (pink bg, black text)
+- Detail shows achievement name, UNLOCKED/LOCKED status, unlock condition
+- Uses only system colors (COLOR_FG/COLOR_BG)
 
 ### Integration Points
 XP is awarded via `Mood::onXxx()` handlers:

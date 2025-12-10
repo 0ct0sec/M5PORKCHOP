@@ -23,6 +23,7 @@
         3.5 - Machine Learning
         3.6 - Enhanced ML Mode
         3.7 - XP System
+        3.8 - Achievements
     4 - Hardware
     5 - Building & Flashing
     6 - Controls
@@ -229,6 +230,22 @@
     remembers everything. The only way to reset is to wipe NVS manually.
     We don't provide instructions because if you need them, you're not
     ready to lose your progress.
+
+
+----[ 3.8 - Achievements
+
+    16 secret badges to prove you're not just grinding mindlessly.
+    Or maybe you are. Either way, proof of pwn.
+
+    The Achievements menu shows what you've earned. Locked ones show
+    as "???" because where's the fun in spoilers? Each achievement
+    pops a toast-style card with its unlock condition when selected.
+
+    Some are easy. Some require dedication. A few require... luck.
+    Or low battery at exactly the wrong moment.
+
+    Not gonna list them. That's cheating. Hunt for them like you
+    hunt for handshakes.
 
 
 --[ 4 - Hardware
