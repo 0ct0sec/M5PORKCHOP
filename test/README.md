@@ -35,11 +35,10 @@
     needed. Just raw C++ getting poked with asserts until it proves it
     works.
 
-    127 tests across 5 files. If you break something, you'll know before
-    CI yells at you.
-
-    UPDATE: 185 tests across 6 files now. We added string validation,
-    channel helpers, RSSI conversion, and time unit utilities.
+    185 tests across 6 files. String validation, channel helpers, RSSI
+    conversion, time unit utilities, GPS distance, ML feature extraction,
+    beacon parsing, anomaly scoring, and the whole XP/leveling system.
+    If you break something, you'll know before CI yells at you.
 
 
 --[ 2 - Test Structure
