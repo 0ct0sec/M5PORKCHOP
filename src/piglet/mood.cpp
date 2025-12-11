@@ -1186,6 +1186,9 @@ void Mood::onWarhogFound(const char* apName, uint8_t channel) {
     happiness = min(100, happiness + 2);  // Small permanent boost
     applyMomentumBoost(8);  // Quick excitement for find
     
+    // Sniff animation - found a truffle!
+    Avatar::sniff();
+    
     // Award XP for WARHOG network logged with GPS
     XP::addXP(XPEvent::WARHOG_LOGGED);
     
@@ -1198,6 +1201,17 @@ void Mood::onPiggyBluesUpdate(const char* vendor, int8_t rssi, uint8_t targetCou
     lastActivityTime = millis();
     happiness = min(100, happiness + 1);  // Tiny permanent boost
     applyMomentumBoost(5);  // Small excitement for spam activity
+    
+    // Sniff on first target acquisition only (not every update)
+    static bool firstTargetSniffed = false;
+    if (vendor != nullptr && rssi != 0 && !firstTargetSniffed) {
+        Avatar::sniff();
+        firstTargetSniffed = true;
+    }
+    // Reset on idle (no targets) so next session can sniff again
+    if (targetCount == 0 && totalFound == 0) {
+        firstTargetSniffed = false;
+    }
     
     // Award XP for BLE spam (vendor-specific tracking for achievements)
     if (vendor != nullptr) {
