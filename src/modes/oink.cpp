@@ -361,6 +361,7 @@ void OinkMode::update() {
                              networks[selectionIndex].ssid,
                              networks[selectionIndex].channel);
                 Mood::setStatusMessage("stalkin auths");
+                Avatar::sniff();  // Nose twitch when sniffing for auths
             }
             break;
             

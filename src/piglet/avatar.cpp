@@ -124,7 +124,7 @@ void Avatar::init() {
     // Init direction - default facing right (toward speech bubble)
     facingRight = true;
     lastFlipTime = millis();
-    flipInterval = random(3000, 10000);
+    flipInterval = random(5000, 20000);  // 5-20s initial
     
     // Init grass pattern - full screen width at size 2 (~24 chars)
     grassMoving = false;
@@ -187,7 +187,7 @@ void Avatar::draw(M5Canvas& canvas) {
     // Excited pig looks around more, sad pig stares
     float flipMod = 1.0f - (moodIntensity / 150.0f);  // ~0.33 to ~1.66
     uint32_t minFlip = (uint32_t)(5000 * flipMod);
-    uint32_t maxFlip = (uint32_t)(15000 * flipMod);
+    uint32_t maxFlip = (uint32_t)(25000 * flipMod);  // Up to 25-40s when calm
     
     // Check if we should flip direction (look around randomly)
     if (now - lastFlipTime > flipInterval) {
