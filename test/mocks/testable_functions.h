@@ -337,3 +337,161 @@ inline uint16_t msToTU(uint16_t ms) {
 inline uint16_t tuToMs(uint16_t tu) {
     return (uint16_t)((uint32_t)tu * 1024 / 1000);
 }
+
+// ============================================================================
+// String Escaping Helpers
+// From: src/modes/warhog.cpp (escapeXML, writeCSVField)
+// ============================================================================
+
+// Escape a single character for XML output
+// Returns pointer to static string with escaped version, or nullptr if no escaping needed
+inline const char* escapeXMLChar(char c) {
+    switch (c) {
+        case '&':  return "&amp;";
+        case '<':  return "&lt;";
+        case '>':  return "&gt;";
+        case '"':  return "&quot;";
+        case '\'': return "&apos;";
+        default:   return nullptr;  // No escaping needed
+    }
+}
+
+// Check if a character needs XML escaping
+inline bool needsXMLEscape(char c) {
+    return c == '&' || c == '<' || c == '>' || c == '"' || c == '\'';
+}
+
+// Escape a string for XML output
+// Returns the number of characters written to output (not including null terminator)
+// If output is nullptr, just returns the required buffer size
+// maxInputLen limits how many input chars to process (0 = use strlen)
+// maxOutputLen is the size of the output buffer
+inline size_t escapeXML(const char* input, char* output, size_t maxInputLen, size_t maxOutputLen) {
+    if (input == nullptr) return 0;
+    
+    size_t inputLen = 0;
+    while (input[inputLen] && (maxInputLen == 0 || inputLen < maxInputLen)) {
+        inputLen++;
+    }
+    
+    size_t outPos = 0;
+    for (size_t i = 0; i < inputLen; i++) {
+        const char* escaped = escapeXMLChar(input[i]);
+        if (escaped) {
+            size_t escLen = 0;
+            while (escaped[escLen]) escLen++;
+            
+            if (output) {
+                if (outPos + escLen >= maxOutputLen) break;  // Would overflow
+                for (size_t j = 0; j < escLen; j++) {
+                    output[outPos++] = escaped[j];
+                }
+            } else {
+                outPos += escLen;
+            }
+        } else {
+            if (output) {
+                if (outPos + 1 >= maxOutputLen) break;  // Would overflow
+                output[outPos++] = input[i];
+            } else {
+                outPos++;
+            }
+        }
+    }
+    
+    if (output && outPos < maxOutputLen) {
+        output[outPos] = '\0';
+    }
+    
+    return outPos;
+}
+
+// Check if a string needs CSV quoting (contains comma, quote, newline, or CR)
+inline bool needsCSVQuoting(const char* str) {
+    if (str == nullptr) return false;
+    for (size_t i = 0; str[i]; i++) {
+        char c = str[i];
+        if (c == ',' || c == '"' || c == '\n' || c == '\r') {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Check if a character is a control character that should be stripped from CSV
+inline bool isCSVControlChar(char c) {
+    return c < 32 && c != '\0';  // Control chars except null
+}
+
+// Escape a string for CSV output (handles quoting and control char stripping)
+// Always wraps in quotes for SSID fields (as per RFC 4180 for fields with special chars)
+// Returns the number of characters written to output (not including null terminator)
+// If output is nullptr, just returns the required buffer size
+// maxInputLen limits how many input chars to process (0 = use strlen, max 32 for SSID)
+inline size_t escapeCSV(const char* input, char* output, size_t maxInputLen, size_t maxOutputLen) {
+    if (input == nullptr) {
+        if (output && maxOutputLen >= 3) {
+            output[0] = '"';
+            output[1] = '"';
+            output[2] = '\0';
+        }
+        return 2;  // Empty quoted field
+    }
+    
+    // Calculate input length (capped at maxInputLen or 32 for SSID)
+    size_t inputLen = 0;
+    size_t cap = (maxInputLen > 0 && maxInputLen < 32) ? maxInputLen : 32;
+    while (input[inputLen] && inputLen < cap) {
+        inputLen++;
+    }
+    
+    size_t outPos = 0;
+    
+    // Opening quote
+    if (output) {
+        if (outPos >= maxOutputLen) return 0;
+        output[outPos] = '"';
+    }
+    outPos++;
+    
+    // Process each character
+    for (size_t i = 0; i < inputLen; i++) {
+        char c = input[i];
+        
+        // Skip control characters
+        if (isCSVControlChar(c)) continue;
+        
+        // Double quotes need to be escaped as ""
+        if (c == '"') {
+            if (output) {
+                if (outPos + 2 >= maxOutputLen) break;
+                output[outPos++] = '"';
+                output[outPos++] = '"';
+            } else {
+                outPos += 2;
+            }
+        } else {
+            if (output) {
+                if (outPos + 1 >= maxOutputLen) break;
+                output[outPos++] = c;
+            } else {
+                outPos++;
+            }
+        }
+    }
+    
+    // Closing quote
+    if (output) {
+        if (outPos < maxOutputLen) {
+            output[outPos] = '"';
+        }
+    }
+    outPos++;
+    
+    // Null terminator
+    if (output && outPos < maxOutputLen) {
+        output[outPos] = '\0';
+    }
+    
+    return outPos;
+}

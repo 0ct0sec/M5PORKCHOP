@@ -35,10 +35,11 @@
     needed. Just raw C++ getting poked with asserts until it proves it
     works.
 
-    185 tests across 6 files. String validation, channel helpers, RSSI
+    230+ tests across 7 files. String validation, channel helpers, RSSI
     conversion, time unit utilities, GPS distance, ML feature extraction,
-    beacon parsing, anomaly scoring, and the whole XP/leveling system.
-    If you break something, you'll know before CI yells at you.
+    beacon parsing, anomaly scoring, string escaping, and the whole XP/
+    leveling system. If you break something, you'll know before CI yells
+    at you.
 
 
 --[ 2 - Test Structure
@@ -59,7 +60,9 @@
     | test_beacon/test_beacon_parsing.cpp           | Beacon parsing (19 tests) |
     | test_classifier/test_heuristic_classifier.cpp | Anomaly scoring (26 tests)|
     | test_utils/test_utils.cpp                     | Utility functions (58 tests)|
+    | test_string_escape/test_string_escape.cpp     | XML/CSV escaping (45 tests)|
     +-----------------------------------------------+---------------------------+
+
 
     Each test lives in its own subdirectory so PlatformIO compiles them
     separately. This avoids linker conflicts with setUp/tearDown/main.
@@ -101,7 +104,7 @@
     CI workflow (.github/workflows/test.yml) does:
 
         1. Builds native test environment
-        2. Runs all 185 tests across 6 test files
+        2. Runs all 230+ tests across 7 test files
         3. Generates coverage report with lcov
         4. Enforces 70% coverage threshold (drops below = fail)
         5. Uploads HTML coverage report as artifact
@@ -136,6 +139,10 @@
     | Utilities          | SSID validation, channel/frequency math,   |
     |                    | RSSI quality, ms/TU time conversion        |
     +--------------------+--------------------------------------------+
+    | String Escaping    | escapeXML(), escapeCSV(), needsCSVQuoting()|
+    |                    | XML entity escaping, CSV quoting rules     |
+    +--------------------+--------------------------------------------+
+
 
     Hardware-dependent code (WiFi promiscuous mode, BLE stack, display
     driver) is not unit tested. Those get tested on actual hardware
