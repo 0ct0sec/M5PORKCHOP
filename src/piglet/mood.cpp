@@ -544,6 +544,9 @@ void Mood::onHandshakeCaptured(const char* apName) {
     applyMomentumBoost(30);  // Big temporary excitement!
     lastActivityTime = millis();
     
+    // Sniff animation - caught something big!
+    Avatar::sniff();
+    
     // Award XP for handshake capture
     XP::addXP(XPEvent::HANDSHAKE_CAPTURED);
     
@@ -595,6 +598,9 @@ void Mood::onPMKIDCaptured(const char* apName) {
     applyMomentumBoost(40);  // Even more temporary excitement!
     lastActivityTime = millis();
     
+    // Sniff animation - stealthy capture!
+    Avatar::sniff();
+    
     // Award XP for PMKID capture (75 XP - more than handshake)
     XP::addXP(XPEvent::PMKID_CAPTURED);
     
@@ -644,6 +650,9 @@ void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     happiness = min(happiness + 3, 100);  // Small permanent boost
     applyMomentumBoost(10);  // Quick excitement for network find
     lastActivityTime = millis();
+    
+    // Sniff animation - found a truffle!
+    Avatar::sniff();
     
     // Award XP for network discovery
     if (apName && strlen(apName) > 0) {

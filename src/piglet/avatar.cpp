@@ -11,6 +11,11 @@ uint32_t Avatar::lastBlinkTime = 0;
 uint32_t Avatar::blinkInterval = 3000;
 int Avatar::moodIntensity = 0;  // Phase 8: -100 to 100
 
+// Sniff animation state
+bool Avatar::isSniffing = false;
+static uint32_t sniffStartTime = 0;
+static const uint32_t SNIFF_DURATION_MS = 100;  // Hold sniff for 100ms
+
 // Grass animation state
 bool Avatar::grassMoving = false;
 uint32_t Avatar::lastGrassUpdate = 0;
@@ -159,8 +164,18 @@ void Avatar::wiggleEars() {
     earsUp = !earsUp;
 }
 
+void Avatar::sniff() {
+    isSniffing = true;
+    sniffStartTime = millis();
+}
+
 void Avatar::draw(M5Canvas& canvas) {
     uint32_t now = millis();
+    
+    // Check if sniff animation should end
+    if (isSniffing && (now - sniffStartTime > SNIFF_DURATION_MS)) {
+        isSniffing = false;
+    }
 
     // Phase 8: Mood intensity affects animation timing
     // High positive = excited (faster blinks, more looking around)
@@ -218,10 +233,10 @@ void Avatar::draw(M5Canvas& canvas) {
             frame = facingRight ? AVATAR_NEUTRAL_R : AVATAR_NEUTRAL_L; break;
     }
     
-    drawFrame(canvas, frame, 3, shouldBlink, facingRight);
+    drawFrame(canvas, frame, 3, shouldBlink, facingRight, isSniffing);
 }
 
-void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool blink, bool faceRight) {
+void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool blink, bool faceRight, bool sniff) {
     canvas.setTextDatum(top_left);
     canvas.setTextSize(3);
     canvas.setTextColor(COLOR_ACCENT);
@@ -231,20 +246,35 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
     int lineHeight = 22;
     
     for (uint8_t i = 0; i < lines; i++) {
-        if (i == 1 && blink) {
-            // Face line - modify eye only when blinking
+        if (i == 1 && (blink || sniff)) {
+            // Face line - modify eye and/or nose
             // Face format: "(X 00)" for right-facing, "(00 X)" for left-facing
-            // Eye is at position 1 for right-facing, position 4 for left-facing
             char modifiedLine[16];
             strncpy(modifiedLine, frame[i], sizeof(modifiedLine) - 1);
             modifiedLine[sizeof(modifiedLine) - 1] = '\0';
             
-            // Replace eye character with '-' for blink
-            if (faceRight) {
-                modifiedLine[1] = '-';  // Eye position in "(X 00)"
-            } else {
-                modifiedLine[4] = '-';  // Eye position in "(00 X)"
+            if (blink) {
+                // Replace eye character with '-' for blink
+                if (faceRight) {
+                    modifiedLine[1] = '-';  // Eye position in "(X 00)"
+                } else {
+                    modifiedLine[4] = '-';  // Eye position in "(00 X)"
+                }
             }
+            
+            if (sniff) {
+                // Replace nose 00 with oo for sniff
+                // Nose is at positions 3-4 for right-facing "(X 00)"
+                // Nose is at positions 1-2 for left-facing "(00 X)"
+                if (faceRight) {
+                    modifiedLine[3] = 'o';  // First 0 -> o
+                    modifiedLine[4] = 'o';  // Second 0 -> o
+                } else {
+                    modifiedLine[1] = 'o';  // First 0 -> o
+                    modifiedLine[2] = 'o';  // Second 0 -> o
+                }
+            }
+            
             canvas.drawString(modifiedLine, startX, startY + i * lineHeight);
         } else {
             canvas.drawString(frame[i], startX, startY + i * lineHeight);
