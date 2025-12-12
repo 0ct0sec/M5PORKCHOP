@@ -142,7 +142,7 @@ void Avatar::init() {
     lastFlipTime = millis();
     flipInterval = random(10000, 30000);  // Walk timer: 10-30s
     lastLookTime = millis();
-    lookInterval = random(2000, 5000);  // Look timer: 2-5s
+    lookInterval = random(8000, 20000);  // Look timer: 8-20s
     
     // Init grass pattern - full screen width at size 2 (~24 chars)
     grassMoving = false;
@@ -250,8 +250,8 @@ void Avatar::draw(M5Canvas& canvas) {
     float flipMod = 1.0f - (moodIntensity / 150.0f);  // ~0.33 to ~1.66
     uint32_t minWalk = (uint32_t)(15000 * flipMod);   // Walk timer: 15s base
     uint32_t maxWalk = (uint32_t)(40000 * flipMod);   // Walk timer: 40s base
-    uint32_t minLook = (uint32_t)(2000 * flipMod);    // Look timer: 2s base
-    uint32_t maxLook = (uint32_t)(6000 * flipMod);    // Look timer: 6s base
+    uint32_t minLook = (uint32_t)(8000 * flipMod);    // Look timer: 8s base (was 2s)
+    uint32_t maxLook = (uint32_t)(20000 * flipMod);   // Look timer: 20s base (was 6s)
     
     // Stationary behavior: LOOK around (no X change) and occasionally WALK to new position
     // Disable all movement while grass is moving (treadmill mode)
