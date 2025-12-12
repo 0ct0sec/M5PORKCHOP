@@ -488,6 +488,15 @@ Outputs all 32 features + BSSID, SSID, label, GPS coords.
 
 ## WARHOG Mode Details
 
+### Architecture: GPS as Gate (Not Queue)
+WARHOG uses a "GPS as gate" architecture - networks are written directly to disk per-scan, not accumulated in RAM waiting for GPS:
+
+- **With GPS fix**: Network written to both CSV (wardriving) and ML file (if Enhanced mode)
+- **Without GPS**: Network written to ML file only (no coordinates) - still valuable for ML training
+- **No RAM accumulation**: Data goes directly to SD card, no `entries[]` vector
+
+This eliminates memory pressure issues when operating indoors without GPS coverage.
+
 ### Background Scanning
 WiFi scanning runs in a FreeRTOS background task to keep UI responsive:
 - `scanTask()` runs `WiFi.scanNetworks()` on Core 0
@@ -495,21 +504,35 @@ WiFi scanning runs in a FreeRTOS background task to keep UI responsive:
 - Scan results processed when task completes (~7 seconds per scan)
 - Scan cancelled cleanly on stop (vTaskDelete + WiFi.scanDelete)
 
+### Per-Network File Writes
+Each network discovered is immediately written to disk:
+```cpp
+// With GPS:
+appendCSVEntry(bssid, ssid, rssi, channel, auth, lat, lon, alt);
+appendMLEntry(bssid, ssid, features, label, lat, lon);
+
+// Without GPS (Enhanced mode only):
+appendMLEntry(bssid, ssid, features, label, 0, 0);
+```
+Files are created on first write with `ensureCSVFileReady()` / `ensureMLFileReady()`.
+
 ### Memory Management
-- Max 2000 entries (~240KB) to prevent memory exhaustion
-- Auto-saves to CSV and clears when limit reached
-- Statistics reset on overflow to stay in sync
+- `seenBSSIDs` set tracks processed networks (max 5000, ~120KB)
+- `beaconFeatures` map caches beacon data for Enhanced mode (max 500)
+- No `entries[]` vector - direct disk writes eliminate RAM growth
+- Emergency cleanup clears tracking sets if heap critical (<25KB)
 
 ### Export Formats
-- **CSV**: Simple format with BSSID, SSID, RSSI, channel, auth, GPS coords
-- **Wigle**: Compatible with wigle.net uploads
-- **Kismet NetXML**: For Kismet-compatible tools
-- **ML Training**: 32-feature vector with labels for Edge Impulse
+Session files are created with GPS timestamp or millis+random suffix:
+- **CSV**: `/wardriving/warhog_YYYYMMDD_HHMMSS.csv` - BSSID, SSID, RSSI, channel, auth, GPS coords
+- **ML Training**: `/ml_training_YYYYMMDD_HHMMSS.ml.csv` - 32-feature vector with labels
+
+Legacy export functions (`exportWigle`, `exportKismet`) are deprecated - data is already on disk.
 
 ### Data Safety
 - SSIDs are properly escaped (CSV quotes, XML entities)
 - Control characters stripped from SSID fields
-- Periodic ML export every 60s (crash protection)
+- Per-network writes with immediate flush (crash protection)
 - SD writes are single-threaded (main loop only, never from scan task)
 - Scan cancelled cleanly on stop to prevent orphaned tasks
 
@@ -587,10 +610,6 @@ beaconMapBusy = true;
 if (beaconMapBusy) return;  // Skip if busy
 ```
 **Why**: Not a mutex, but sufficient. Callback just skips processing if busy - missing a few beacons is acceptable. Not a crash risk.
-
-### WARHOG Mode - Static Locals in update()
-Static local variables (`lastPhraseTime`, `lastGPSState`, `lastHeapCheck`) persist across `start()`/`stop()` cycles.
-**Why**: Minor timing glitch on restart, not worth the complexity of explicit reset. No crash risk.
 
 ### WARHOG Mode - SD Retry with openFileWithRetry()
 SD card operations use retry pattern (3 attempts, 10ms delay):
