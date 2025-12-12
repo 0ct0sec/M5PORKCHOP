@@ -118,7 +118,10 @@ void WarhogMode::init() {
     
     // Check if Enhanced ML mode is enabled
     enhancedMode = (Config::ml().collectionMode == MLCollectionMode::ENHANCED);
+    // Guard beacon map in case callback still registered from abnormal shutdown
+    beaconMapBusy = true;
     beaconFeatures.clear();
+    beaconMapBusy = false;
     beaconCount = 0;
     
     scanInterval = Config::gps().updateInterval * 1000;
@@ -141,7 +144,10 @@ void WarhogMode::start() {
     wpaNetworks = 0;
     savedCount = 0;
     currentFilename = "";
+    // Guard beacon map in case callback still registered from previous session
+    beaconMapBusy = true;
     beaconFeatures.clear();
+    beaconMapBusy = false;
     beaconCount = 0;
     
     // Reset distance tracking for XP
@@ -344,8 +350,11 @@ void WarhogMode::update() {
             Serial.println("[WARHOG] CRITICAL: Low heap! Emergency cleanup...");
             Display::showToast("Low memory!");
             // Emergency: clear tracking data to prevent crash
+            // Guard beacon map from promiscuous callback during clear
+            beaconMapBusy = true;
             seenBSSIDs.clear();
             beaconFeatures.clear();
+            beaconMapBusy = false;
         } else if (freeHeap < HEAP_WARNING_THRESHOLD) {
             Serial.println("[WARHOG] WARNING: Heap getting low");
         }
@@ -360,6 +369,42 @@ void WarhogMode::update() {
         Serial.printf("[WARHOG] GPS %s - grass %s\n", 
                       hasGPSFix ? "locked" : "lost", 
                       hasGPSFix ? "moving" : "stopped");
+    }
+    
+    // Fix: Proactive cleanup when GPS lost for extended time
+    // Prevents unsaved entries from accumulating indefinitely
+    static uint32_t gpsLostTime = 0;
+    if (!hasGPSFix) {
+        if (gpsLostTime == 0) gpsLostTime = now;
+        // If GPS lost for >60 seconds and entries filling up, trim oldest unsaved
+        if (now - gpsLostTime > 60000 && entries.size() > MAX_ENTRIES / 2) {
+            size_t unsavedCount = 0;
+            for (const auto& e : entries) {
+                if (!e.saved) unsavedCount++;
+            }
+            
+            if (unsavedCount > MAX_ENTRIES / 4) {  // More than 25% unsaved
+                Serial.printf("[WARHOG] GPS lost >60s, trimming %lu old unsaved entries\n", 
+                              unsavedCount / 2);
+                // Remove oldest unsaved entries (first half of unsaved)
+                std::vector<WardrivingEntry> kept;
+                kept.reserve(entries.size() - unsavedCount / 2);
+                size_t trimCount = 0;
+                size_t targetTrim = unsavedCount / 2;
+                for (const auto& e : entries) {
+                    if (!e.saved && trimCount < targetTrim) {
+                        trimCount++;  // Discard this one
+                    } else {
+                        kept.push_back(e);
+                    }
+                }
+                entries = std::move(kept);
+                entries.shrink_to_fit();
+                SDLOG("WARHOG", "Trimmed %lu entries, %lu remaining", trimCount, entries.size());
+            }
+        }
+    } else {
+        gpsLostTime = 0;  // Reset when GPS returns
     }
     
     // Distance tracking for XP (every 5 seconds when GPS is available)
