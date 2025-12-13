@@ -59,7 +59,7 @@ static const char* CLASS_BUFF_DESCS[] = {
     "-10% hop",
     "+1 burst",
     "+15% dist XP",
-    "-1s lock",
+    "+1s lock",
     "+10% cap XP",
     "-1ms jitter",
     "+5% all"
@@ -319,16 +319,16 @@ float SwineStats::getXPMultiplier() {
 
 uint32_t SwineStats::getLockTime() {
     uint8_t classBuffs = calculateClassBuffs();
-    uint32_t base = 3000;  // Default 3 seconds
+    uint32_t base = Config::wifi().lockTime;  // From settings (default 3000ms)
     
-    // Class buff: SH4RP_TUSKS -1s lock time
+    // Class buff: SH4RP_TUSKS +1s lock time (more time to discover clients)
     if (classBuffs & (uint8_t)ClassBuff::SH4RP_TUSKS) {
-        base -= 1000;
+        base += 1000;
     }
     
-    // Class buff: OMNI_P0RK -5%
+    // Class buff: OMNI_P0RK +5% lock time
     if (classBuffs & (uint8_t)ClassBuff::OMNI_P0RK) {
-        base = (base * 95) / 100;
+        base = (base * 105) / 100;
     }
     
     return base;

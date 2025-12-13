@@ -104,7 +104,7 @@ bool Config::load() {
     // WiFi config
     if (doc["wifi"].is<JsonObject>()) {
         wifiConfig.channelHopInterval = doc["wifi"]["channelHopInterval"] | 500;
-        wifiConfig.scanDuration = doc["wifi"]["scanDuration"] | 2000;
+        wifiConfig.lockTime = doc["wifi"]["lockTime"] | 3000;
         wifiConfig.maxNetworks = doc["wifi"]["maxNetworks"] | 50;
         wifiConfig.enableDeauth = doc["wifi"]["enableDeauth"] | true;
         wifiConfig.randomizeMAC = doc["wifi"]["randomizeMAC"] | true;
@@ -214,7 +214,7 @@ bool Config::save() {
     
     // WiFi config
     doc["wifi"]["channelHopInterval"] = wifiConfig.channelHopInterval;
-    doc["wifi"]["scanDuration"] = wifiConfig.scanDuration;
+    doc["wifi"]["lockTime"] = wifiConfig.lockTime;
     doc["wifi"]["maxNetworks"] = wifiConfig.maxNetworks;
     doc["wifi"]["enableDeauth"] = wifiConfig.enableDeauth;
     doc["wifi"]["randomizeMAC"] = wifiConfig.randomizeMAC;

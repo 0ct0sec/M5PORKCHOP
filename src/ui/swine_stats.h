@@ -28,7 +28,7 @@ enum class ClassBuff : uint8_t {
     P4CK3T_NOSE  = (1 << 0),  // SN1FF3R L6+   -10% hop interval
     H4RD_SNOUT   = (1 << 1),  // PWNER L11+    +1 deauth burst
     R04D_H0G     = (1 << 2),  // R00T L16+     +15% distance XP
-    SH4RP_TUSKS  = (1 << 3),  // R0GU3 L21+    -1s lock time
+    SH4RP_TUSKS  = (1 << 3),  // R0GU3 L21+    +1s lock time (better client discovery)
     CR4CK_NOSE   = (1 << 4),  // EXPL01T L26+  +10% capture XP
     IR0N_TUSKS   = (1 << 5),  // WARL0RD L31+  -1ms jitter min
     OMNI_P0RK    = (1 << 6),  // L3G3ND L36+   +5% all stats

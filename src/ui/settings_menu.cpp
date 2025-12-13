@@ -88,13 +88,13 @@ void SettingsMenu::loadFromConfig() {
         "Faster = more coverage"
     });
     
-    // Scan duration
+    // Lock time (client discovery before attack)
     items.push_back({
-        "Scan Time",
+        "Lock Time",
         SettingType::VALUE,
-        (int)Config::wifi().scanDuration,
-        500, 5000, 500, "ms", "",
-        "Dwell time per channel"
+        (int)Config::wifi().lockTime,
+        1000, 10000, 500, "ms", "",
+        "Client sniff time"
     });
     
     // Enable deauth
@@ -237,7 +237,7 @@ void SettingsMenu::saveToConfig() {
     w.otaSSID = items[0].textValue;
     w.otaPassword = items[1].textValue;
     w.channelHopInterval = items[6].value;
-    w.scanDuration = items[7].value;
+    w.lockTime = items[7].value;
     w.enableDeauth = items[8].value == 1;
     w.randomizeMAC = items[9].value == 1;
     Config::setWiFi(w);
