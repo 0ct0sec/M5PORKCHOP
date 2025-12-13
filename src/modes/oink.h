@@ -58,8 +58,19 @@ struct CapturedHandshake {
     bool hasM3() const { return capturedMask & 0x04; }
     bool hasM4() const { return capturedMask & 0x08; }
     bool hasBeacon() const { return beaconData != nullptr && beaconLen > 0; }
-    bool isComplete() const { return hasM1() && hasM2(); }  // M1+M2 is enough for crack
+    
+    // Valid crackable pairs: M1+M2 (preferred) or M2+M3 (fallback if M1 missed)
+    bool hasValidPair() const { return (hasM1() && hasM2()) || (hasM2() && hasM3()); }
+    bool isComplete() const { return hasValidPair(); }  // Alias for backward compat
     bool isFull() const { return (capturedMask & 0x0F) == 0x0F; }
+    
+    // Get message pair type for hashcat 22000 format:
+    // Returns 0x00 for M1+M2, 0x02 for M2+M3, 0xFF for invalid
+    uint8_t getMessagePair() const {
+        if (hasM1() && hasM2()) return 0x00;  // M1+M2: EAPOL from M2 (challenge)
+        if (hasM2() && hasM3()) return 0x02;  // M2+M3: EAPOL from M2 (authorized)
+        return 0xFF;  // Invalid
+    }
 };
 
 // PMKID capture - clientless attack, extracted from EAPOL M1
@@ -107,6 +118,9 @@ public:
     static uint16_t getPMKIDCount() { return pmkids.size(); }
     static bool savePMKID22000(const CapturedPMKID& p, const char* path);
     static bool saveAllPMKIDs();
+    
+    // Hashcat 22000 format (direct cracking, no conversion)
+    static bool saveHandshake22000(const CapturedHandshake& hs, const char* path);
     
     // Channel hopping
     static void setChannel(uint8_t ch);

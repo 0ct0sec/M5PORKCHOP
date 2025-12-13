@@ -1214,9 +1214,20 @@ void OinkMode::autoSaveCheck() {
                 SD.mkdir("/handshakes");
             }
             
-            if (saveHandshakePCAP(hs, filename)) {
+            // Save PCAP (for wireshark/manual analysis)
+            bool pcapOk = saveHandshakePCAP(hs, filename);
+            
+            // Save 22000 format (hashcat-ready, no conversion needed)
+            char filename22000[64];
+            snprintf(filename22000, sizeof(filename22000), "/handshakes/%02X%02X%02X%02X%02X%02X_hs.22000",
+                    hs.bssid[0], hs.bssid[1], hs.bssid[2],
+                    hs.bssid[3], hs.bssid[4], hs.bssid[5]);
+            bool hs22kOk = saveHandshake22000(hs, filename22000);
+            
+            if (pcapOk || hs22kOk) {
                 hs.saved = true;
-                Serial.printf("[OINK] Handshake saved: %s\n", filename);
+                Serial.printf("[OINK] Handshake saved: %s (pcap:%s 22000:%s)\n", 
+                              filename, pcapOk ? "OK" : "FAIL", hs22kOk ? "OK" : "FAIL");
                 
                 // Save SSID to companion .txt file for later reference
                 char txtFilename[64];
@@ -1421,6 +1432,117 @@ bool OinkMode::savePMKID22000(const CapturedPMKID& p, const char* path) {
     
     f.close();
     Serial.printf("[OINK] PMKID saved to %s (hashcat -m 22000)\n", path);
+    return true;
+}
+
+bool OinkMode::saveHandshake22000(const CapturedHandshake& hs, const char* path) {
+    // Save handshake in hashcat 22000 format:
+    // WPA*02*MIC*MAC_AP*MAC_CLIENT*ESSID*NONCE_AP*EAPOL_CLIENT*MESSAGEPAIR
+    //
+    // Supported message pairs:
+    // - 0x00: M1+M2 (ANonce from M1, EAPOL+MIC from M2) - most common
+    // - 0x02: M2+M3 (ANonce from M3, EAPOL+MIC from M2) - fallback
+    
+    uint8_t msgPair = hs.getMessagePair();
+    if (msgPair == 0xFF) {
+        Serial.printf("[OINK] No valid message pair for 22000 export\n");
+        return false;
+    }
+    
+    // Determine which frames to use
+    const EAPOLFrame* nonceFrame = nullptr;  // M1 or M3 (contains ANonce)
+    const EAPOLFrame* eapolFrame = nullptr;  // M2 (contains MIC + full EAPOL)
+    
+    if (msgPair == 0x00) {
+        // M1+M2: ANonce from M1, EAPOL from M2
+        nonceFrame = &hs.frames[0];  // M1
+        eapolFrame = &hs.frames[1];  // M2
+    } else {
+        // M2+M3: ANonce from M3, EAPOL from M2
+        nonceFrame = &hs.frames[2];  // M3
+        eapolFrame = &hs.frames[1];  // M2
+    }
+    
+    if (nonceFrame->len < 51 || eapolFrame->len < 95) {
+        Serial.printf("[OINK] Frame too short for 22000 export (nonce:%d eapol:%d)\n",
+                      nonceFrame->len, eapolFrame->len);
+        return false;
+    }
+    
+    File f = SD.open(path, FILE_WRITE);
+    if (!f) {
+        Serial.printf("[OINK] Failed to create 22000 file: %s\n", path);
+        return false;
+    }
+    
+    // Extract MIC from M2 EAPOL frame (offset 77, 16 bytes)
+    // EAPOL-Key frame: ver(1)+type(1)+len(2)+desc(1)+keyinfo(2)+keylen(2)+replay(8)+nonce(32)+iv(16)+rsc(8)+id(8)+MIC(16)
+    char micHex[33];
+    for (int i = 0; i < 16; i++) {
+        sprintf(micHex + i*2, "%02x", eapolFrame->data[77 + i]);
+    }
+    
+    // MAC_AP (6 bytes as 12 hex chars)
+    char macAP[13];
+    sprintf(macAP, "%02x%02x%02x%02x%02x%02x",
+            hs.bssid[0], hs.bssid[1], hs.bssid[2],
+            hs.bssid[3], hs.bssid[4], hs.bssid[5]);
+    
+    // MAC_CLIENT (6 bytes as 12 hex chars)
+    char macClient[13];
+    sprintf(macClient, "%02x%02x%02x%02x%02x%02x",
+            hs.station[0], hs.station[1], hs.station[2],
+            hs.station[3], hs.station[4], hs.station[5]);
+    
+    // ESSID (hex-encoded)
+    char essidHex[65];
+    int ssidLen = strlen(hs.ssid);
+    for (int i = 0; i < ssidLen && i < 32; i++) {
+        sprintf(essidHex + i*2, "%02x", (uint8_t)hs.ssid[i]);
+    }
+    essidHex[ssidLen * 2] = 0;
+    
+    // ANonce from M1 or M3 (offset 17, 32 bytes)
+    char nonceHex[65];
+    for (int i = 0; i < 32; i++) {
+        sprintf(nonceHex + i*2, "%02x", nonceFrame->data[17 + i]);
+    }
+    
+    // Full EAPOL frame from M2 (hex-encoded)
+    // The EAPOL frame length is in bytes 2-3 (big-endian) + 4 bytes header
+    uint16_t eapolLen = (eapolFrame->data[2] << 8) | eapolFrame->data[3];
+    eapolLen += 4;  // Add EAPOL header (version + type + length)
+    if (eapolLen > eapolFrame->len) eapolLen = eapolFrame->len;
+    
+    // Allocate buffer for hex-encoded EAPOL (2 chars per byte)
+    // Max EAPOL is 512 bytes = 1024 hex chars + null
+    char* eapolHex = (char*)malloc(eapolLen * 2 + 1);
+    if (!eapolHex) {
+        f.close();
+        Serial.printf("[OINK] OOM allocating EAPOL hex buffer\n");
+        return false;
+    }
+    
+    // Zero the MIC in EAPOL copy for hashcat (MIC at offset 77)
+    // Work on a copy to avoid modifying original
+    uint8_t eapolCopy[512];
+    memcpy(eapolCopy, eapolFrame->data, eapolLen);
+    memset(eapolCopy + 77, 0, 16);  // Zero MIC field
+    
+    for (int i = 0; i < eapolLen; i++) {
+        sprintf(eapolHex + i*2, "%02x", eapolCopy[i]);
+    }
+    eapolHex[eapolLen * 2] = 0;
+    
+    // Write: WPA*02*MIC*MAC_AP*MAC_CLIENT*ESSID*ANONCE*EAPOL*MESSAGEPAIR
+    f.printf("WPA*02*%s*%s*%s*%s*%s*%s*%02x\n",
+             micHex, macAP, macClient, essidHex, nonceHex, eapolHex, msgPair);
+    
+    free(eapolHex);
+    f.close();
+    
+    Serial.printf("[OINK] Handshake saved to %s (WPA*02, pair:%02x, hashcat -m 22000)\n", 
+                  path, msgPair);
     return true;
 }
 
