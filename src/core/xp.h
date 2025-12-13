@@ -4,6 +4,18 @@
 #include <M5Unified.h>
 #include <Preferences.h>
 
+// Class tiers (every 5 levels)
+enum class PorkClass : uint8_t {
+    SH0AT    = 0,   // L1-5   - Script kiddie
+    SN1FF3R  = 1,   // L6-10  - Packet capture
+    PWNER    = 2,   // L11-15 - Active attacks
+    R00T     = 3,   // L16-20 - Wardriving, root
+    R0GU3    = 4,   // L21-25 - Rogue APs
+    EXPL01T  = 5,   // L26-30 - Famous exploits
+    WARL0RD  = 6,   // L31-35 - WiFi mastery
+    L3G3ND   = 7    // L36-40 - Legendary hackers
+};
+
 // XP event types for tracking
 enum class XPEvent : uint8_t {
     NETWORK_FOUND,          // +1 XP
@@ -159,6 +171,13 @@ public:
     static uint8_t getProgress();  // 0-100%
     static const char* getTitle();
     static const char* getTitleForLevel(uint8_t level);
+    
+    // Class info
+    static PorkClass getClass();
+    static PorkClass getClassForLevel(uint8_t level);
+    static const char* getClassName();
+    static const char* getClassNameFor(PorkClass cls);
+    static uint8_t getClassIndex();  // 0-7
     
     // Achievements
     static void unlockAchievement(PorkAchievement ach);

@@ -160,11 +160,11 @@ void SpectrumMode::handleInput() {
     
     auto keys = M5Cardputer.Keyboard.keysState();
     
-    // Pan spectrum with ; (left) and . (right)
-    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
+    // Pan spectrum with , (left) and / (right)
+    if (M5Cardputer.Keyboard.isKeyPressed(',')) {
         viewCenterMHz = fmax(MIN_CENTER_MHZ, viewCenterMHz - PAN_STEP_MHZ);
     }
-    if (M5Cardputer.Keyboard.isKeyPressed('.')) {
+    if (M5Cardputer.Keyboard.isKeyPressed('/')) {
         viewCenterMHz = fmin(MAX_CENTER_MHZ, viewCenterMHz + PAN_STEP_MHZ);
     }
     

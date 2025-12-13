@@ -40,6 +40,18 @@ void Porkchop::init() {
     // Register level up callback to show popup
     XP::setLevelUpCallback([](uint8_t oldLevel, uint8_t newLevel) {
         Display::showLevelUp(oldLevel, newLevel);
+        
+        // Check if class tier changed (every 5 levels: 6, 11, 16, 21, 26, 31, 36)
+        PorkClass oldClass = XP::getClassForLevel(oldLevel);
+        PorkClass newClass = XP::getClassForLevel(newLevel);
+        if (newClass != oldClass) {
+            // Small delay between popups
+            delay(500);
+            Display::showClassPromotion(
+                XP::getClassNameFor(oldClass),
+                XP::getClassNameFor(newClass)
+            );
+        }
     });
     
     // Register default event handlers

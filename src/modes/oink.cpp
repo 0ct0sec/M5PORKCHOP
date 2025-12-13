@@ -117,7 +117,7 @@ static AutoState autoState = AutoState::SCANNING;
 static uint32_t stateStartTime = 0;
 static uint32_t attackStartTime = 0;
 static const uint32_t SCAN_TIME = 5000;         // 5 sec initial scan
-static const uint32_t LOCK_TIME = 3000;         // 3 sec to discover clients before attacking
+// LOCK_TIME now uses SwineStats::getLockTime() for class buff support
 static const uint32_t ATTACK_TIMEOUT = 15000;   // 15 sec per target
 static const uint32_t WAIT_TIME = 2000;         // 2 sec between targets
 
@@ -375,7 +375,7 @@ void OinkMode::update() {
         case AutoState::LOCKING:
             // Wait on target channel to discover clients via data frames
             // This is crucial - targeted deauth is much more effective
-            if (now - stateStartTime > LOCK_TIME) {
+            if (now - stateStartTime > SwineStats::getLockTime()) {
                 if (targetIndex >= 0 && targetIndex < (int)networks.size()) {
                     DetectedNetwork* target = &networks[targetIndex];
                     

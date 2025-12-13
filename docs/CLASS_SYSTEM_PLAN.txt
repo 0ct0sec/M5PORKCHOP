@@ -1,0 +1,327 @@
+
+                              ==Phrack Inc.==
+
+                    Volume One, Issue 13, Phile #4 of 5
+
+                        =-=-=-=-=-=-=-=-=-=-=-=-=
+                        =  M5P0RKCH0P CL4SS3S  =
+                        =   RPG Progression    =
+                        =-=-=-=-=-=-=-=-=-=-=-=-=
+
+                            by: The Oinking One
+
+
+--[ 0 - Table of Contents
+
+    0 - Table of Contents
+    1 - Introduction
+    2 - Class Tiers
+    3 - Class Buffs
+    4 - Implementation Details
+    5 - UI Changes
+    6 - File Modifications
+    7 - Implementation Order
+
+
+--[ 1 - Introduction
+
+    The class system adds vertical progression to the existing 40-level
+    RPG system. Every 5 levels, the player enters a new CLASS with a
+    permanent buff that stacks with mood buffs.
+
+    Classes are thematic groupings of the existing rank titles, providing
+    a sense of advancement beyond just level numbers.
+
+
+--[ 2 - Class Tiers
+
+    +----------+--------+-----------------------------------------------+
+    | CLASS    | LEVELS | TITLE THEMES                                  |
+    +----------+--------+-----------------------------------------------+
+    | SH0AT    |  1-5   | Script kiddie, noob tools, basic scanning     |
+    |          |        | BACON N00B, SCRIPT PIGG0, PIGLET 0DAY,        |
+    |          |        | SNOUT SCAN, SLOP NMAP                         |
+    +----------+--------+-----------------------------------------------+
+    | SN1FF3R  |  6-10  | Packet capture, beacons, channel hopping      |
+    |          |        | BEACON BOAR, CHAN H4M, PROBE PORK,            |
+    |          |        | SSID SW1NE, PKT PIGLET                        |
+    +----------+--------+-----------------------------------------------+
+    | PWNER    | 11-15  | Active attacks, captures, EAPOL frames        |
+    |          |        | DEAUTH H0G, HANDSHAKE HAM, PMKID PORK,        |
+    |          |        | EAPOL B0AR, SAUSAGE SYNC                      |
+    +----------+--------+-----------------------------------------------+
+    | R00T     | 16-20  | Wardriving, GPS, BLE, root access (Linux)     |
+    |          |        | WARDRIVE HOG, GPS L0CK PIG, BLE SPAM HAM,     |
+    |          |        | TRUFFLE R00T, INJECT P1G                      |
+    +----------+--------+-----------------------------------------------+
+    | R0GU3    | 21-25  | Rogue APs, evil twins, advanced attacks       |
+    |          |        | KARMA SW1NE, EVIL TWIN H0G, KERNEL BAC0N,     |
+    |          |        | MON1TOR BOAR, WPA3 WARTH0G                    |
+    +----------+--------+-----------------------------------------------+
+    | EXPL01T  | 26-30  | Named vulnerabilities, famous exploits        |
+    |          |        | KRACK SW1NE, FR4G ATTACK, DRAGONBL00D,        |
+    |          |        | DEATH PR00F, PLANET ERR0R                     |
+    +----------+--------+-----------------------------------------------+
+    | WARL0RD  | 31-35  | Tarantino films + WiFi mastery                |
+    |          |        | P0RK FICTION, RESERVOIR H0G, HATEFUL 0INK,    |
+    |          |        | JACK1E B0AR, 80211 WARL0RD                    |
+    +----------+--------+-----------------------------------------------+
+    | L3G3ND   | 36-40  | Real legendary hackers                        |
+    |          |        | MACHETE SW1NE, CRUNCH P1G, DARK TANGENT,      |
+    |          |        | PHIBER 0PT1K, MUDGE UNCHA1NED                 |
+    +----------+--------+-----------------------------------------------+
+
+
+--[ 3 - Class Buffs
+
+    Each class (except SH0AT) unlocks a permanent buff. Buffs are
+    CUMULATIVE - a L35 WARL0RD has ALL buffs from tiers 2-7.
+
+    +----------+---------------+---------------------------+-------------+
+    | CLASS    | BUFF NAME     | EFFECT                    | MECHANIC    |
+    +----------+---------------+---------------------------+-------------+
+    | SH0AT    | --            | None (you're learning)    | --          |
+    +----------+---------------+---------------------------+-------------+
+    | SN1FF3R  | P4CK3T NOSE   | -10% channel hop interval | Faster scan |
+    +----------+---------------+---------------------------+-------------+
+    | PWNER    | H4RD SNOUT    | +1 base deauth burst      | 5 -> 6 pkts |
+    +----------+---------------+---------------------------+-------------+
+    | R00T     | R04D H0G      | +15% distance XP          | WARHOG buff |
+    +----------+---------------+---------------------------+-------------+
+    | R0GU3    | SH4RP TUSKS   | -1s client lock time      | 3s -> 2s    |
+    +----------+---------------+---------------------------+-------------+
+    | EXPL01T  | CR4CK NOSE    | +10% capture XP           | HS/PMKID    |
+    +----------+---------------+---------------------------+-------------+
+    | WARL0RD  | 1R0N TUSKS    | -1ms min deauth jitter    | 1-5 -> 0-4  |
+    +----------+---------------+---------------------------+-------------+
+    | L3G3ND   | 0MN1P0RK      | +5% ALL stats             | Everything  |
+    +----------+---------------+---------------------------+-------------+
+
+
+----[ 3.1 - Buff Stacking Example
+
+    A L35 WARL0RD with high happiness would have:
+
+    MOOD BUFFS (temporary, happiness-based):
+      [+] R4G3         +50% deauth burst (5 -> 8)
+      [+] C4FF31N4T3D  -30% channel hop interval
+
+    CLASS BUFFS (permanent, level-based):
+      [*] P4CK3T NOSE  -10% channel hop (-10% of base)
+      [*] H4RD SNOUT   +1 burst (base 5 -> 6, then R4G3 applies)
+      [*] R04D H0G     +15% distance XP
+      [*] SH4RP TUSKS  -1s lock time
+      [*] CR4CK NOSE   +10% capture XP
+      [*] 1R0N TUSKS   -1ms jitter
+
+    EFFECTIVE STATS:
+      - Deauth burst: base 6 (H4RD SNOUT) * 1.5 (R4G3) = 9 packets
+      - Hop interval: base * 0.7 (C4FF31N4T3D) * 0.9 (P4CK3T NOSE)
+      - Lock time: 3000ms - 1000ms = 2000ms
+      - Jitter: 0-4ms instead of 1-5ms
+
+
+--[ 4 - Implementation Details
+
+
+----[ 4.1 - Class Determination
+
+    uint8_t getClassIndex(uint8_t level) {
+        if (level >= 36) return 7;  // L3G3ND
+        if (level >= 31) return 6;  // WARL0RD
+        if (level >= 26) return 5;  // EXPL01T
+        if (level >= 21) return 4;  // R0GU3
+        if (level >= 16) return 3;  // R00T
+        if (level >= 11) return 2;  // PWNER
+        if (level >= 6)  return 1;  // SN1FF3R
+        return 0;                   // SH0AT
+    }
+
+
+----[ 4.2 - Class Buff Flags
+
+    enum class ClassBuff : uint8_t {
+        NONE         = 0,
+        P4CK3T_NOSE  = (1 << 0),  // SN1FF3R  -10% hop
+        H4RD_SNOUT   = (1 << 1),  // PWNER    +1 burst
+        R04D_H0G     = (1 << 2),  // R00T     +15% dist XP
+        SH4RP_TUSKS  = (1 << 3),  // R0GU3    -1s lock
+        CR4CK_NOSE   = (1 << 4),  // EXPL01T  +10% cap XP
+        IR0N_TUSKS   = (1 << 5),  // WARL0RD  -1ms jitter
+        OMNI_P0RK    = (1 << 6),  // L3G3ND   +5% all
+    };
+
+    Buff calculation is based on level, not stored - always derived.
+
+
+----[ 4.3 - Effect Application
+
+    Modified getters in SwineStats:
+
+    getChannelHopInterval():
+      - Apply P4CK3T_NOSE: * 0.9
+      - Apply OMNI_P0RK:   * 0.95
+      - Then apply mood buffs (C4FF31N4T3D, HAM$TR1NG)
+
+    getDeauthBurstCount():
+      - Start with base 5
+      - Apply H4RD_SNOUT: +1
+      - Apply OMNI_P0RK:  round(* 1.05)
+      - Then apply mood buffs (R4G3, SLOP$LUG)
+
+    getDeauthJitterMax():
+      - Start with base 5
+      - Apply IR0N_TUSKS: -1
+      - Then apply mood debuff (TR0UGHDR41N)
+
+    getLockTime():
+      - NEW getter for oink.cpp
+      - Start with 3000ms
+      - Apply SH4RP_TUSKS: -1000ms
+      - Apply OMNI_P0RK: * 0.95
+
+    getDistanceXPMultiplier():
+      - NEW getter for XP::addDistance()
+      - Start with 1.0
+      - Apply R04D_H0G: +0.15
+      - Apply OMNI_P0RK: * 1.05
+
+    getCaptureXPMultiplier():
+      - NEW getter for XP::addXP(HANDSHAKE/PMKID)
+      - Start with 1.0
+      - Apply CR4CK_NOSE: +0.10
+      - Apply OMNI_P0RK: * 1.05
+
+
+--[ 5 - UI Changes
+
+
+----[ 5.1 - SWINE STATS Tabs
+
+    Two tabs, switchable with ; and . keys:
+
+    TAB 1: ST4TS (current layout + class display)
+    +-----------------------------------------+
+    | LVL 23: KERNEL BAC0N    [########..] 87%|
+    | Class: R0GU3                            |
+    +-----------------------------------------+
+    | N3TW0RKS: 4269    H4NDSH4K3S: 127       |
+    | PMK1DS: 43        D34UTHS: 1892         |
+    | D1ST4NC3: 23.4km  BL3 BL4STS: 5420      |
+    | S3SS10NS: 89      GH0STS: 42            |
+    +-----------------------------------------+
+    |         [;] ST4TS  [.] B00STS           |
+    +-----------------------------------------+
+
+    TAB 2: B00STS (mood + class buffs)
+    +-----------------------------------------+
+    | LVL 23: KERNEL BAC0N    [########..] 87%|
+    | Class: R0GU3                            |
+    +-----------------------------------------+
+    | M00D B00STS:                            |
+    | [+] R4G3 +50% deauth pwr                |
+    | [+] SNOUT$HARP +25% XP gain             |
+    |                                         |
+    | CL4SS B00STS:                           |
+    | [*] P4CK3T NOSE -10% hop                |
+    | [*] H4RD SNOUT +1 burst                 |
+    | [*] R04D H0G +15% dist XP               |
+    | [*] SH4RP TUSKS -1s lock                |
+    +-----------------------------------------+
+    |         [;] ST4TS  [.] B00STS           |
+    +-----------------------------------------+
+
+
+----[ 5.2 - Class Promotion Popup
+
+    Shown when crossing class boundary (L6, L11, L16, L21, L26, L31, L36):
+
+    +-----------------------------------------+
+    |         CL4SS PR0M0T10N!                |
+    |                                         |
+    |         SN1FF3R -> PWNER                |
+    |                                         |
+    |   New Buff: H4RD SNOUT                  |
+    |   +1 base deauth burst                  |
+    |                                         |
+    |         [press any key]                 |
+    +-----------------------------------------+
+
+
+----[ 5.3 - XP Bar Class Display
+
+    Optional: Show class in XP bar (if space permits):
+
+    Current: L23 KERNEL BAC0N    XP:########..87%
+    New:     L23 R0GU3:KERNEL BAC0N XP:#####..87%
+
+    (May be too cramped - evaluate during implementation)
+
+
+--[ 6 - File Modifications
+
+    +------------------------------+------------------------------------------+
+    | FILE                         | CHANGES                                  |
+    +------------------------------+------------------------------------------+
+    | src/core/xp.h                | Add PorkClass enum, getClass(),          |
+    |                              | getClassName(), getClassIndex()          |
+    +------------------------------+------------------------------------------+
+    | src/core/xp.cpp              | Add CLASS_NAMES array, getClass() impl   |
+    +------------------------------+------------------------------------------+
+    | src/ui/swine_stats.h         | Add ClassBuff enum, class buff getters,  |
+    |                              | tab state, getLockTime(),                |
+    |                              | getDistanceXPMult(), getCaptureXPMult()  |
+    +------------------------------+------------------------------------------+
+    | src/ui/swine_stats.cpp       | Tab navigation (;/. keys),               |
+    |                              | drawStatsTab(), drawBuffsTab(),          |
+    |                              | integrate class buffs into all getters   |
+    +------------------------------+------------------------------------------+
+    | src/modes/oink.cpp           | Replace LOCK_TIME constant with          |
+    |                              | SwineStats::getLockTime()                |
+    +------------------------------+------------------------------------------+
+    | src/ui/display.cpp           | Add showClassPromotion() popup,          |
+    |                              | hook into level-up detection             |
+    +------------------------------+------------------------------------------+
+    | .github/copilot-instructions | Document class system, buffs, UI         |
+    +------------------------------+------------------------------------------+
+
+
+--[ 7 - Implementation Order
+
+    +------+------------------------------------------------+----------+
+    | STEP | TASK                                           | EFFORT   |
+    +------+------------------------------------------------+----------+
+    | 1    | Add PorkClass enum + getClass() to xp.h/cpp    | 15 min   |
+    +------+------------------------------------------------+----------+
+    | 2    | Add ClassBuff enum to swine_stats.h            | 10 min   |
+    +------+------------------------------------------------+----------+
+    | 3    | Add getClassBuffs() + integrate into existing  | 30 min   |
+    |      | effect getters (hop, burst, jitter)            |          |
+    +------+------------------------------------------------+----------+
+    | 4    | Add new getters: getLockTime(),                | 20 min   |
+    |      | getDistanceXPMult(), getCaptureXPMult()        |          |
+    +------+------------------------------------------------+----------+
+    | 5    | Update oink.cpp to use getLockTime()           | 10 min   |
+    +------+------------------------------------------------+----------+
+    | 6    | Update xp.cpp to use distance/capture mults    | 15 min   |
+    +------+------------------------------------------------+----------+
+    | 7    | Add tab state + navigation to swine_stats.cpp  | 20 min   |
+    +------+------------------------------------------------+----------+
+    | 8    | Implement drawStatsTab() with class display    | 15 min   |
+    +------+------------------------------------------------+----------+
+    | 9    | Implement drawBuffsTab() with mood + class     | 20 min   |
+    +------+------------------------------------------------+----------+
+    | 10   | Add showClassPromotion() popup to display.cpp  | 20 min   |
+    +------+------------------------------------------------+----------+
+    | 11   | Hook class promotion into level-up detection   | 15 min   |
+    +------+------------------------------------------------+----------+
+    | 12   | Update copilot-instructions.md                 | 15 min   |
+    +------+------------------------------------------------+----------+
+    | 13   | Test & polish                                  | 25 min   |
+    +------+------------------------------------------------+----------+
+    |      | TOTAL                                          | ~3.5 hrs |
+    +------+------------------------------------------------+----------+
+
+
+==[EOF]==
+

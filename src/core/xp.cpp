@@ -38,6 +38,18 @@ static const uint16_t XP_VALUES[] = {
     20      // LOW_BATTERY_CAPTURE
 };
 
+// 8 class names (every 5 levels)
+static const char* CLASS_NAMES[] = {
+    "SH0AT",     // L1-5
+    "SN1FF3R",   // L6-10
+    "PWNER",     // L11-15
+    "R00T",      // L16-20
+    "R0GU3",     // L21-25
+    "EXPL01T",   // L26-30
+    "WARL0RD",   // L31-35
+    "L3G3ND"     // L36-40
+};
+
 // 40 rank titles - hacker/grindhouse/tarantino + pig flavor
 static const char* RANK_TITLES[] = {
     // Tier 1: Noob (1-5)
@@ -343,6 +355,20 @@ void XP::addXP(XPEvent event) {
             break;
     }
     
+    // Apply capture XP multiplier for handshakes/PMKIDs (class buff: CR4CK_NOSE)
+    if (event == XPEvent::HANDSHAKE_CAPTURED || event == XPEvent::PMKID_CAPTURED) {
+        float captureMult = SwineStats::getCaptureXPMultiplier();
+        amount = (uint16_t)(amount * captureMult);
+        if (amount < 1) amount = 1;
+    }
+    
+    // Apply distance XP multiplier for km walked (class buff: R04D_H0G)
+    if (event == XPEvent::DISTANCE_KM) {
+        float distMult = SwineStats::getDistanceXPMultiplier();
+        amount = (uint16_t)(amount * distMult);
+        if (amount < 1) amount = 1;
+    }
+    
     addXP(amount);
     checkAchievements();
 }
@@ -516,6 +542,35 @@ const char* XP::getTitleForLevel(uint8_t level) {
     if (level < 1) level = 1;
     if (level > MAX_LEVEL) level = MAX_LEVEL;
     return RANK_TITLES[level - 1];
+}
+
+PorkClass XP::getClass() {
+    return getClassForLevel(getLevel());
+}
+
+PorkClass XP::getClassForLevel(uint8_t level) {
+    if (level >= 36) return PorkClass::L3G3ND;
+    if (level >= 31) return PorkClass::WARL0RD;
+    if (level >= 26) return PorkClass::EXPL01T;
+    if (level >= 21) return PorkClass::R0GU3;
+    if (level >= 16) return PorkClass::R00T;
+    if (level >= 11) return PorkClass::PWNER;
+    if (level >= 6)  return PorkClass::SN1FF3R;
+    return PorkClass::SH0AT;
+}
+
+const char* XP::getClassName() {
+    return getClassNameFor(getClass());
+}
+
+const char* XP::getClassNameFor(PorkClass cls) {
+    uint8_t idx = static_cast<uint8_t>(cls);
+    if (idx > 7) idx = 7;
+    return CLASS_NAMES[idx];
+}
+
+uint8_t XP::getClassIndex() {
+    return static_cast<uint8_t>(getClass());
 }
 
 void XP::unlockAchievement(PorkAchievement ach) {

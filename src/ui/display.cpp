@@ -584,6 +584,74 @@ void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
     }
 }
 
+void Display::showClassPromotion(const char* oldClass, const char* newClass) {
+    // Class promotion popup - piglet got a new class tier!
+    static const char* CLASS_PHRASES[] = {
+        "new powers acquired",
+        "rank up complete",
+        "class tier unlocked", 
+        "evolution in progress",
+        "truffle mastery grows",
+        "snout sharpened",
+        "oink level: elite"
+    };
+    static const uint8_t PHRASE_COUNT = 7;
+    
+    int boxW = 210;
+    int boxH = 60;
+    int boxX = (DISPLAY_W - boxW) / 2;
+    int boxY = (MAIN_H - boxH) / 2;
+    
+    mainCanvas.fillSprite(COLOR_BG);
+    
+    // Pink filled box
+    mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
+    
+    // Black text on pink background
+    mainCanvas.setTextColor(COLOR_BG, COLOR_FG);
+    mainCanvas.setTextDatum(top_center);
+    mainCanvas.setTextSize(1);
+    mainCanvas.setFont(&fonts::Font0);
+    
+    int centerX = DISPLAY_W / 2;
+    
+    // Header
+    mainCanvas.drawString("* CL4SS PR0M0T10N *", centerX, boxY + 8);
+    
+    // Class change
+    char classStr[48];
+    snprintf(classStr, sizeof(classStr), "%s -> %s", oldClass, newClass);
+    mainCanvas.drawString(classStr, centerX, boxY + 24);
+    
+    // Random phrase
+    int phraseIdx = random(0, PHRASE_COUNT);
+    mainCanvas.drawString(CLASS_PHRASES[phraseIdx], centerX, boxY + 40);
+    
+    pushAll();
+    
+    // Distinct beep sequence (different from level up)
+    if (Config::personality().soundEnabled) {
+        M5.Speaker.tone(500, 80);
+        delay(100);
+        M5.Speaker.tone(700, 80);
+        delay(100);
+        M5.Speaker.tone(900, 80);
+        delay(100);
+        M5.Speaker.tone(1100, 150);
+    }
+    
+    // Auto-dismiss after 2.5 seconds or on any key press
+    uint32_t startTime = millis();
+    while ((millis() - startTime) < 2500) {
+        M5.update();
+        M5Cardputer.update();
+        if (M5Cardputer.Keyboard.isChange()) {
+            break;
+        }
+        delay(50);
+    }
+}
+
 void Display::setBottomOverlay(const String& message) {
     bottomOverlay = message;
 }

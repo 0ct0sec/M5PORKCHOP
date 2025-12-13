@@ -771,22 +771,82 @@ The game includes a mood-based buff/debuff system that modifies deauth packet ra
 - **S key** from IDLE mode
 - **SWINE STATS** menu item (between HOG ON SPECTRUM and FILE TRANSFER)
 
-**Display Layout:**
+**Tabbed Display Layout:**
+SWINE STATS uses a two-tab interface (switch with `;` / `.` keys):
+
+Tab 1 - ST4TS:
 ```
 ┌────────────────────────────────────────┐
-│ ═══ SW1N3 ST4TS ═══                    │
-│ LVL 23: KERNEL BAC0N    [████████░░]87%│
+│ [ST4TS] [B00STS]                       │
+│ LVL 23: KERNEL BAC0N         < R0GU3 > │
+│ [████████████░░░░░] 72%                │
+│         12500 XP (72%)                 │
 ├────────────────────────────────────────┤
 │ N3TW0RKS: 4269    H4NDSH4K3S: 127      │
 │ PMK1DS: 43        D34UTHS: 1892        │
 │ D1ST4NC3: 23.4km  BL3 BL4STS: 5420     │
 │ S3SS10NS: 89      GH0STS: 42           │
-├────────────────────────────────────────┤
-│ ACT1V3 B00STS                          │
-│ [+] R4G3 +50% deauth pwr               │
-│ [=] N0N3 ACT1V3                        │
 └────────────────────────────────────────┘
 ```
+
+Tab 2 - B00STS:
+```
+┌────────────────────────────────────────┐
+│ [ST4TS] [B00STS]                       │
+│ CL4SS P3RKS:                           │
+│ [*] P4CK3T NOSE -10% hop               │
+│ [*] H4RD SNOUT +1 burst                │
+│ [*] R04D H0G +15% dist XP              │
+│ [*] SH4RP TUSKS -1s lock               │
+│ M00D B00STS:                           │
+│ [+] R4G3 +50% deauth pwr               │
+│ [-] TR0UGHDR41N +2ms jitter            │
+└────────────────────────────────────────┘
+```
+
+### Class System (8 Tiers)
+Every 5 levels, players promote to a new class tier with permanent cumulative buffs. Class is calculated from level (stateless design - existing characters get buffs immediately after firmware update).
+
+**Class Tiers:**
+| LEVELS | CLASS | BUFF UNLOCKED |
+|--------|-------|---------------|
+| 1-5 | SH0AT | (none - starter tier) |
+| 6-10 | SN1FF3R | P4CK3T NOSE: -10% channel hop interval |
+| 11-15 | PWNER | H4RD SNOUT: +1 deauth burst frame |
+| 16-20 | R00T | R04D H0G: +15% distance XP |
+| 21-25 | R0GU3 | SH4RP TUSKS: -1s lock time (3s→2s) |
+| 26-30 | EXPL01T | CR4CK NOSE: +10% capture XP (HS/PMKID) |
+| 31-35 | WARL0RD | IR0N TUSKS: -1ms deauth jitter max |
+| 36-40 | L3G3ND | OMNI P0RK: +5% all effects |
+
+**Buff Stacking Example (L38 Player):**
+Has all 7 class buffs active simultaneously:
+- Channel hop: 500ms × 0.9 × 0.95 = 427ms
+- Deauth burst: 5 + 1 = 6 frames (then ×1.05 = 6)
+- Lock time: 3000ms - 1000ms = 1900ms (after ×0.95)
+- Distance XP: base × 1.15 × 1.05 = 120% bonus
+- Capture XP: base × 1.10 × 1.05 = 115% bonus
+- Jitter max: 5 - 1 = 4ms
+
+**Class Promotion Popup:**
+When level crosses class boundary, a popup displays:
+```
+┌─────────────────────────────┐
+│   * CL4SS PR0M0T10N *       │
+│     PWNER -> R00T           │
+│    new powers acquired      │
+└─────────────────────────────┘
+```
+Triggered after `showLevelUp()` with 500ms delay.
+
+**Implementation:**
+- `PorkClass` enum in `xp.h` (8 values: SH0AT through L3G3ND)
+- `XP::getClass()` / `XP::getClassName()` - returns current class
+- `XP::getClassForLevel()` / `XP::getClassNameFor()` - class by level
+- `ClassBuff` enum in `swine_stats.h` (7 buffs)
+- `SwineStats::calculateClassBuffs()` - returns bitfield of active class buffs
+- `SwineStats::hasClassBuff(ClassBuff)` - check specific buff
+- Effect getters integrate class buffs: `getDeauthBurstCount()`, `getChannelHopInterval()`, `getLockTime()`, `getDistanceXPMultiplier()`, `getCaptureXPMultiplier()`
 
 ### Storage
 - **Namespace**: `porkxp` (NVS)

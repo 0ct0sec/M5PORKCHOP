@@ -11,7 +11,9 @@
 bool SwineStats::active = false;
 bool SwineStats::keyWasPressed = false;
 BuffState SwineStats::currentBuffs = {0, 0};
+uint8_t SwineStats::currentClassBuffs = 0;
 uint32_t SwineStats::lastBuffUpdate = 0;
+StatsTab SwineStats::currentTab = StatsTab::STATS;
 
 // Buff names and descriptions (leet one-word style)
 static const char* BUFF_NAMES[] = {
@@ -42,6 +44,27 @@ static const char* DEBUFF_DESCS[] = {
     "+50% hop delay"
 };
 
+// Class buff names and descriptions
+static const char* CLASS_BUFF_NAMES[] = {
+    "P4CK3T NOSE",   // SN1FF3R
+    "H4RD SNOUT",    // PWNER
+    "R04D H0G",      // R00T
+    "SH4RP TUSKS",   // R0GU3
+    "CR4CK NOSE",    // EXPL01T
+    "1R0N TUSKS",    // WARL0RD
+    "0MN1P0RK"       // L3G3ND
+};
+
+static const char* CLASS_BUFF_DESCS[] = {
+    "-10% hop",
+    "+1 burst",
+    "+15% dist XP",
+    "-1s lock",
+    "+10% cap XP",
+    "-1ms jitter",
+    "+5% all"
+};
+
 // Stat names (leet one-word)
 static const char* STAT_LABELS[] = {
     "N3TW0RKS",
@@ -60,14 +83,18 @@ void SwineStats::init() {
     active = false;
     keyWasPressed = false;
     currentBuffs = {0, 0};
+    currentClassBuffs = 0;
     lastBuffUpdate = 0;
+    currentTab = StatsTab::STATS;
 }
 
 void SwineStats::show() {
     active = true;
     keyWasPressed = true;  // Ignore the key that activated us
     currentBuffs = calculateBuffs();
+    currentClassBuffs = calculateClassBuffs();
     lastBuffUpdate = millis();
+    currentTab = StatsTab::STATS;
 }
 
 void SwineStats::hide() {
@@ -80,6 +107,7 @@ void SwineStats::update() {
     // Update buffs periodically
     if (millis() - lastBuffUpdate > 1000) {
         currentBuffs = calculateBuffs();
+        currentClassBuffs = calculateClassBuffs();
         lastBuffUpdate = millis();
     }
     
@@ -97,8 +125,20 @@ void SwineStats::handleInput() {
     if (keyWasPressed) return;
     keyWasPressed = true;
     
-    // Any key exits (Enter, backtick, or any letter)
-    // The mode change will be handled by porkchop.cpp
+    // Tab switching with , (left) and / (right)
+    if (M5Cardputer.Keyboard.isKeyPressed(',')) {
+        currentTab = StatsTab::STATS;
+        return;
+    }
+    if (M5Cardputer.Keyboard.isKeyPressed('/')) {
+        currentTab = StatsTab::BOOSTS;
+        return;
+    }
+    
+    // Exit on backtick or Esc
+    if (M5Cardputer.Keyboard.isKeyPressed('`') || M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+        hide();
+    }
 }
 
 BuffState SwineStats::calculateBuffs() {
@@ -155,22 +195,53 @@ BuffState SwineStats::calculateBuffs() {
     return state;
 }
 
+uint8_t SwineStats::calculateClassBuffs() {
+    uint8_t level = XP::getLevel();
+    uint8_t buffs = 0;
+    
+    // Cumulative buffs based on class tier
+    if (level >= 6)  buffs |= (uint8_t)ClassBuff::P4CK3T_NOSE;  // SN1FF3R
+    if (level >= 11) buffs |= (uint8_t)ClassBuff::H4RD_SNOUT;   // PWNER
+    if (level >= 16) buffs |= (uint8_t)ClassBuff::R04D_H0G;     // R00T
+    if (level >= 21) buffs |= (uint8_t)ClassBuff::SH4RP_TUSKS;  // R0GU3
+    if (level >= 26) buffs |= (uint8_t)ClassBuff::CR4CK_NOSE;   // EXPL01T
+    if (level >= 31) buffs |= (uint8_t)ClassBuff::IR0N_TUSKS;   // WARL0RD
+    if (level >= 36) buffs |= (uint8_t)ClassBuff::OMNI_P0RK;    // L3G3ND
+    
+    return buffs;
+}
+
+bool SwineStats::hasClassBuff(ClassBuff cb) {
+    return (calculateClassBuffs() & (uint8_t)cb) != 0;
+}
+
 uint8_t SwineStats::getDeauthBurstCount() {
     BuffState buffs = calculateBuffs();
+    uint8_t classBuffs = calculateClassBuffs();
     uint8_t base = 5;  // Default burst count
     
-    // R4G3: +50% (5 -> 8)
-    if (buffs.hasBuff(PorkBuff::R4G3)) {
-        base = 8;
-    }
-    // H0TSTR3AK: +10% (stacks with R4G3 check first)
-    else if (buffs.hasBuff(PorkBuff::H0TSTR3AK)) {
+    // Class buff: H4RD_SNOUT +1 burst (applied first)
+    if (classBuffs & (uint8_t)ClassBuff::H4RD_SNOUT) {
         base = 6;
     }
     
-    // SLOP$LUG: -30% (5 -> 3, or 8 -> 5, or 6 -> 4)
+    // Class buff: OMNI_P0RK +5% (applied to base)
+    if (classBuffs & (uint8_t)ClassBuff::OMNI_P0RK) {
+        base = (base * 105 + 50) / 100;  // Round
+    }
+    
+    // Mood buff: R4G3 +50%
+    if (buffs.hasBuff(PorkBuff::R4G3)) {
+        base = (base * 15) / 10;  // 150%
+    }
+    // Mood buff: H0TSTR3AK +10% (only if no R4G3)
+    else if (buffs.hasBuff(PorkBuff::H0TSTR3AK)) {
+        base = (base * 11) / 10;  // 110%
+    }
+    
+    // Mood debuff: SLOP$LUG -30%
     if (buffs.hasDebuff(PorkDebuff::SLOP_SLUG)) {
-        base = (base * 7) / 10;  // 70% of original
+        base = (base * 7) / 10;  // 70%
         if (base < 2) base = 2;  // Minimum 2 frames
     }
     
@@ -179,11 +250,17 @@ uint8_t SwineStats::getDeauthBurstCount() {
 
 uint8_t SwineStats::getDeauthJitterMax() {
     BuffState buffs = calculateBuffs();
+    uint8_t classBuffs = calculateClassBuffs();
     uint8_t base = 5;  // Default 1-5ms jitter
     
-    // TR0UGHDR41N: +2ms jitter
+    // Class buff: IR0N_TUSKS -1ms min jitter (1-5 -> 0-4)
+    if (classBuffs & (uint8_t)ClassBuff::IR0N_TUSKS) {
+        base = 4;
+    }
+    
+    // Mood debuff: TR0UGHDR41N +2ms jitter
     if (buffs.hasDebuff(PorkDebuff::TR0UGHDR41N)) {
-        base = 7;  // 1-7ms jitter
+        base += 2;
     }
     
     return base;
@@ -191,14 +268,25 @@ uint8_t SwineStats::getDeauthJitterMax() {
 
 uint16_t SwineStats::getChannelHopInterval() {
     BuffState buffs = calculateBuffs();
+    uint8_t classBuffs = calculateClassBuffs();
     uint16_t base = Config::wifi().channelHopInterval;  // Default from config
     
-    // C4FF31N4T3D: -30% interval (faster)
+    // Class buff: P4CK3T_NOSE -10% interval
+    if (classBuffs & (uint8_t)ClassBuff::P4CK3T_NOSE) {
+        base = (base * 9) / 10;
+    }
+    
+    // Class buff: OMNI_P0RK -5% interval
+    if (classBuffs & (uint8_t)ClassBuff::OMNI_P0RK) {
+        base = (base * 95) / 100;
+    }
+    
+    // Mood buff: C4FF31N4T3D -30% interval (faster)
     if (buffs.hasBuff(PorkBuff::C4FF31N4T3D)) {
         base = (base * 7) / 10;
     }
     
-    // HAM$TR1NG: +50% interval (slower)
+    // Mood debuff: HAM$TR1NG +50% interval (slower)
     if (buffs.hasDebuff(PorkDebuff::HAM_STR1NG)) {
         base = (base * 15) / 10;
     }
@@ -208,19 +296,102 @@ uint16_t SwineStats::getChannelHopInterval() {
 
 float SwineStats::getXPMultiplier() {
     BuffState buffs = calculateBuffs();
+    uint8_t classBuffs = calculateClassBuffs();
     float mult = 1.0f;
     
-    // SNOUT$HARP: +25% XP
+    // Class buff: OMNI_P0RK +5% XP
+    if (classBuffs & (uint8_t)ClassBuff::OMNI_P0RK) {
+        mult += 0.05f;
+    }
+    
+    // Mood buff: SNOUT$HARP +25% XP
     if (buffs.hasBuff(PorkBuff::SNOUT_SHARP)) {
         mult += 0.25f;
     }
     
-    // F0GSNOUT: -15% XP
+    // Mood debuff: F0GSNOUT -15% XP
     if (buffs.hasDebuff(PorkDebuff::F0GSNOUT)) {
         mult -= 0.15f;
     }
     
     return mult;
+}
+
+uint32_t SwineStats::getLockTime() {
+    uint8_t classBuffs = calculateClassBuffs();
+    uint32_t base = 3000;  // Default 3 seconds
+    
+    // Class buff: SH4RP_TUSKS -1s lock time
+    if (classBuffs & (uint8_t)ClassBuff::SH4RP_TUSKS) {
+        base -= 1000;
+    }
+    
+    // Class buff: OMNI_P0RK -5%
+    if (classBuffs & (uint8_t)ClassBuff::OMNI_P0RK) {
+        base = (base * 95) / 100;
+    }
+    
+    return base;
+}
+
+float SwineStats::getDistanceXPMultiplier() {
+    uint8_t classBuffs = calculateClassBuffs();
+    float mult = 1.0f;
+    
+    // Class buff: R04D_H0G +15% distance XP
+    if (classBuffs & (uint8_t)ClassBuff::R04D_H0G) {
+        mult += 0.15f;
+    }
+    
+    // Class buff: OMNI_P0RK +5%
+    if (classBuffs & (uint8_t)ClassBuff::OMNI_P0RK) {
+        mult *= 1.05f;
+    }
+    
+    return mult;
+}
+
+float SwineStats::getCaptureXPMultiplier() {
+    uint8_t classBuffs = calculateClassBuffs();
+    float mult = 1.0f;
+    
+    // Class buff: CR4CK_NOSE +10% capture XP
+    if (classBuffs & (uint8_t)ClassBuff::CR4CK_NOSE) {
+        mult += 0.10f;
+    }
+    
+    // Class buff: OMNI_P0RK +5%
+    if (classBuffs & (uint8_t)ClassBuff::OMNI_P0RK) {
+        mult *= 1.05f;
+    }
+    
+    return mult;
+}
+
+const char* SwineStats::getClassBuffName(ClassBuff cb) {
+    switch (cb) {
+        case ClassBuff::P4CK3T_NOSE: return CLASS_BUFF_NAMES[0];
+        case ClassBuff::H4RD_SNOUT:  return CLASS_BUFF_NAMES[1];
+        case ClassBuff::R04D_H0G:    return CLASS_BUFF_NAMES[2];
+        case ClassBuff::SH4RP_TUSKS: return CLASS_BUFF_NAMES[3];
+        case ClassBuff::CR4CK_NOSE:  return CLASS_BUFF_NAMES[4];
+        case ClassBuff::IR0N_TUSKS:  return CLASS_BUFF_NAMES[5];
+        case ClassBuff::OMNI_P0RK:   return CLASS_BUFF_NAMES[6];
+        default: return "???";
+    }
+}
+
+const char* SwineStats::getClassBuffDesc(ClassBuff cb) {
+    switch (cb) {
+        case ClassBuff::P4CK3T_NOSE: return CLASS_BUFF_DESCS[0];
+        case ClassBuff::H4RD_SNOUT:  return CLASS_BUFF_DESCS[1];
+        case ClassBuff::R04D_H0G:    return CLASS_BUFF_DESCS[2];
+        case ClassBuff::SH4RP_TUSKS: return CLASS_BUFF_DESCS[3];
+        case ClassBuff::CR4CK_NOSE:  return CLASS_BUFF_DESCS[4];
+        case ClassBuff::IR0N_TUSKS:  return CLASS_BUFF_DESCS[5];
+        case ClassBuff::OMNI_P0RK:   return CLASS_BUFF_DESCS[6];
+        default: return "";
+    }
 }
 
 const char* SwineStats::getBuffName(PorkBuff b) {
@@ -269,27 +440,73 @@ void SwineStats::draw(M5Canvas& canvas) {
     canvas.fillSprite(COLOR_BG);
     canvas.setTextColor(COLOR_FG);
     
-    // Level and title bar (no title header - it's in top bar now)
+    // Draw tab bar at top
+    drawTabBar(canvas);
+    
+    // Draw content based on current tab
+    if (currentTab == StatsTab::STATS) {
+        drawStatsTab(canvas);
+    } else {
+        drawBuffsTab(canvas);
+    }
+    
+    // Footer hint - use MAIN_H since we're drawing on mainCanvas
+    canvas.setTextDatum(bottom_center);
+    canvas.setTextSize(1);
+    canvas.drawString("<  >", DISPLAY_W / 2, MAIN_H - 2);
+}
+
+void SwineStats::drawTabBar(M5Canvas& canvas) {
+    canvas.setTextSize(1);
+    
+    // Tab 1: ST4TS
+    if (currentTab == StatsTab::STATS) {
+        canvas.fillRect(2, 0, 60, 10, COLOR_FG);
+        canvas.setTextColor(COLOR_BG);
+    } else {
+        canvas.drawRect(2, 0, 60, 10, COLOR_FG);
+        canvas.setTextColor(COLOR_FG);
+    }
+    canvas.setTextDatum(middle_center);
+    canvas.drawString("ST4TS", 32, 5);
+    
+    // Tab 2: B00STS
+    if (currentTab == StatsTab::BOOSTS) {
+        canvas.fillRect(65, 0, 60, 10, COLOR_FG);
+        canvas.setTextColor(COLOR_BG);
+    } else {
+        canvas.drawRect(65, 0, 60, 10, COLOR_FG);
+        canvas.setTextColor(COLOR_FG);
+    }
+    canvas.drawString("B00STS", 95, 5);
+    
+    // Reset text color
+    canvas.setTextColor(COLOR_FG);
+}
+
+void SwineStats::drawStatsTab(M5Canvas& canvas) {
     canvas.setTextSize(1);
     canvas.setTextDatum(top_left);
     
+    // Level and class info
     uint8_t level = XP::getLevel();
     const char* title = XP::getTitle();
+    const char* className = XP::getClassName();
     uint8_t progress = XP::getProgress();
     
     char lvlBuf[48];
     snprintf(lvlBuf, sizeof(lvlBuf), "LVL %d: %s", level, title);
-    canvas.drawString(lvlBuf, 5, 2);
+    canvas.drawString(lvlBuf, 5, 14);
     
-    // XP text on right
-    char xpBuf[32];
-    snprintf(xpBuf, sizeof(xpBuf), "%lu XP (%d%%)", (unsigned long)XP::getTotalXP(), progress);
+    // Class on right
+    char classBuf[24];
+    snprintf(classBuf, sizeof(classBuf), "T13R: %s", className);
     canvas.setTextDatum(top_right);
-    canvas.drawString(xpBuf, DISPLAY_W - 5, 2);
+    canvas.drawString(classBuf, DISPLAY_W - 5, 14);
     
-    // Progress bar
+    // XP bar
     int barX = 5;
-    int barY = 12;
+    int barY = 24;
     int barW = DISPLAY_W - 10;
     int barH = 6;
     canvas.drawRect(barX, barY, barW, barH, COLOR_FG);
@@ -298,11 +515,89 @@ void SwineStats::draw(M5Canvas& canvas) {
         canvas.fillRect(barX + 1, barY + 1, fillW, barH - 2, COLOR_FG);
     }
     
-    // Stats section (moved up)
-    drawStats(canvas);
+    // XP text centered under bar
+    char xpBuf[32];
+    snprintf(xpBuf, sizeof(xpBuf), "%lu XP (%d%%)", (unsigned long)XP::getTotalXP(), progress);
+    canvas.setTextDatum(top_center);
+    canvas.drawString(xpBuf, DISPLAY_W / 2, 32);
     
-    // Buffs section (moved up)
-    drawBuffs(canvas, 68);
+    // Stats grid
+    drawStats(canvas);
+}
+
+void SwineStats::drawBuffsTab(M5Canvas& canvas) {
+    canvas.setTextSize(1);
+    canvas.setTextDatum(top_left);
+    
+    int y = 14;
+    int buffCount = 0;
+    
+    // === CLASS BUFFS SECTION ===
+    char classPerksBuf[32];
+    snprintf(classPerksBuf, sizeof(classPerksBuf), "%s T13R P3RKS:", XP::getClassName());
+    canvas.drawString(classPerksBuf, 5, y);
+    y += 10;
+    
+    // Show all active class buffs (permanent, based on level)
+    if (currentClassBuffs != 0) {
+        for (int i = 0; i < 7; i++) {
+            ClassBuff cb = (ClassBuff)(1 << i);
+            if (currentClassBuffs & (uint8_t)cb) {
+                char buf[48];
+                snprintf(buf, sizeof(buf), "[*] %s %s", getClassBuffName(cb), getClassBuffDesc(cb));
+                canvas.drawString(buf, 5, y);
+                y += 10;
+                buffCount++;
+                if (y > 60) break;  // Prevent overflow
+            }
+        }
+    }
+    
+    if (buffCount == 0) {
+        canvas.drawString("[=] N0N3 (LVL 6+)", 5, y);
+        y += 10;
+    }
+    
+    // === MOOD BUFFS SECTION ===
+    y += 4;  // Small gap
+    canvas.drawString("M00D B00STS:", 5, y);
+    y += 10;
+    
+    int moodCount = 0;
+    
+    // Draw active mood buffs
+    if (currentBuffs.buffs != 0) {
+        for (int i = 0; i < 4; i++) {
+            PorkBuff b = (PorkBuff)(1 << i);
+            if (currentBuffs.hasBuff(b)) {
+                char buf[48];
+                snprintf(buf, sizeof(buf), "[+] %s %s", getBuffName(b), getBuffDesc(b));
+                canvas.drawString(buf, 5, y);
+                y += 10;
+                moodCount++;
+                if (y > 90) break;
+            }
+        }
+    }
+    
+    // Draw active mood debuffs
+    if (currentBuffs.debuffs != 0) {
+        for (int i = 0; i < 4; i++) {
+            PorkDebuff d = (PorkDebuff)(1 << i);
+            if (currentBuffs.hasDebuff(d)) {
+                char buf[48];
+                snprintf(buf, sizeof(buf), "[-] %s %s", getDebuffName(d), getDebuffDesc(d));
+                canvas.drawString(buf, 5, y);
+                y += 10;
+                moodCount++;
+                if (y > 90) break;
+            }
+        }
+    }
+    
+    if (moodCount == 0) {
+        canvas.drawString("[=] N0N3 ACT1V3", 5, y);
+    }
 }
 
 void SwineStats::drawStats(M5Canvas& canvas) {
@@ -311,7 +606,7 @@ void SwineStats::drawStats(M5Canvas& canvas) {
     canvas.setTextSize(1);
     canvas.setTextDatum(top_left);
     
-    int y = 22;  // Start right after progress bar
+    int y = 44;  // Start after XP bar and XP text
     int lineH = 10;
     int col1 = 5;
     int col2 = 75;
@@ -362,54 +657,4 @@ void SwineStats::drawStats(M5Canvas& canvas) {
     canvas.drawString(buf, col4, y);
 }
 
-void SwineStats::drawBuffs(M5Canvas& canvas, int yStart) {
-    canvas.setTextSize(1);
-    canvas.setTextDatum(top_left);
-    
-    // Section header (no divider line)
-    canvas.drawString("ACT1V3 B00STS:", 5, yStart);
-    
-    int y = yStart + 10;
-    int buffCount = 0;
-    
-    // Draw active buffs
-    if (currentBuffs.buffs != 0) {
-        for (int i = 0; i < 4; i++) {
-            PorkBuff b = (PorkBuff)(1 << i);
-            if (currentBuffs.hasBuff(b)) {
-                char buf[48];
-                snprintf(buf, sizeof(buf), "[+] %s %s", getBuffName(b), getBuffDesc(b));
-                canvas.drawString(buf, 5, y);
-                y += 10;
-                buffCount++;
-                if (buffCount >= 2) break;  // Max 2 lines for buffs
-            }
-        }
-    }
-    
-    // Draw active debuffs
-    int debuffCount = 0;
-    if (currentBuffs.debuffs != 0) {
-        for (int i = 0; i < 4; i++) {
-            PorkDebuff d = (PorkDebuff)(1 << i);
-            if (currentBuffs.hasDebuff(d)) {
-                char buf[48];
-                snprintf(buf, sizeof(buf), "[-] %s %s", getDebuffName(d), getDebuffDesc(d));
-                canvas.drawString(buf, 5, y);
-                y += 10;
-                debuffCount++;
-                if (debuffCount >= 2) break;  // Max 2 lines for debuffs
-            }
-        }
-    }
-    
-    // If no buffs/debuffs
-    if (buffCount == 0 && debuffCount == 0) {
-        canvas.drawString("[=] N0N3 ACT1V3", 5, y);
-    }
-    
-    // Footer hint
-    canvas.setTextDatum(bottom_center);
-    canvas.drawString("press any key to exit", DISPLAY_W / 2, DISPLAY_H - 2);
-}
 
