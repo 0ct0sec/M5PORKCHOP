@@ -285,6 +285,22 @@ const char* PHRASES_HUNTING[] = {
     "where da truffles"
 };
 
+// OINK mode quiet phrases - when hunting but finding nothing
+const char* PHRASES_OINK_QUIET[] = {
+    "ether is silent",
+    "sniffing dead air",
+    "no truffles here",
+    "channels empty",
+    "where the beacons at",
+    "radio silence",
+    "faraday cage?",
+    "lonely spectrum",
+    "snout finds nothing",
+    "airwaves dry",
+    "hunting ghosts",
+    "802.11 void"
+};
+
 const char* PHRASES_SLEEPY[] = {
     "bored piggy",
     "null n void",
@@ -751,8 +767,16 @@ void Mood::onNoActivity(uint32_t seconds) {
         // Very bored - patience exhausted
         happiness = max(happiness - 2, -100);
         if (happiness < -20) {
-            int idx = pickPhraseIdx(PhraseCategory::SLEEPY, sizeof(PHRASES_SLEEPY) / sizeof(PHRASES_SLEEPY[0]));
-            currentPhrase = PHRASES_SLEEPY[idx];
+            // Mode-aware boredom phrases
+            PorkchopMode mode = porkchop.getMode();
+            if (mode == PorkchopMode::OINK_MODE || mode == PorkchopMode::SPECTRUM_MODE) {
+                // In hunting modes, use quiet hunting phrases instead of generic sleepy
+                int idx = pickPhraseIdx(PhraseCategory::SLEEPY, sizeof(PHRASES_OINK_QUIET) / sizeof(PHRASES_OINK_QUIET[0]));
+                currentPhrase = PHRASES_OINK_QUIET[idx];
+            } else {
+                int idx = pickPhraseIdx(PhraseCategory::SLEEPY, sizeof(PHRASES_SLEEPY) / sizeof(PHRASES_SLEEPY[0]));
+                currentPhrase = PHRASES_SLEEPY[idx];
+            }
             lastPhraseChange = now;  // Prevent immediate re-selection
         }
     } else if (seconds > boredThreshold) {
