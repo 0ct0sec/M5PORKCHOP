@@ -376,10 +376,25 @@ case PorkchopMode::NEW_MODE:
 
 ## Hardware Specifics
 
-- **M5Cardputer**: ESP32-S3, 240x135 ST7789 display, TCA8418 keyboard controller
-- **GPS**: Connected via UART (pins configurable in GPSConfig)
+- **M5Cardputer**: ESP32-S3, 240x135 ST7789 display, 74HC138 keyboard controller
+- **M5Cardputer-Adv**: ESP32-S3, 240x135 ST7789 display, TCA8418 keyboard controller, EXT 14-pin bus
+- **GPS**: Connected via UART (pins configurable in Settings Menu)
 - **SD Card**: For handshake/wardriving data export
 - **WiFi**: ESP32 native, promiscuous mode for packet capture
+
+### GPS Hardware Configurations
+
+| Hardware Setup | GPS RX Pin | GPS TX Pin | Baud Rate | Notes |
+|----------------|------------|------------|-----------|-------|
+| Original Cardputer + Grove GPS Unit | G1 | G2 | 115200 | Default config |
+| Cardputer v1.1 + Grove GPS Unit | G1 | G2 | 115200 | Default config |
+| Cardputer-Adv + Cap LoRa868 (U201) | G13 | G15 | 115200 | Change in Settings |
+
+Users with Cardputer-Adv and Cap LoRa868 module must change GPS pins in Settings Menu:
+- GPS RX Pin: 13
+- GPS TX Pin: 15
+
+The Cap LoRa868 connects via the EXT 2.54-14P bus, not the Grove HY2.0-4P port.
 
 ## PIGGYBLUES Mode Details
 

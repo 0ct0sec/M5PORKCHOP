@@ -115,7 +115,8 @@ enum class AutoState {
     LOCKING,        // Locked to target channel, discovering clients
     ATTACKING,      // Deauthing + sniffing target
     WAITING,        // Delay between attacks
-    NEXT_TARGET     // Move to next target
+    NEXT_TARGET,    // Move to next target
+    BORED           // No targets available - pig is bored
 };
 static AutoState autoState = AutoState::SCANNING;
 static uint32_t stateStartTime = 0;
@@ -124,10 +125,19 @@ static const uint32_t SCAN_TIME = 5000;         // 5 sec initial scan
 // LOCK_TIME now uses SwineStats::getLockTime() for class buff support
 static const uint32_t ATTACK_TIMEOUT = 15000;   // 15 sec per target
 static const uint32_t WAIT_TIME = 2000;         // 2 sec between targets
+static const uint32_t BORED_RETRY_TIME = 30000; // 30 sec between retry scans when bored
+static const uint32_t BORED_THRESHOLD = 3;      // Failed target attempts before bored
+
+// Bored state tracking
+static uint8_t consecutiveFailedScans = 0;      // Track failed getNextTarget() calls
+static uint32_t lastBoredUpdate = 0;            // For periodic bored mood updates
 
 // WAITING state variables (reset in init() to prevent stale state on restart)
 static bool checkedForPendingHandshake = false;
 static bool hasPendingHandshake = false;
+
+// Reset bored state on init
+static bool boredStateReset = true;  // Flag to reset on start()
 
 // Last pwned network SSID for display
 static String lastPwnedSSID = "";
@@ -144,6 +154,11 @@ void OinkMode::init() {
     pendingPMKIDCapture = false;
     pendingLogHead = 0;
     pendingLogTail = 0;
+    
+    // Reset bored state tracking
+    consecutiveFailedScans = 0;
+    lastBoredUpdate = 0;
+    boredStateReset = true;
     
     // Free per-handshake beacon memory
     for (auto& hs : handshakes) {
@@ -343,10 +358,28 @@ void OinkMode::update() {
             }
             
             // After scan time, sort and pick target
-            if (now - stateStartTime > SCAN_TIME && !networks.empty()) {
-                sortNetworksByPriority();
-                autoState = AutoState::NEXT_TARGET;
-                Serial.println("[OINK] Scan complete, starting auto-attack");
+            if (now - stateStartTime > SCAN_TIME) {
+                if (!networks.empty()) {
+                    sortNetworksByPriority();
+                    autoState = AutoState::NEXT_TARGET;
+                    Serial.println("[OINK] Scan complete, starting auto-attack");
+                } else {
+                    // No networks found after scan time
+                    consecutiveFailedScans++;
+                    if (consecutiveFailedScans >= BORED_THRESHOLD) {
+                        // Pig is bored - empty spectrum
+                        autoState = AutoState::BORED;
+                        stateStartTime = now;
+                        channelHopping = false;
+                        Mood::onBored(0);
+                        Serial.println("[OINK] No networks found - pig is bored");
+                    } else {
+                        // Keep scanning
+                        stateStartTime = now;
+                        Serial.printf("[OINK] No networks, continuing scan (attempt %d/%d)\\n",
+                                     consecutiveFailedScans, BORED_THRESHOLD);
+                    }
+                }
             }
             break;
             
@@ -356,15 +389,31 @@ void OinkMode::update() {
                 int nextIdx = getNextTarget();
                 
                 if (nextIdx < 0) {
-                    // No suitable targets, rescan
-                    autoState = AutoState::SCANNING;
-                    stateStartTime = now;
-                    channelHopping = true;
-                    deauthing = false;
-                    Mood::setStatusMessage("sniff n drift");
-                    Serial.println("[OINK] No targets available, rescanning");
+                    consecutiveFailedScans++;
+                    
+                    if (consecutiveFailedScans >= BORED_THRESHOLD) {
+                        // Pig is bored - no targets for too long
+                        autoState = AutoState::BORED;
+                        stateStartTime = now;
+                        channelHopping = false;  // Stop grass animation
+                        deauthing = false;
+                        Mood::onBored(networks.size());
+                        Serial.printf("[OINK] Pig is bored - no valid targets after %d attempts\n", consecutiveFailedScans);
+                    } else {
+                        // Keep trying - rescan
+                        autoState = AutoState::SCANNING;
+                        stateStartTime = now;
+                        channelHopping = true;
+                        deauthing = false;
+                        Mood::setStatusMessage("sniff n drift");
+                        Serial.printf("[OINK] No targets, rescanning (attempt %d/%d)\n", 
+                                     consecutiveFailedScans, BORED_THRESHOLD);
+                    }
                     break;
                 }
+                
+                // Found a target - reset failed scan counter
+                consecutiveFailedScans = 0;
                 
                 selectionIndex = nextIdx;
                 
@@ -517,6 +566,47 @@ void OinkMode::update() {
                 checkedForPendingHandshake = false;
                 hasPendingHandshake = false;
                 autoState = AutoState::NEXT_TARGET;
+            }
+            break;
+            
+        case AutoState::BORED:
+            // Pig is bored - no valid targets available
+            // Stop grass, show bored phrases, periodically retry
+            
+            // Slow channel hop (power save) - hop every 2 seconds
+            if (now - lastHopTime > 2000) {
+                hopChannel();
+                lastHopTime = now;
+            }
+            
+            // Update bored mood every 5 seconds
+            if (now - lastBoredUpdate > 5000) {
+                Mood::onBored(networks.size());
+                lastBoredUpdate = now;
+            }
+            
+            // Check if new networks appeared (promiscuous mode still active)
+            if (!networks.empty()) {
+                int nextIdx = getNextTarget();
+                if (nextIdx >= 0) {
+                    // New valid target appeared!
+                    consecutiveFailedScans = 0;
+                    autoState = AutoState::NEXT_TARGET;
+                    channelHopping = true;
+                    Mood::setStatusMessage("new bacon!");
+                    Avatar::sniff();
+                    Serial.println("[OINK] New target detected, resuming hunt!");
+                    break;
+                }
+            }
+            
+            // Periodic retry - do a fresh scan every 30 seconds
+            if (now - stateStartTime > BORED_RETRY_TIME) {
+                Serial.println("[OINK] Bored retry - rescanning...");
+                autoState = AutoState::SCANNING;
+                stateStartTime = now;
+                channelHopping = true;
+                consecutiveFailedScans = 0;  // Reset for fresh attempt
             }
             break;
     }

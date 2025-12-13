@@ -409,6 +409,20 @@
         * AT6668 GPS Module (WARHOG mode)
         * Questionable ethics
 
+----[ 4.1 - GPS Module Setup
+
+    Different hardware uses different pins. Configure in Settings Menu:
+
+    +---------------------------+--------+--------+---------+
+    | Hardware Setup            | RX Pin | TX Pin | Baud    |
+    +---------------------------+--------+--------+---------+
+    | Cardputer + Grove GPS     | G1     | G2     | 115200  |
+    | Cardputer-Adv + LoRa Cap  | G13    | G15    | 115200  |
+    +---------------------------+--------+--------+---------+
+
+    The Cap LoRa868 (U201) uses the EXT 14-pin bus, not Grove.
+    After flashing, go to Settings and change GPS RX/TX pins.
+
 
 --[ 5 - Building & Flashing
 

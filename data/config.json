@@ -4,7 +4,7 @@
     "enabled": true,
     "rxPin": 1,
     "txPin": 2,
-    "baudRate": 9600,
+    "baudRate": 115200,
     "updateInterval": 5,
     "powerSave": true
   },

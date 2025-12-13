@@ -159,6 +159,24 @@ void SettingsMenu::loadFromConfig() {
         "Match your GPS module"
     });
     
+    // GPS RX Pin (G1 for Grove, G13 for Cap LoRa868)
+    items.push_back({
+        "GPS RX Pin",
+        SettingType::VALUE,
+        (int)Config::gps().rxPin,
+        1, 46, 1, "", "",
+        "G1=Grove, G13=LoRaCap"
+    });
+    
+    // GPS TX Pin (G2 for Grove, G15 for Cap LoRa868)
+    items.push_back({
+        "GPS TX Pin",
+        SettingType::VALUE,
+        (int)Config::gps().txPin,
+        1, 46, 1, "", "",
+        "G2=Grove, G15=LoRaCap"
+    });
+    
     // Timezone offset (UTC-12 to UTC+14)
     items.push_back({
         "Timezone",
@@ -264,22 +282,26 @@ void SettingsMenu::saveToConfig() {
     static const uint32_t baudRates[] = {9600, 38400, 57600, 115200};
     g.baudRate = baudRates[items[13].value];
     
-    g.timezoneOffset = items[14].value;
+    // GPS RX/TX pins (G1/G2 for Grove, G13/G15 for Cap LoRa868)
+    g.rxPin = items[14].value;
+    g.txPin = items[15].value;
+    
+    g.timezoneOffset = items[16].value;
     Config::setGPS(g);
     
     // ML settings
     auto& m = Config::ml();
-    m.collectionMode = static_cast<MLCollectionMode>(items[15].value);
+    m.collectionMode = static_cast<MLCollectionMode>(items[17].value);
     Config::setML(m);
     
     // SD Logging
-    SDLog::setEnabled(items[16].value == 1);
+    SDLog::setEnabled(items[18].value == 1);
     
     // BLE settings (PIGGY BLUES)
     auto& b = Config::ble();
-    b.burstInterval = items[17].value;
-    b.advDuration = items[18].value;
-    b.rescanInterval = items[19].value;
+    b.burstInterval = items[19].value;
+    b.advDuration = items[20].value;
+    b.rescanInterval = items[21].value;
     Config::setBLE(b);
     
     // Save to file

@@ -41,6 +41,9 @@ static int lastThresholdMood = 50;  // Track for threshold crossing detection
 static const int MOOD_PEEK_HIGH_THRESHOLD = 70;   // Happy peek triggers above this
 static const int MOOD_PEEK_LOW_THRESHOLD = -30;   // Sad peek triggers below this
 
+// Bored state tracking - prevents HUNTING from overwriting SLEEPY in OINK mode
+static bool isBoredState = false;
+
 // Force trigger a mood peek (for significant events like handshake capture)
 static void forceMoodPeek() {
     moodPeekActive = true;
@@ -193,6 +196,7 @@ enum class PhraseCategory : uint8_t {
     HAPPY, EXCITED, HUNTING, SLEEPY, SAD, WARHOG, WARHOG_FOUND,
     PIGGYBLUES_TARGETED, PIGGYBLUES_STATUS, PIGGYBLUES_IDLE,
     DEAUTH, DEAUTH_SUCCESS, PMKID, SNIFFING, MENU_IDLE, RARE, DYNAMIC,
+    BORED,  // No valid targets available
     COUNT  // Must be last
 };
 
@@ -317,6 +321,22 @@ const char* PHRASES_SAD[] = {
     "empty trough",
     "sad lil piggy",
     "need dem truffles"
+};
+
+// BORED phrases - pig has nothing to hack
+const char* PHRASES_BORED[] = {
+    "no bacon here",
+    "this place sucks",
+    "grass tastes bad",
+    "wifi desert mode",
+    "empty spectrum",
+    "bored outta mind",
+    "where da APs at",
+    "sniff sniff nada",
+    "0 targets found",
+    "radio silence",
+    "tumbleweed.exe",
+    "802.11 wasteland"
 };
 
 // WARHOG wardriving phrases - GPS recon style
@@ -680,6 +700,7 @@ void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     happiness = min(happiness + 3, 100);  // Small permanent boost
     applyMomentumBoost(10);  // Quick excitement for network find
     lastActivityTime = millis();
+    isBoredState = false;  // Clear bored state - found something!
     
     // Sniff animation - found a truffle!
     Avatar::sniff();
@@ -988,8 +1009,12 @@ void Mood::updateAvatarState() {
     switch (mode) {
         case PorkchopMode::OINK_MODE:
         case PorkchopMode::SPECTRUM_MODE:
-            // Hunting modes: ALWAYS show HUNTING (mood peek handles emotional flashes)
-            Avatar::setState(AvatarState::HUNTING);
+            // Hunting modes: show HUNTING unless bored (mood peek handles emotional flashes)
+            if (isBoredState) {
+                Avatar::setState(AvatarState::SLEEPY);
+            } else {
+                Avatar::setState(AvatarState::HUNTING);
+            }
             break;
             
         case PorkchopMode::PIGGYBLUES_MODE:
@@ -1196,6 +1221,7 @@ const char* PHRASES_MENU_IDLE[] = {
 
 void Mood::onSniffing(uint16_t networkCount, uint8_t channel) {
     lastActivityTime = millis();
+    isBoredState = false;  // Clear bored state - we're hunting again
     
     // Pick sniffing phrase with channel info (no repeat)
     int idx = pickPhraseIdx(PhraseCategory::SNIFFING, sizeof(PHRASES_SNIFFING) / sizeof(PHRASES_SNIFFING[0]));
@@ -1257,6 +1283,33 @@ void Mood::onIdle() {
     int idx = pickPhraseIdx(PhraseCategory::MENU_IDLE, sizeof(PHRASES_MENU_IDLE) / sizeof(PHRASES_MENU_IDLE[0]));
     currentPhrase = PHRASES_MENU_IDLE[idx];
     lastPhraseChange = millis();
+}
+
+void Mood::onBored(uint16_t networkCount) {
+    // Pig is bored - no valid targets to attack
+    // Don't update lastActivityTime - we WANT to trigger idle effects
+    
+    // Set bored flag so updateAvatarState() shows SLEEPY instead of HUNTING
+    isBoredState = true;
+    
+    // Decrease happiness slightly (but not too much)
+    happiness = max(happiness - 1, -50);
+    
+    int idx = pickPhraseIdx(PhraseCategory::BORED, sizeof(PHRASES_BORED) / sizeof(PHRASES_BORED[0]));
+    
+    if (networkCount > 0) {
+        // Networks exist but all exhausted/protected
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%s (%d pwned)", PHRASES_BORED[idx], networkCount);
+        currentPhrase = buf;
+    } else {
+        // No networks at all
+        currentPhrase = PHRASES_BORED[idx];
+    }
+    lastPhraseChange = millis();
+    
+    // Set avatar to sleepy/bored state (will be maintained by updateAvatarState)
+    Avatar::setState(AvatarState::SLEEPY);
 }
 
 void Mood::onWarhogUpdate() {

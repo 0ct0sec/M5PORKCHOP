@@ -10,9 +10,9 @@
 // GPS power management settings
 struct GPSConfig {
     bool enabled = true;
-    uint8_t rxPin = 1;
-    uint8_t txPin = 2;
-    uint32_t baudRate = 115200;
+    uint8_t rxPin = 1;              // G1 for Grove GPS, G13 for Cap LoRa868
+    uint8_t txPin = 2;              // G2 for Grove GPS, G15 for Cap LoRa868
+    uint32_t baudRate = 115200;     // 115200 for most modern GPS modules
     uint16_t updateInterval = 5;        // Seconds between GPS updates
     uint16_t sleepTimeMs = 5000;        // Sleep duration when stationary
     bool powerSave = true;
