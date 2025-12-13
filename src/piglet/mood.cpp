@@ -1233,6 +1233,7 @@ void Mood::onSniffing(uint16_t networkCount, uint8_t channel) {
 
 void Mood::onDeauthing(const char* apName, uint32_t deauthCount) {
     lastActivityTime = millis();
+    isBoredState = false;  // Clear bored state - we're attacking!
     
     // Handle null or empty SSID (hidden networks)
     String ap = (apName && strlen(apName) > 0) ? String(apName) : "ghost AP";
