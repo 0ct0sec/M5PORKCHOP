@@ -319,6 +319,40 @@ pio run -t upload              # Build and upload
 pio run -t upload -e m5cardputer  # Upload release only
 ```
 
+**Build outputs** (in `.pio/build/m5cardputer/`):
+- `firmware.bin` - Application binary, flashed at 0x10000 by `pio upload` (preserves XP)
+- `bootloader.bin` - ESP32-S3 bootloader (0x0)
+- `partitions.bin` - Partition table (0x8000)
+
+### Release Build Script
+
+For creating release binaries, use the build script:
+
+```powershell
+python scripts/build_release.py
+```
+
+This creates both binaries in `m5porkchop_builds/`:
+- `firmware_vX.X.X.bin` - For esptool-js upgrades (preserves XP)
+- `porkchop_vX.X.X_m5burner.bin` - For M5 Burner fresh install
+
+Version is automatically pulled from `custom_version` in `platformio.ini`.
+
+### M5 Burner Merged Binary (Manual)
+
+To manually create a single .bin file for M5 Burner (flash at offset 0x0):
+
+```powershell
+cd .pio/build/m5cardputer
+pio pkg exec -p tool-esptoolpy -- esptool.py --chip esp32s3 merge_bin `
+  -o porkchop_vX.X.X_m5burner.bin --flash_mode dio --flash_size 8MB `
+  0x0 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin
+```
+
+This merges bootloader, partitions, and firmware at correct offsets. Copy to project root for release.
+
+**WARNING**: M5 Burner merged bin nukes NVS (XP data) on flash. For upgrades that preserve XP, use esptool-js to flash only firmware.bin at 0x10000.
+
 ## Testing
 
 ### Unit Tests (CI)

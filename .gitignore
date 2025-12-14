@@ -5,3 +5,5 @@
 .vscode/ipch
 *.csv
 src/build_info.h
+m5porkchop_builds/
+porkchop_*.bin
