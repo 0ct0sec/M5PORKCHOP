@@ -490,34 +490,62 @@
     If it doesn't compile, skill issue. Check your dependencies.
 
 
-----[ 5.1 - M5 Burner vs PlatformIO (READ THIS)
+----[ 5.1 - Flashing Methods & Progress Preservation
 
     Your XP, level, and achievements live in NVS (Non-Volatile Storage)
     at flash address 0x9000. Here's the cold hard truth:
 
-        +-------------------+-------------+----------------+
-        | Method            | XP/Level    | Settings       |
-        +-------------------+-------------+----------------+
-        | pio run -t upload | PRESERVED   | PRESERVED      |
-        | M5 Burner         | NUKED       | PRESERVED      |
-        +-------------------+-------------+----------------+
+        +---------------------------+-------------+----------------+
+        | Method                    | XP/Level    | Settings       |
+        +---------------------------+-------------+----------------+
+        | pio run -t upload         | PRESERVED   | PRESERVED      |
+        | ESP Web Tool (firmware)   | PRESERVED   | PRESERVED      |
+        | M5 Burner (merged bin)    | NUKED       | PRESERVED      |
+        +---------------------------+-------------+----------------+
 
-    Why? The merged .bin for M5 Burner writes fill bytes from 0x0 to
-    0x10000, steamrolling NVS at 0x9000. Settings survive because they
-    live in SPIFFS at 0x610000 - way beyond the blast radius.
+    Why the nuke? The merged .bin for M5 Burner writes fill bytes from
+    0x0 to 0x10000, steamrolling NVS at 0x9000. Settings survive because
+    they live in SPIFFS at 0x610000 - way beyond the blast radius.
 
-    TRANSLATION:
-        - First time install via M5 Burner? You're good.
-        - Updating via M5 Burner? Say goodbye to your grind.
-        - Want to keep your MUDGE UNCHA1NED status? Use PlatformIO.
 
-    For the GitHub release binary:
-        - Fresh installs: porkchop_v0.x.x.bin at offset 0x0
-        - Upgrades: Clone repo, `pio run -t upload`, keep your XP
+------[ 5.1.1 - First Time Install (any method works)
 
-    We could fix this with a multi-file flash, but M5 Burner wants
-    one file. If you're attached to your level, learn PlatformIO.
-    It's not that hard. Your pig will thank you.
+    Fresh device? Pick your poison:
+
+        M5 Burner:
+            - Grab porkchop_v0.x.x.bin from GitHub releases
+            - Flash at offset 0x0, done
+
+        ESP Web Tool (browser, no install):
+            - Go to https://espressif.github.io/esptool-js/
+            - Connect your Cardputer
+            - Add porkchop_v0.x.x.bin at offset 0x0
+            - Flash, profit
+
+
+------[ 5.1.2 - Upgrading (preserve your grind)
+
+    Already got XP? Here's how to keep it:
+
+        Option A - PlatformIO (recommended):
+            $ git pull
+            $ pio run -t upload -e m5cardputer
+            # Your pig remembers everything
+
+        Option B - ESP Web Tool (browser):
+            - Download firmware.bin from releases (NOT the merged one)
+            - Go to https://espressif.github.io/esptool-js/
+            - Connect, add firmware.bin at offset 0x10000
+            - Flash ONLY firmware, NVS stays safe
+
+        Option C - M5 Burner:
+            - Flash the merged bin
+            - Watch your MUDGE UNCHA1NED become BACON N00B
+            - Cry, then grind again
+
+    We provide both binaries in releases:
+        - porkchop_v0.x.x.bin     = Merged, fresh install, nukes XP
+        - firmware.bin            = App only, flash at 0x10000, keeps XP
 
 
 --[ 6 - Controls
