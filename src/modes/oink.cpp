@@ -2146,12 +2146,8 @@ bool OinkMode::excludeNetwork(int index) {
     
     uint64_t bssid = bssidToUint64(networks[index].bssid);
     
-    Serial.printf("[OINK] excludeNetwork: idx=%d BSSID=%012llX SSID=%s mapSize=%d\n", 
-                  index, bssid, networks[index].ssid, (int)boarBros.size());
-    
     // Check if already excluded
     if (boarBros.count(bssid) > 0) {
-        Serial.printf("[OINK] excludeNetwork: ALREADY IN MAP, returning false\n");
         return false;
     }
     

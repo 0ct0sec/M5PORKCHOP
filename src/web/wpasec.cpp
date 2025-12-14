@@ -278,7 +278,7 @@ bool WPASec::fetchResults() {
     // Pass key as cookie (required for dl=1 endpoint)
     String cookie = String("key=") + key;
     http.addHeader("Cookie", cookie);
-    Serial.printf("[WPASEC] Cookie: %s\n", cookie.c_str());
+    // Don't log the actual key for security
     
     int httpCode = http.GET();
     Serial.printf("[WPASEC] HTTP response code: %d\n", httpCode);
@@ -295,8 +295,7 @@ bool WPASec::fetchResults() {
     String response = http.getString();
     http.end();
     
-    Serial.printf("[WPASEC] Response length: %d bytes\n", response.length());
-    Serial.printf("[WPASEC] First 200 chars: %.200s\n", response.c_str());
+    Serial.printf("[WPASEC] Response: %d bytes\n", response.length());
     
     int newCracks = 0;
     int lineStart = 0;
@@ -352,8 +351,8 @@ bool WPASec::fetchResults() {
         
         String bssidKey = normalizeBSSID(bssid.c_str());
         
-        Serial.printf("[WPASEC] Parsed: BSSID=%s SSID=%s PASS=%s\n", 
-                      bssidKey.c_str(), ssid.c_str(), password.c_str());
+        // Don't log password for security
+        Serial.printf("[WPASEC] Found: %s (%s)\n", ssid.c_str(), bssidKey.c_str());
         
         // Check if this is new
         if (crackedCache.find(bssidKey) == crackedCache.end()) {
