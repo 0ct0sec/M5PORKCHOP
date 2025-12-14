@@ -605,71 +605,6 @@
     No regrets.
 
 
-----[ 6.2 - OINK Mode Screen
-
-    Press O and let the piglet loose. Here's the hunting grounds:
-
-        +----------------------------------------------+
-        | [OINK GUD]                   85% GWM --:--   |  <- Top Bar
-        +----------------------------------------------+
-        |                                              |
-        |       |  |      .------------------------.   |
-        |      (= 00)  < | hunting truffles        |   |  <- Avatar + Bubble
-        |      (    )     `------------------------'   |
-        |    /\/\/\/\/\                                |  <- Grass animation
-        |                                              |
-        +----------------------------------------------+
-        | N:42 HS:3 D:127 CH:6                    1:23 |  <- Stats + Uptime
-        +----------------------------------------------+
-
-    Bottom bar - the numbers that matter:
-
-        N:42    = Snouts don't lie. 42 networks in range.
-        HS:3    = 3 four-ways in the bag. Hashcat is waiting.
-        D:127   = 127 frames of pure chaos unleashed.
-        CH:6    = Currently sniffing channel 6.
-        PWN:xxx = Trophy wall. Last victim's SSID.
-        1:23    = How long piggy been running wild.
-
-    The grass under piggy's feet tells you what's happening. When you
-    see it scrolling, channel hopping is active - the snout is working.
-    Static grass means the pig is chilling, waiting for orders.
-
-
-----[ 6.3 - WARHOG Mode Screen
-
-    GPS + WiFi = tactical recon. Hook up that GPS and hit the road:
-
-        +----------------------------------------------+
-        | [WARHOG HYP3]                85% GWM 12:45   |  <- Top Bar
-        +----------------------------------------------+
-        |                                              |
-        |       !  !      .------------------------.   |
-        |      (@ 00)  < | hog on patrol           |   |  <- Avatar + Bubble
-        |      (    )     `------------------------'   |
-        |    /\\/\\/\\/\\/\\                                |  <- Grass animation
-        |                                              |
-        +----------------------------------------------+
-        | U:128 S:45 D:1.2km [42.36,-71.05]      12:45 |  <- Stats + Uptime
-        +----------------------------------------------+
-
-    Bottom bar - the wardriving scoreboard:
-
-        U:128           = 128 unique APs mapped. New territory.
-        S:45            = 45 entries written to SD. Receipts.
-        D:1.2km         = Distance walked this session.
-        [42.36,-71.05]  = You are here. Lat,lon (with GPS fix).
-        GPS:Xsat        = Satellite count (when no fix).
-        12:45           = Time on the hunt.
-
-    The grass is your GPS indicator. Moving grass = fix acquired,
-    coords are logging, you're making progress. Static grass = no fix,
-    piggy is blind and sad, nothing getting saved with coords.
-
-    When the fix locks, piggy goes "gps locked n loaded" and gets hyped.
-    When you lose it, piggy sulks. The grass never lies.
-
-
 --[ 7 - Configuration
 
     Settings persist to SPIFFS. Your piglet remembers.
@@ -787,6 +722,7 @@
     |
     +-- src/
     |   +-- main.cpp              # Entry point, main loop
+    |   +-- build_info.h          # Version string, build timestamp
     |   +-- core/
     |   |   +-- porkchop.cpp/h    # State machine, mode management
     |   |   +-- config.cpp/h      # Configuration (SPIFFS persistence)
@@ -823,6 +759,7 @@
     |   |
     |   +-- web/
     |       +-- fileserver.cpp/h  # WiFi file transfer server
+    |       +-- wpasec.cpp/h      # WPA-SEC distributed cracking client
     |
     +-- scripts/
     |   +-- prepare_ml_data.py    # Label & convert data for Edge Impulse
