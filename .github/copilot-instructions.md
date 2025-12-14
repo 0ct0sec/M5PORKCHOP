@@ -52,13 +52,14 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 - `src/ui/display.cpp/h` - Triple-buffered canvas system (topBar, mainCanvas, bottomBar), 240x135 display, showToast(), showLevelUp()
 - `src/ui/menu.cpp/h` - Main menu with callback system
 - `src/ui/settings_menu.cpp/h` - Interactive settings with TOGGLE, VALUE, ACTION, TEXT item types
-- `src/ui/captures_menu.cpp/h` - LOOT menu: captured handshakes/PMKID viewer, nuke loot feature
+- `src/ui/captures_menu.cpp/h` - LOOT menu: captured handshakes/PMKID viewer, WPA-SEC integration, nuke loot feature
 - `src/ui/achievements_menu.cpp/h` - Achievements viewer with unlock descriptions
 - `src/ui/log_viewer.cpp/h` - SD card log file viewer with scrolling
 - `src/ui/swine_stats.cpp/h` - Lifetime stats overlay with buff/debuff system
 
 ### Web Interface
 - `src/web/fileserver.cpp/h` - WiFi AP file server for SD card access, black/white web UI
+- `src/web/wpasec.cpp/h` - WPA-SEC distributed cracking client (wpa-sec.stanev.org)
 
 ### Piglet Personality
 - `src/piglet/avatar.cpp/h` - ASCII art pig face rendering with derpy style, direction flipping (L/R)
@@ -217,6 +218,69 @@ Settings use `SettingItem` struct with types:
 Text input handles Shift+key for uppercase and special characters via keyboard library.
 
 Settings persist to `/porkchop.conf` via ArduinoJson.
+
+## WPA-SEC Integration
+
+### Overview
+Distributed WPA/WPA2 password cracking via wpa-sec.stanev.org. Upload captured handshakes to a network of hashcat rigs that crack passwords while you sleep.
+
+### Architecture
+- `src/web/wpasec.h` - WPASec static class, CacheEntry struct, API constants
+- `src/web/wpasec.cpp` - HTTP client, cache management, BSSID normalization
+
+### API Endpoints
+- **Host**: `wpa-sec.stanev.org` (HTTPS port 443)
+- **GET results**: `/?api&key=<32-char-hex-key>` - Returns `BSSID:SSID:password` lines
+- **POST upload**: `/?submit` with `Cookie: key=<key>` - Multipart form upload of .pcap
+
+### Local Cache Files (SD card)
+- `/wpasec_results.txt` - Cached cracked passwords (`BSSID:SSID:password` format)
+- `/wpasec_uploaded.txt` - List of uploaded BSSIDs (one per line, no colons)
+- `/wpasec_key.txt` - Key import file (auto-deleted after import)
+
+### Key Management
+```cpp
+// In config.cpp - called during init()
+bool Config::loadWpaSecKeyFromFile() {
+    // 1. Read /wpasec_key.txt from SD
+    // 2. Validate: must be exactly 32 hex characters
+    // 3. Save to wifiConfig.wpaSecKey and persist to config
+    // 4. Delete the file for security
+}
+```
+
+### CaptureStatus Enum
+```cpp
+enum class CaptureStatus {
+    LOCAL,      // [--] Not uploaded yet
+    UPLOADED,   // [..] Uploaded, waiting for crack
+    CRACKED     // [OK] Password found!
+};
+```
+
+### LOOT Menu Integration
+- Status indicators in list view: `[OK]`, `[..]`, `[--]`
+- Detail view shows password if `status == CRACKED`
+- U key triggers `uploadSelected()` - connects WiFi, uploads .pcap
+- R key triggers `refreshResults()` - fetches latest from WPA-SEC API
+- Both track `weConnected` flag to only disconnect WiFi if we initiated it
+
+### BSSID Normalization
+All BSSID lookups normalize to uppercase, no colons:
+```cpp
+String WPASec::normalizeBSSID(const char* bssid) {
+    // "AA:BB:CC:DD:EE:FF" -> "AABBCCDDEEFF"
+}
+```
+
+### Response Parsing
+WPA-SEC returns `BSSID:SSID:password` but SSID/password may contain colons:
+```cpp
+// Parse strategy:
+// 1. Find last colon -> password is after it
+// 2. Count 5 colons from start -> that's the BSSID end
+// 3. SSID is everything between BSSID and password
+```
 
 ## Build Commands
 

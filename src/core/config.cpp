@@ -53,6 +53,11 @@ bool Config::init() {
         createDefaultConfig();
     }
     
+    // Try to load WPA-SEC key from file (auto-deletes after import)
+    if (loadWpaSecKeyFromFile()) {
+        Serial.println("[CONFIG] WPA-SEC key loaded from file");
+    }
+    
     initialized = true;
     return true;
 }
@@ -111,6 +116,7 @@ bool Config::load() {
         wifiConfig.otaSSID = doc["wifi"]["otaSSID"] | "";
         wifiConfig.otaPassword = doc["wifi"]["otaPassword"] | "";
         wifiConfig.autoConnect = doc["wifi"]["autoConnect"] | false;
+        wifiConfig.wpaSecKey = doc["wifi"]["wpaSecKey"] | "";
     }
     
     // BLE config (PIGGY BLUES)
@@ -221,6 +227,7 @@ bool Config::save() {
     doc["wifi"]["otaSSID"] = wifiConfig.otaSSID;
     doc["wifi"]["otaPassword"] = wifiConfig.otaPassword;
     doc["wifi"]["autoConnect"] = wifiConfig.autoConnect;
+    doc["wifi"]["wpaSecKey"] = wifiConfig.wpaSecKey;
     
     // BLE config (PIGGY BLUES)
     doc["ble"]["burstInterval"] = bleConfig.burstInterval;
@@ -282,4 +289,51 @@ void Config::setPersonality(const PersonalityConfig& cfg) {
     
     // Save personality to SPIFFS (always available)
     savePersonalityToSPIFFS();
+}
+
+bool Config::loadWpaSecKeyFromFile() {
+    const char* keyFile = "/wpasec_key.txt";
+    
+    if (!sdAvailable || !SD.exists(keyFile)) {
+        return false;
+    }
+    
+    File f = SD.open(keyFile, FILE_READ);
+    if (!f) {
+        Serial.println("[CONFIG] Failed to open wpasec_key.txt");
+        return false;
+    }
+    
+    // Read the key (first line, trim whitespace)
+    String key = f.readStringUntil('\n');
+    key.trim();
+    f.close();
+    
+    // Validate key format (should be 32 hex characters)
+    if (key.length() != 32) {
+        Serial.printf("[CONFIG] Invalid WPA-SEC key length: %d (expected 32)\n", key.length());
+        return false;
+    }
+    
+    // Check all chars are hex
+    for (int i = 0; i < 32; i++) {
+        char c = key.charAt(i);
+        if (!isxdigit(c)) {
+            Serial.printf("[CONFIG] Invalid hex char in WPA-SEC key at position %d\n", i);
+            return false;
+        }
+    }
+    
+    // Store the key
+    wifiConfig.wpaSecKey = key;
+    save();
+    
+    // Delete the file for security
+    if (SD.remove(keyFile)) {
+        Serial.println("[CONFIG] Deleted wpasec_key.txt after import");
+    } else {
+        Serial.println("[CONFIG] Warning: Could not delete wpasec_key.txt");
+    }
+    
+    return true;
 }

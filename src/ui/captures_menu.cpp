@@ -5,6 +5,8 @@
 #include <SD.h>
 #include <time.h>
 #include "display.h"
+#include "../web/wpasec.h"
+#include "../core/config.h"
 
 // Static member initialization
 std::vector<CaptureInfo> CapturesMenu::captures;
@@ -13,6 +15,10 @@ uint8_t CapturesMenu::scrollOffset = 0;
 bool CapturesMenu::active = false;
 bool CapturesMenu::keyWasPressed = false;
 bool CapturesMenu::nukeConfirmActive = false;
+bool CapturesMenu::detailViewActive = false;
+bool CapturesMenu::connectingWiFi = false;
+bool CapturesMenu::uploadingFile = false;
+bool CapturesMenu::refreshingResults = false;
 
 void CapturesMenu::init() {
     captures.clear();
@@ -105,11 +111,18 @@ void CapturesMenu::scanCaptures() {
                 info.ssid = "[unknown]";
             }
             
+            // Check WPA-SEC status
+            info.status = CaptureStatus::LOCAL;
+            info.password = "";
+            
             captures.push_back(info);
         }
         file = dir.openNextFile();
     }
     dir.close();
+    
+    // Update WPA-SEC status for all captures
+    updateWPASecStatus();
     
     // Sort by capture time (newest first)
     std::sort(captures.begin(), captures.end(), [](const CaptureInfo& a, const CaptureInfo& b) {
@@ -117,6 +130,26 @@ void CapturesMenu::scanCaptures() {
     });
     
     Serial.printf("[CAPTURES] Found %d captures\n", captures.size());
+}
+
+void CapturesMenu::updateWPASecStatus() {
+    // Load WPA-SEC cache (lazy, only loads once)
+    WPASec::loadCache();
+    
+    for (auto& cap : captures) {
+        // Normalize BSSID for lookup (remove colons)
+        String normalBssid = cap.bssid;
+        normalBssid.replace(":", "");
+        
+        if (WPASec::isCracked(normalBssid.c_str())) {
+            cap.status = CaptureStatus::CRACKED;
+            cap.password = WPASec::getPassword(normalBssid.c_str());
+        } else if (WPASec::isUploaded(normalBssid.c_str())) {
+            cap.status = CaptureStatus::UPLOADED;
+        } else {
+            cap.status = CaptureStatus::LOCAL;
+        }
+    }
 }
 
 void CapturesMenu::update() {
@@ -152,6 +185,28 @@ void CapturesMenu::handleInput() {
         return;
     }
     
+    // Handle detail view modal - Enter/backtick closes, U/R trigger actions
+    if (detailViewActive) {
+        if (keys.enter || M5Cardputer.Keyboard.isKeyPressed('`')) {
+            detailViewActive = false;
+            return;
+        }
+        // Allow U/R in modal - close modal and trigger action
+        if (M5Cardputer.Keyboard.isKeyPressed('u') || M5Cardputer.Keyboard.isKeyPressed('U')) {
+            detailViewActive = false;
+            if (!captures.empty() && selectedIndex < captures.size()) {
+                uploadSelected();
+            }
+            return;
+        }
+        if (M5Cardputer.Keyboard.isKeyPressed('r') || M5Cardputer.Keyboard.isKeyPressed('R')) {
+            detailViewActive = false;
+            refreshResults();
+            return;
+        }
+        return;  // Block other inputs while detail view is open
+    }
+    
     // Navigation with ; (up) and . (down)
     if (M5Cardputer.Keyboard.isKeyPressed(';')) {
         if (selectedIndex > 0) {
@@ -171,6 +226,13 @@ void CapturesMenu::handleInput() {
         }
     }
     
+    // Enter shows detail view (password if cracked)
+    if (keys.enter) {
+        if (!captures.empty() && selectedIndex < captures.size()) {
+            detailViewActive = true;
+        }
+    }
+    
     // Nuke all loot with D key
     if (M5Cardputer.Keyboard.isKeyPressed('d') || M5Cardputer.Keyboard.isKeyPressed('D')) {
         if (!captures.empty()) {
@@ -179,7 +241,19 @@ void CapturesMenu::handleInput() {
         }
     }
     
-    // Exit with backtick only
+    // U key uploads selected capture to WPA-SEC
+    if (M5Cardputer.Keyboard.isKeyPressed('u') || M5Cardputer.Keyboard.isKeyPressed('U')) {
+        if (!captures.empty() && selectedIndex < captures.size()) {
+            uploadSelected();
+        }
+    }
+    
+    // R key refreshes results from WPA-SEC
+    if (M5Cardputer.Keyboard.isKeyPressed('r') || M5Cardputer.Keyboard.isKeyPressed('R')) {
+        refreshResults();
+    }
+    
+    // Exit with backtick
     if (M5Cardputer.Keyboard.isKeyPressed('`')) {
         hide();
     }
@@ -227,21 +301,31 @@ void CapturesMenu::draw(M5Canvas& canvas) {
             canvas.setTextColor(COLOR_FG);
         }
         
-        // SSID (truncated if needed) - show [P] prefix for PMKID
+        // SSID (truncated if needed) - show [P] prefix for PMKID, status indicator
         canvas.setCursor(4, y);
         String displaySSID = cap.isPMKID ? "[P]" : "";
         displaySSID += cap.ssid;
-        if (displaySSID.length() > 14) {
-            displaySSID = displaySSID.substring(0, 12) + "..";
+        if (displaySSID.length() > 10) {
+            displaySSID = displaySSID.substring(0, 8) + "..";
         }
         canvas.print(displaySSID);
         
+        // Status indicator
+        canvas.setCursor(75, y);
+        if (cap.status == CaptureStatus::CRACKED) {
+            canvas.print("[OK]");
+        } else if (cap.status == CaptureStatus::UPLOADED) {
+            canvas.print("[..]");
+        } else {
+            canvas.print("[--]");
+        }
+        
         // Date/time
-        canvas.setCursor(95, y);
+        canvas.setCursor(105, y);
         canvas.print(formatTime(cap.captureTime));
         
         // File size (KB)
-        canvas.setCursor(170, y);
+        canvas.setCursor(180, y);
         canvas.printf("%dK", cap.fileSize / 1024);
         
         y += lineHeight;
@@ -262,6 +346,16 @@ void CapturesMenu::draw(M5Canvas& canvas) {
     // Draw nuke confirmation modal if active
     if (nukeConfirmActive) {
         drawNukeConfirm(canvas);
+    }
+    
+    // Draw detail view modal if active
+    if (detailViewActive) {
+        drawDetailView(canvas);
+    }
+    
+    // Draw connecting overlay if active
+    if (connectingWiFi || uploadingFile || refreshingResults) {
+        drawConnecting(canvas);
     }
     // BSSID shown in bottom bar via getSelectedBSSID()
 }
@@ -333,4 +427,191 @@ String CapturesMenu::getSelectedBSSID() {
         return captures[selectedIndex].bssid;
     }
     return "";
+}
+void CapturesMenu::drawDetailView(M5Canvas& canvas) {
+    if (selectedIndex >= captures.size()) return;
+    
+    const CaptureInfo& cap = captures[selectedIndex];
+    
+    // Modal box dimensions
+    const int boxW = 220;
+    const int boxH = 85;
+    const int boxX = (canvas.width() - boxW) / 2;
+    const int boxY = (canvas.height() - boxH) / 2 - 5;
+    
+    // Black border then pink fill
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
+    
+    // Black text on pink background
+    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    canvas.setTextDatum(top_center);
+    canvas.setTextSize(1);
+    
+    int centerX = canvas.width() / 2;
+    
+    // SSID
+    String ssidLine = cap.ssid;
+    if (ssidLine.length() > 24) ssidLine = ssidLine.substring(0, 22) + "..";
+    canvas.drawString(ssidLine, centerX, boxY + 6);
+    
+    // BSSID
+    canvas.drawString(cap.bssid, centerX, boxY + 20);
+    
+    // Status and password
+    if (cap.status == CaptureStatus::CRACKED) {
+        canvas.drawString("** CR4CK3D **", centerX, boxY + 38);
+        
+        // Password in larger text
+        String pwLine = cap.password;
+        if (pwLine.length() > 20) pwLine = pwLine.substring(0, 18) + "..";
+        canvas.drawString(pwLine, centerX, boxY + 54);
+    } else if (cap.status == CaptureStatus::UPLOADED) {
+        canvas.drawString("Uploaded, waiting...", centerX, boxY + 38);
+        canvas.drawString("[R] Refresh results", centerX, boxY + 54);
+    } else {
+        canvas.drawString("Not uploaded yet", centerX, boxY + 38);
+        canvas.drawString("[U] Upload to WPA-SEC", centerX, boxY + 54);
+    }
+    
+    canvas.drawString("[Enter/`] Close", centerX, boxY + 72);
+}
+
+void CapturesMenu::drawConnecting(M5Canvas& canvas) {
+    // Overlay message
+    const int boxW = 180;
+    const int boxH = 40;
+    const int boxX = (canvas.width() - boxW) / 2;
+    const int boxY = (canvas.height() - boxH) / 2;
+    
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 6, COLOR_BG);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 6, COLOR_FG);
+    
+    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    canvas.setTextDatum(top_center);
+    
+    int centerX = canvas.width() / 2;
+    
+    if (connectingWiFi) {
+        canvas.drawString("Connecting WiFi...", centerX, boxY + 8);
+        canvas.drawString(WPASec::getStatus(), centerX, boxY + 22);
+    } else if (uploadingFile) {
+        canvas.drawString("Uploading...", centerX, boxY + 8);
+        canvas.drawString(WPASec::getStatus(), centerX, boxY + 22);
+    } else if (refreshingResults) {
+        canvas.drawString("Fetching results...", centerX, boxY + 8);
+        canvas.drawString(WPASec::getStatus(), centerX, boxY + 22);
+    }
+}
+
+void CapturesMenu::uploadSelected() {
+    if (selectedIndex >= captures.size()) return;
+    
+    const CaptureInfo& cap = captures[selectedIndex];
+    
+    // Check if WPA-SEC key is configured
+    if (Config::wifi().wpaSecKey.isEmpty()) {
+        Display::showToast("Set WPA-SEC key first");
+        return;
+    }
+    
+    // Already cracked? No need to upload
+    if (cap.status == CaptureStatus::CRACKED) {
+        Display::showToast("Already cracked!");
+        return;
+    }
+    
+    // Find the PCAP file for this capture
+    String baseName = cap.bssid;
+    baseName.replace(":", "");
+    String pcapPath = "/handshakes/" + baseName + ".pcap";
+    
+    if (!SD.exists(pcapPath)) {
+        Display::showToast("No PCAP file found");
+        return;
+    }
+    
+    // Connect to WiFi if needed
+    bool weConnected = false;
+    connectingWiFi = true;
+    
+    // Force a redraw before blocking operation
+    Display::update();
+    delay(100);
+    
+    if (!WPASec::isConnected()) {
+        if (!WPASec::connect()) {
+            connectingWiFi = false;
+            Display::showToast(WPASec::getLastError());
+            return;
+        }
+        weConnected = true;
+    }
+    connectingWiFi = false;
+    
+    // Upload the file
+    uploadingFile = true;
+    Display::update();
+    delay(100);
+    
+    bool success = WPASec::uploadCapture(pcapPath.c_str());
+    uploadingFile = false;
+    
+    if (success) {
+        Display::showToast("Upload OK!");
+        // Update status
+        captures[selectedIndex].status = CaptureStatus::UPLOADED;
+    } else {
+        Display::showToast(WPASec::getLastError());
+    }
+    
+    // Disconnect WiFi only if we initiated the connection
+    if (weConnected) {
+        WPASec::disconnect();
+    }
+}
+
+void CapturesMenu::refreshResults() {
+    // Check if WPA-SEC key is configured
+    if (Config::wifi().wpaSecKey.isEmpty()) {
+        Display::showToast("Set WPA-SEC key first");
+        return;
+    }
+    
+    // Connect to WiFi if needed
+    bool weConnected = false;
+    connectingWiFi = true;
+    Display::update();
+    delay(100);
+    
+    if (!WPASec::isConnected()) {
+        if (!WPASec::connect()) {
+            connectingWiFi = false;
+            Display::showToast(WPASec::getLastError());
+            return;
+        }
+        weConnected = true;
+    }
+    connectingWiFi = false;
+    
+    // Fetch results
+    refreshingResults = true;
+    Display::update();
+    delay(100);
+    
+    bool success = WPASec::fetchResults();
+    refreshingResults = false;
+    
+    if (success) {
+        Display::showToast(WPASec::getStatus());
+        // Update status for all captures
+        updateWPASecStatus();
+    } else {
+        Display::showToast(WPASec::getLastError());
+    }
+    
+    // Disconnect WiFi only if we initiated the connection
+    if (weConnected) {
+        WPASec::disconnect();
+    }
 }

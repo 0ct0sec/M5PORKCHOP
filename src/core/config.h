@@ -47,6 +47,7 @@ struct WiFiConfig {
     String otaSSID = "";
     String otaPassword = "";
     bool autoConnect = false;
+    String wpaSecKey = "";              // WPA-SEC.stanev.org user key (32 hex chars)
 };
 
 // BLE settings for PIGGY BLUES mode
@@ -78,6 +79,7 @@ public:
     static bool load();
     static bool loadPersonality();
     static bool isSDAvailable();
+    static bool loadWpaSecKeyFromFile();  // Load key from /wpasec_key.txt and delete file
     
     // Getters
     static GPSConfig& gps() { return gpsConfig; }

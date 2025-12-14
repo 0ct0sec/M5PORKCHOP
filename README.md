@@ -21,11 +21,12 @@
         3.3 - PIGGY BLUES Mode
         3.4 - HOG ON SPECTRUM Mode
         3.5 - File Transfer Mode
-        3.6 - Machine Learning
-        3.7 - Enhanced ML Mode
-        3.8 - XP System
-        3.9 - Achievements
-        3.10 - SWINE STATS (Buff System)
+        3.6 - LOOT Menu & WPA-SEC Integration
+        3.7 - Machine Learning
+        3.8 - Enhanced ML Mode
+        3.9 - XP System
+        3.10 - Achievements
+        3.11 - SWINE STATS (Buff System)
     4 - Hardware
     5 - Building & Flashing
     6 - Controls
@@ -173,16 +174,40 @@
     pig will stare at you blankly wondering what you expected.
 
 
-----[ 3.6.1 - LOOT Menu
+----[ 3.6 - LOOT Menu & WPA-SEC Integration
 
     Your spoils of war. Hit LOOT from the main menu to see what
     you've captured:
 
         * Browse all captured handshakes and PMKIDs
-        * [HS] = full 4-way handshake (.pcap + _hs.22000)
-        * [PMKID] = clientless PMKID capture (.22000)
-        * Enter = view details (SSID, BSSID)
+        * [P] prefix = PMKID capture, no prefix = full handshake
+        * Status indicators show WPA-SEC cloud cracking status:
+            - [OK] = CRACKED - password found, press Enter to see it
+            - [..] = UPLOADED - waiting for distributed cracking
+            - [--] = LOCAL - not uploaded yet
+        * Enter = view details (SSID, BSSID, password if cracked)
+        * U = Upload selected capture to WPA-SEC
+        * R = Refresh results from WPA-SEC
         * D = NUKE THE LOOT - scorched earth, rm -rf /handshakes/*
+
+    WPA-SEC Integration (wpa-sec.stanev.org):
+
+        Distributed WPA/WPA2 password cracking. Upload your .pcap
+        files to a network of hashcat rigs that work while you sleep.
+        Free as in beer. No GPU? No problem.
+
+        Setup:
+        1. Register at https://wpa-sec.stanev.org
+        2. Get your 32-char hex API key from your profile
+        3. Create file /wpasec_key.txt on SD card with your key
+        4. Reboot - key auto-imports and file self-destructs
+           (security through obscurity, but it's something)
+
+        Or use Settings menu: Tweak -> "< Load Key File >"
+
+        Once configured, the LOOT menu shows real-time status.
+        Upload captures with U, check results with R. That's it.
+        When a capture shows [OK], press Enter to see the password.
 
     File format breakdown:
 
@@ -200,7 +225,7 @@
     says it caught a PMKID, it's a real one worth cracking.
 
 
-----[ 3.6 - Machine Learning
+----[ 3.7 - Machine Learning
 
     PORKCHOP doesn't just capture - it thinks. The ML system extracts
     32 features from every beacon frame:
@@ -222,7 +247,7 @@
     The scaffold is ready.
 
 
-----[ 3.7 - Enhanced ML Mode
+----[ 3.8 - Enhanced ML Mode
 
     Two collection modes for different threat models:
 
@@ -257,7 +282,7 @@
         * WPS on open network    Classic honeypot fingerprint.
 
 
-----[ 3.8 - XP System
+----[ 3.9 - XP System
 
     Your piglet has ambitions. Every network sniffed, every handshake
     grabbed, every deauth fired - it all counts. The XP system tracks
@@ -300,7 +325,7 @@
     ready to lose your progress.
 
 
-----[ 3.9 - Achievements
+----[ 3.10 - Achievements
 
     47 secret badges to prove you're not just grinding mindlessly.
     Or maybe you are. Either way, proof of pwn.
@@ -316,7 +341,7 @@
     hunt for handshakes.
 
 
-----[ 3.10 - SWINE STATS (Buff System)
+----[ 3.11 - SWINE STATS (Buff System)
 
     Press 'S' or hit SWINE STATS in the menu to see your lifetime
     progress and check what buffs/debuffs are currently messing with
@@ -326,7 +351,7 @@
     what's actively buffing or debuffing your pig.
 
 
-----[ 3.10.1 - Class System
+----[ 3.11.1 - Class System
 
     Every 5 levels your pig promotes to a new class tier. Classes
     grant PERMANENT CUMULATIVE buffs - higher tier = more stacking:

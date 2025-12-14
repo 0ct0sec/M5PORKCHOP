@@ -5,6 +5,7 @@
 #include "../core/config.h"
 #include "../core/sdlog.h"
 #include <M5Cardputer.h>
+#include <SD.h>
 
 // Static member initialization
 std::vector<SettingItem> SettingsMenu::items;
@@ -41,6 +42,26 @@ void SettingsMenu::loadFromConfig() {
         0, 0, 0, 0, "",
         Config::wifi().otaPassword,
         "Secret sauce goes here"
+    });
+    
+    // WPA-SEC Key display (masked) - shows key status
+    String keyStatus = Config::wifi().wpaSecKey.isEmpty() ? "(not set)" : 
+        Config::wifi().wpaSecKey.substring(0, 4) + "..." + 
+        Config::wifi().wpaSecKey.substring(Config::wifi().wpaSecKey.length() - 4);
+    items.push_back({
+        "WPA-SEC",
+        SettingType::TEXT,
+        0, 0, 0, 0, "",
+        keyStatus,
+        "wpa-sec.stanev.org key"
+    });
+    
+    // Load Key File action - reads from /wpasec_key.txt
+    items.push_back({
+        "< Load Key File >",
+        SettingType::ACTION,
+        0, 0, 0, 0, "", "",
+        "Read /wpasec_key.txt"
     });
     
     // Sound toggle
@@ -250,58 +271,59 @@ String SettingsMenu::getSelectedDescription() {
 }
 
 void SettingsMenu::saveToConfig() {
-    // WiFi settings - SSID and Password from TEXT items
+    // WiFi settings - SSID, Password from TEXT items (WPA-SEC loaded from file)
     auto& w = Config::wifi();
     w.otaSSID = items[0].textValue;
     w.otaPassword = items[1].textValue;
-    w.channelHopInterval = items[6].value;
-    w.lockTime = items[7].value;
-    w.enableDeauth = items[8].value == 1;
-    w.randomizeMAC = items[9].value == 1;
+    // items[2] is WPA-SEC display (read-only), items[3] is Load Key File action
+    w.channelHopInterval = items[9].value;
+    w.lockTime = items[10].value;
+    w.enableDeauth = items[11].value == 1;
+    w.randomizeMAC = items[12].value == 1;
     Config::setWiFi(w);
     
     // Sound, Brightness, and Dimming
     auto& p = Config::personality();
-    p.soundEnabled = items[2].value == 1;
-    p.brightness = items[3].value;
-    p.dimTimeout = items[4].value;
-    p.dimLevel = items[5].value;
+    p.soundEnabled = items[4].value == 1;
+    p.brightness = items[5].value;
+    p.dimTimeout = items[6].value;
+    p.dimLevel = items[7].value;
     Config::setPersonality(p);
     
     // Apply brightness to display (if not dimmed, reset timer too)
     Display::resetDimTimer();
-    M5.Display.setBrightness(items[3].value * 255 / 100);
+    M5.Display.setBrightness(items[5].value * 255 / 100);
     
     // GPS settings
     auto& g = Config::gps();
-    g.enabled = items[10].value == 1;
-    g.powerSave = items[11].value == 1;
-    g.updateInterval = items[12].value;  // Scan interval in seconds
+    g.enabled = items[13].value == 1;
+    g.powerSave = items[14].value == 1;
+    g.updateInterval = items[15].value;  // Scan interval in seconds
     
     // Convert baud index to actual baud rate
     static const uint32_t baudRates[] = {9600, 38400, 57600, 115200};
-    g.baudRate = baudRates[items[13].value];
+    g.baudRate = baudRates[items[16].value];
     
     // GPS RX/TX pins (G1/G2 for Grove, G13/G15 for Cap LoRa868)
-    g.rxPin = items[14].value;
-    g.txPin = items[15].value;
+    g.rxPin = items[17].value;
+    g.txPin = items[18].value;
     
-    g.timezoneOffset = items[16].value;
+    g.timezoneOffset = items[19].value;
     Config::setGPS(g);
     
     // ML settings
     auto& m = Config::ml();
-    m.collectionMode = static_cast<MLCollectionMode>(items[17].value);
+    m.collectionMode = static_cast<MLCollectionMode>(items[20].value);
     Config::setML(m);
     
     // SD Logging
-    SDLog::setEnabled(items[18].value == 1);
+    SDLog::setEnabled(items[21].value == 1);
     
     // BLE settings (PIGGY BLUES)
     auto& b = Config::ble();
-    b.burstInterval = items[19].value;
-    b.advDuration = items[20].value;
-    b.rescanInterval = items[21].value;
+    b.burstInterval = items[22].value;
+    b.advDuration = items[23].value;
+    b.rescanInterval = items[24].value;
     Config::setBLE(b);
     
     // Save to file
@@ -387,9 +409,26 @@ void SettingsMenu::handleInput() {
     // Enter to select/toggle/confirm
     if (keys.enter) {
         if (item.type == SettingType::ACTION) {
-            // Save & Exit
-            saveToConfig();
-            exitRequested = true;
+            if (item.label == "< Load Key File >") {
+                // Load WPA-SEC key from file
+                if (Config::loadWpaSecKeyFromFile()) {
+                    Display::showToast("Key loaded!");
+                    // Refresh the display to show masked key
+                    loadFromConfig();
+                } else {
+                    if (!Config::isSDAvailable()) {
+                        Display::showToast("No SD card");
+                    } else if (!SD.exists("/wpasec_key.txt")) {
+                        Display::showToast("No key file");
+                    } else {
+                        Display::showToast("Invalid key");
+                    }
+                }
+            } else {
+                // Save & Exit
+                saveToConfig();
+                exitRequested = true;
+            }
         } else if (item.type == SettingType::TOGGLE) {
             // Toggle ON/OFF
             item.value = item.value == 0 ? 1 : 0;
@@ -402,11 +441,16 @@ void SettingsMenu::handleInput() {
                 editing = true;
             }
         } else if (item.type == SettingType::TEXT) {
-            // Enter text editing mode
-            textEditing = true;
-            textBuffer = item.textValue;
-            cursorPos = textBuffer.length();
-            keyWasPressed = true;  // Prevent immediate character input
+            // Skip text editing for WPA-SEC display (read-only)
+            if (item.label == "WPA-SEC") {
+                // Do nothing - this is display only
+            } else {
+                // Enter text editing mode
+                textEditing = true;
+                textBuffer = item.textValue;
+                cursorPos = textBuffer.length();
+                keyWasPressed = true;  // Prevent immediate character input
+            }
         }
     }
     
