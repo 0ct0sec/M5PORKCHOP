@@ -10,6 +10,7 @@
 #include "../ui/log_viewer.h"
 #include "../ui/swine_stats.h"
 #include "../ui/boar_bros_menu.h"
+#include "../ui/wigle_menu.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../modes/oink.h"
@@ -80,6 +81,7 @@ void Porkchop::init() {
         // === DATA & STATS ===
         {"SWINE STATS", 11, "Lifetime stats & buffs"},
         {"LOOT", 4, "View saved loot"},
+        {"PORK TRACKS", 13, "Upload to WiGLE"},
         {"BOAR BROS", 12, "Manage friendly networks"},
         {"ACHIEVEMENTS", 9, "Proof of pwn"},
         // === SERVICES ===
@@ -106,6 +108,7 @@ void Porkchop::init() {
             case 10: setMode(PorkchopMode::SPECTRUM_MODE); break;
             case 11: setMode(PorkchopMode::SWINE_STATS); break;
             case 12: setMode(PorkchopMode::BOAR_BROS); break;
+            case 13: setMode(PorkchopMode::WIGLE_MENU); break;
         }
         Menu::clearSelected();
     });
@@ -131,7 +134,7 @@ void Porkchop::setMode(PorkchopMode mode) {
     // Store the mode we're leaving for cleanup
     PorkchopMode oldMode = currentMode;
     
-    // Only save "real" modes as previous (not SETTINGS/ABOUT/MENU/CAPTURES/ACHIEVEMENTS/FILE_TRANSFER/LOG_VIEWER/SWINE_STATS/BOAR_BROS)
+    // Only save "real" modes as previous (not SETTINGS/ABOUT/MENU/CAPTURES/ACHIEVEMENTS/FILE_TRANSFER/LOG_VIEWER/SWINE_STATS/BOAR_BROS/WIGLE_MENU)
     if (currentMode != PorkchopMode::SETTINGS && 
         currentMode != PorkchopMode::ABOUT && 
         currentMode != PorkchopMode::CAPTURES &&
@@ -140,7 +143,8 @@ void Porkchop::setMode(PorkchopMode mode) {
         currentMode != PorkchopMode::FILE_TRANSFER &&
         currentMode != PorkchopMode::LOG_VIEWER &&
         currentMode != PorkchopMode::SWINE_STATS &&
-        currentMode != PorkchopMode::BOAR_BROS) {
+        currentMode != PorkchopMode::BOAR_BROS &&
+        currentMode != PorkchopMode::WIGLE_MENU) {
         previousMode = currentMode;
     }
     currentMode = mode;
@@ -182,6 +186,9 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::BOAR_BROS:
             BoarBrosMenu::hide();
+            break;
+        case PorkchopMode::WIGLE_MENU:
+            WigleMenu::hide();
             break;
         default:
             break;
@@ -245,6 +252,9 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::BOAR_BROS:
             BoarBrosMenu::show();
+            break;
+        case PorkchopMode::WIGLE_MENU:
+            WigleMenu::show();
             break;
         case PorkchopMode::ABOUT:
             Display::resetAboutState();
@@ -513,6 +523,12 @@ void Porkchop::updateMode() {
         case PorkchopMode::BOAR_BROS:
             BoarBrosMenu::update();
             if (!BoarBrosMenu::isActive()) {
+                setMode(PorkchopMode::MENU);
+            }
+            break;
+        case PorkchopMode::WIGLE_MENU:
+            WigleMenu::update();
+            if (!WigleMenu::isActive()) {
                 setMode(PorkchopMode::MENU);
             }
             break;

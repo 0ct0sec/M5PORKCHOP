@@ -21,6 +21,7 @@
 #include "achievements_menu.h"
 #include "swine_stats.h"
 #include "boar_bros_menu.h"
+#include "wigle_menu.h"
 
 // Theme color getters - read from config
 // Theme definitions (single copy, declared extern in display.h)
@@ -171,6 +172,10 @@ void Display::update() {
             
         case PorkchopMode::BOAR_BROS:
             BoarBrosMenu::draw(mainCanvas);
+            break;
+            
+        case PorkchopMode::WIGLE_MENU:
+            WigleMenu::draw(mainCanvas);
             break;
     }
     

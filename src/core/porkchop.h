@@ -20,7 +20,8 @@ enum class PorkchopMode : uint8_t {
     FILE_TRANSFER,  // WiFi file transfer mode
     LOG_VIEWER,     // View SD card logs
     SWINE_STATS,    // Lifetime stats and buffs overlay
-    BOAR_BROS       // Manage excluded networks
+    BOAR_BROS,      // Manage excluded networks
+    WIGLE_MENU      // WiGLE file uploads
 };
 
 // Events for async callbacks
