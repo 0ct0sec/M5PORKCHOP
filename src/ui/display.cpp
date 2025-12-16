@@ -390,11 +390,24 @@ void Display::drawBottomBar() {
             // LOCKING state: show target and discovered clients
             const char* targetSSID = OinkMode::getTargetSSID();
             uint8_t clients = OinkMode::getTargetClientCount();
-            // Truncate SSID if too long for display
-            char ssidShort[16];
-            strncpy(ssidShort, targetSSID, 15);
-            ssidShort[15] = '\0';
-            snprintf(buf, sizeof(buf), "LOCK:%s C:%d CH:%d", ssidShort, clients, channel);
+            bool hidden = OinkMode::isTargetHidden();
+            
+            if (hidden || targetSSID[0] == '\0') {
+                // Hidden network - show last 4 bytes of BSSID
+                const uint8_t* bssid = OinkMode::getTargetBSSID();
+                if (bssid) {
+                    snprintf(buf, sizeof(buf), "LOCK:??%02X%02X C:%d CH:%d", 
+                             bssid[4], bssid[5], clients, channel);
+                } else {
+                    snprintf(buf, sizeof(buf), "LOCK:??? C:%d CH:%d", clients, channel);
+                }
+            } else {
+                // Normal network - truncate SSID if too long
+                char ssidShort[13];
+                strncpy(ssidShort, targetSSID, 12);
+                ssidShort[12] = '\0';
+                snprintf(buf, sizeof(buf), "LOCK:%s C:%d CH:%d", ssidShort, clients, channel);
+            }
         } else if (passive) {
             // DO NO HAM: no D: counter (we don't deauth)
             if (broCount > 0) {

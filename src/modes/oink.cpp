@@ -1594,6 +1594,20 @@ uint8_t OinkMode::getTargetClientCount() {
     return 0;
 }
 
+const uint8_t* OinkMode::getTargetBSSID() {
+    if (targetIndex >= 0 && targetIndex < (int)networks.size()) {
+        return networks[targetIndex].bssid;
+    }
+    return nullptr;
+}
+
+bool OinkMode::isTargetHidden() {
+    if (targetIndex >= 0 && targetIndex < (int)networks.size()) {
+        return networks[targetIndex].isHidden;
+    }
+    return false;
+}
+
 void OinkMode::autoSaveCheck() {
     // Check if SD card is available
     if (!Config::isSDAvailable()) {

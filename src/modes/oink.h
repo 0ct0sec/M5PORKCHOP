@@ -138,6 +138,8 @@ public:
     static bool isLocking();
     static const char* getTargetSSID();
     static uint8_t getTargetClientCount();
+    static const uint8_t* getTargetBSSID();
+    static bool isTargetHidden();
     
     // Network selection cursor
     static int getSelectionIndex() { return selectionIndex; }
