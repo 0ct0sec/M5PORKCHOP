@@ -155,7 +155,7 @@ void WigleMenu::handleInput() {
     if (M5Cardputer.Keyboard.isKeyPressed('r') || M5Cardputer.Keyboard.isKeyPressed('R')) {
         scanFiles();
         Display::showToast("Refreshed");
-        delay(300);
+        delay(500);
     }
 }
 
