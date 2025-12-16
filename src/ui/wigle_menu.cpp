@@ -36,6 +36,7 @@ void WigleMenu::show() {
 
 void WigleMenu::hide() {
     active = false;
+    detailViewActive = false;
 }
 
 void WigleMenu::scanFiles() {
@@ -85,14 +86,9 @@ void WigleMenu::scanFiles() {
 }
 
 void WigleMenu::handleInput() {
-    M5Cardputer.update();
+    bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
-    if (!M5Cardputer.Keyboard.isChange()) {
-        keyWasPressed = false;
-        return;
-    }
-    
-    if (!M5Cardputer.Keyboard.isPressed()) {
+    if (!anyPressed) {
         keyWasPressed = false;
         return;
     }
@@ -100,9 +96,17 @@ void WigleMenu::handleInput() {
     if (keyWasPressed) return;
     keyWasPressed = true;
     
-    // Handle detail view input
+    auto keys = M5Cardputer.Keyboard.keysState();
+    
+    // Handle detail view input - U uploads, any other key closes
     if (detailViewActive) {
-        // Any key closes detail view
+        if (M5Cardputer.Keyboard.isKeyPressed('u') || M5Cardputer.Keyboard.isKeyPressed('U')) {
+            detailViewActive = false;
+            if (!files.empty() && selectedIndex < files.size()) {
+                uploadSelected();
+            }
+            return;
+        }
         detailViewActive = false;
         return;
     }
@@ -112,32 +116,24 @@ void WigleMenu::handleInput() {
         return;
     }
     
-    Keyboard_Class::KeysState keys = M5Cardputer.Keyboard.keysState();
-    
-    // Backtick or ESC - exit menu
-    if (keys.word[0] == '`' || keys.fn) {
+    // Backtick or Backspace - exit menu
+    if (M5Cardputer.Keyboard.isKeyPressed('`') || M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         hide();
         return;
     }
     
-    // Backspace - exit
-    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-        hide();
-        return;
-    }
-    
-    // Navigation
-    if (keys.word[0] == ';' || keys.word[0] == ',') {
-        // Previous
+    // Navigation with ; (prev) and . (next)
+    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
         if (selectedIndex > 0) {
             selectedIndex--;
             if (selectedIndex < scrollOffset) {
                 scrollOffset = selectedIndex;
             }
         }
-    } else if (keys.word[0] == '.' || keys.word[0] == '/') {
-        // Next
-        if (selectedIndex < files.size() - 1) {
+    }
+    
+    if (M5Cardputer.Keyboard.isKeyPressed('.')) {
+        if (!files.empty() && selectedIndex < files.size() - 1) {
             selectedIndex++;
             if (selectedIndex >= scrollOffset + VISIBLE_ITEMS) {
                 scrollOffset = selectedIndex - VISIBLE_ITEMS + 1;
@@ -145,18 +141,18 @@ void WigleMenu::handleInput() {
         }
     }
     
-    // Enter - show detail / upload options
+    // Enter - show detail view
     if (keys.enter && !files.empty()) {
         detailViewActive = true;
     }
     
     // U key - upload selected file
-    if ((keys.word[0] == 'u' || keys.word[0] == 'U') && !files.empty()) {
+    if ((M5Cardputer.Keyboard.isKeyPressed('u') || M5Cardputer.Keyboard.isKeyPressed('U')) && !files.empty()) {
         uploadSelected();
     }
     
     // R key - refresh list
-    if (keys.word[0] == 'r' || keys.word[0] == 'R') {
+    if (M5Cardputer.Keyboard.isKeyPressed('r') || M5Cardputer.Keyboard.isKeyPressed('R')) {
         scanFiles();
         Display::showToast("Refreshed");
         delay(300);
@@ -231,18 +227,16 @@ String WigleMenu::formatSize(uint32_t bytes) {
 }
 
 void WigleMenu::update() {
+    if (!active) return;
     handleInput();
 }
 
 void WigleMenu::draw(M5Canvas& canvas) {
-    canvas.fillScreen(COLOR_BG);
+    if (!active) return;
     
-    // Title bar
+    canvas.fillSprite(COLOR_BG);
+    canvas.setTextColor(COLOR_FG);
     canvas.setTextSize(1);
-    canvas.setTextDatum(top_center);
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
-    canvas.fillRect(0, 0, 240, 12);
-    canvas.drawString("PORK TRACKS", 120, 2);
     
     // Show detail overlay if active
     if (detailViewActive && !files.empty()) {
@@ -258,44 +252,37 @@ void WigleMenu::draw(M5Canvas& canvas) {
     
     // Empty state
     if (files.empty()) {
-        canvas.setTextColor(COLOR_FG, COLOR_BG);
-        canvas.setTextDatum(middle_center);
-        canvas.drawString("No WiGLE files found", 120, 60);
-        canvas.setTextSize(1);
-        canvas.drawString("Go wardriving first!", 120, 80);
-        
-        // Bottom bar with controls
-        canvas.fillRect(0, 121, 240, 14);
-        canvas.setTextColor(COLOR_BG, COLOR_FG);
-        canvas.setTextDatum(middle_center);
-        canvas.drawString("[`] Exit", 120, 128);
+        canvas.setCursor(4, 35);
+        canvas.print("No WiGLE files found");
+        canvas.setCursor(4, 50);
+        canvas.print("Go wardriving first!");
+        canvas.setCursor(4, 65);
+        canvas.print("[W] for WARHOG mode.");
         return;
     }
     
     // File list
-    canvas.setTextColor(COLOR_FG, COLOR_BG);
-    canvas.setTextDatum(top_left);
+    int y = 2;
+    int lineHeight = 18;
     
-    int y = 16;
-    for (uint8_t i = 0; i < VISIBLE_ITEMS && (scrollOffset + i) < files.size(); i++) {
-        uint8_t idx = scrollOffset + i;
-        const WigleFileInfo& file = files[idx];
+    for (uint8_t i = scrollOffset; i < files.size() && i < scrollOffset + VISIBLE_ITEMS; i++) {
+        const WigleFileInfo& file = files[i];
         
-        // Selection highlight
-        if (idx == selectedIndex) {
-            canvas.fillRect(0, y, 240, 20);
-            canvas.setTextColor(COLOR_BG, COLOR_FG);
+        // Highlight selected
+        if (i == selectedIndex) {
+            canvas.fillRect(0, y - 1, canvas.width(), lineHeight, COLOR_FG);
+            canvas.setTextColor(COLOR_BG);
         } else {
-            canvas.setTextColor(COLOR_FG, COLOR_BG);
+            canvas.setTextColor(COLOR_FG);
         }
         
         // Status indicator
-        const char* statusStr;
-        switch (file.status) {
-            case WigleFileStatus::UPLOADED: statusStr = "[OK]"; break;
-            default: statusStr = "[--]"; break;
+        canvas.setCursor(4, y);
+        if (file.status == WigleFileStatus::UPLOADED) {
+            canvas.print("[OK]");
+        } else {
+            canvas.print("[--]");
         }
-        canvas.drawString(statusStr, 2, y + 2);
         
         // Filename (truncated) - extract just the date/time part
         String displayName = file.filename;
@@ -306,87 +293,89 @@ void WigleMenu::draw(M5Canvas& canvas) {
         if (displayName.endsWith(".wigle.csv")) {
             displayName = displayName.substring(0, displayName.length() - 10);
         }
-        canvas.drawString(displayName.substring(0, 15), 34, y + 2);
+        if (displayName.length() > 15) {
+            displayName = displayName.substring(0, 13) + "..";
+        }
+        canvas.setCursor(35, y);
+        canvas.print(displayName);
         
         // Network count and size
-        String stats = "~" + String(file.networkCount) + " " + formatSize(file.fileSize);
-        canvas.setTextDatum(top_right);
-        canvas.drawString(stats, 238, y + 2);
-        canvas.setTextDatum(top_left);
+        canvas.setCursor(140, y);
+        canvas.printf("~%d %s", file.networkCount, formatSize(file.fileSize).c_str());
         
-        y += 20;
+        y += lineHeight;
     }
     
-    // Scroll indicator
-    if (files.size() > VISIBLE_ITEMS) {
-        canvas.setTextColor(COLOR_FG, COLOR_BG);
-        canvas.setTextDatum(top_right);
-        canvas.drawString(String(selectedIndex + 1) + "/" + String(files.size()), 238, 118);
+    // Scroll indicators
+    if (scrollOffset > 0) {
+        canvas.setCursor(canvas.width() - 10, 2);
+        canvas.setTextColor(COLOR_FG);
+        canvas.print("^");
     }
-    
-    // Bottom bar with controls
-    canvas.fillRect(0, 121, 240, 14);
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
-    canvas.setTextDatum(middle_center);
-    canvas.drawString("[U]pload [R]efresh [`]Exit", 120, 128);
+    if (scrollOffset + VISIBLE_ITEMS < files.size()) {
+        canvas.setCursor(canvas.width() - 10, 2 + (VISIBLE_ITEMS - 1) * lineHeight);
+        canvas.setTextColor(COLOR_FG);
+        canvas.print("v");
+    }
 }
 
 void WigleMenu::drawDetailView(M5Canvas& canvas) {
     const WigleFileInfo& file = files[selectedIndex];
     
-    // Semi-transparent overlay
-    int boxW = 200;
-    int boxH = 80;
-    int boxX = (240 - boxW) / 2;
-    int boxY = (135 - boxH) / 2;
+    // Modal box dimensions - matches other confirmation dialogs
+    const int boxW = 200;
+    const int boxH = 75;
+    const int boxX = (canvas.width() - boxW) / 2;
+    const int boxY = (canvas.height() - boxH) / 2 - 5;
     
     // Black border then pink fill
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
+    
+    // Black text on pink
+    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    canvas.setTextDatum(top_center);
+    
+    // Filename
+    String displayName = file.filename;
+    if (displayName.length() > 22) {
+        displayName = displayName.substring(0, 19) + "...";
+    }
+    canvas.drawString(displayName, boxX + boxW / 2, boxY + 8);
+    
+    // Stats
+    String stats = "~" + String(file.networkCount) + " networks, " + formatSize(file.fileSize);
+    canvas.drawString(stats, boxX + boxW / 2, boxY + 24);
+    
+    // Status
+    const char* statusText = (file.status == WigleFileStatus::UPLOADED) ? "UPLOADED" : "NOT UPLOADED";
+    canvas.drawString(statusText, boxX + boxW / 2, boxY + 40);
+    
+    // Action hint
+    canvas.drawString("[U]pload  [Any]Close", boxX + boxW / 2, boxY + 56);
+    
+    canvas.setTextDatum(top_left);
+}
+
+void WigleMenu::drawConnecting(M5Canvas& canvas) {
+    const int boxW = 160;
+    const int boxH = 50;
+    const int boxX = (canvas.width() - boxW) / 2;
+    const int boxY = (canvas.height() - boxH) / 2 - 5;
+    
     canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
     canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
     
     canvas.setTextColor(COLOR_BG, COLOR_FG);
     canvas.setTextDatum(top_center);
     
-    // Filename
-    String displayName = file.filename;
-    if (displayName.length() > 24) {
-        displayName = displayName.substring(0, 21) + "...";
-    }
-    canvas.drawString(displayName, 120, boxY + 8);
-    
-    // Stats
-    canvas.drawString("~" + String(file.networkCount) + " networks", 120, boxY + 24);
-    canvas.drawString(formatSize(file.fileSize), 120, boxY + 38);
-    
-    // Status
-    const char* statusText;
-    switch (file.status) {
-        case WigleFileStatus::UPLOADED: statusText = "UPLOADED"; break;
-        default: statusText = "NOT UPLOADED"; break;
-    }
-    canvas.drawString(statusText, 120, boxY + 52);
-    
-    // Action hint
-    canvas.drawString("[U] Upload  [Any] Close", 120, boxY + 66);
-}
-
-void WigleMenu::drawConnecting(M5Canvas& canvas) {
-    int boxW = 160;
-    int boxH = 50;
-    int boxX = (240 - boxW) / 2;
-    int boxY = (135 - boxH) / 2;
-    
-    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-    
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
-    canvas.setTextDatum(middle_center);
-    
     if (connectingWiFi) {
-        canvas.drawString("Connecting...", 120, boxY + 18);
+        canvas.drawString("Connecting...", boxX + boxW / 2, boxY + 12);
     } else if (uploadingFile) {
-        canvas.drawString("Uploading...", 120, boxY + 18);
+        canvas.drawString("Uploading...", boxX + boxW / 2, boxY + 12);
     }
     
-    canvas.drawString(WiGLE::getStatus(), 120, boxY + 34);
+    canvas.drawString(WiGLE::getStatus(), boxX + boxW / 2, boxY + 30);
+    
+    canvas.setTextDatum(top_left);
 }
