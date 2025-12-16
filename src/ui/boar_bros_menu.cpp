@@ -50,7 +50,8 @@ void BoarBrosMenu::loadBros() {
         return;
     }
     
-    while (f.available()) {
+    // Cap at 50 entries (same as MAX_BOAR_BROS in oink.cpp)
+    while (f.available() && bros.size() < 50) {
         String line = f.readStringUntil('\n');
         line.trim();
         

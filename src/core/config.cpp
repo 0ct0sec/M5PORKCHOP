@@ -244,9 +244,11 @@ bool Config::save() {
         return false;
     }
     
-    serializeJsonPretty(doc, file);
+    size_t written = serializeJsonPretty(doc, file);
     file.close();
-    return true;
+    
+    // Check if write succeeded (serializeJson returns 0 on failure)
+    return written > 0;
 }
 
 bool Config::createDefaultConfig() {
