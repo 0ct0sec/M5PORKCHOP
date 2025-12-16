@@ -134,6 +134,11 @@ public:
     static uint32_t getDeauthCount() { return deauthCount; }
     static uint16_t getNetworkCount() { return networks.size(); }
     
+    // LOCKING state info (for display)
+    static bool isLocking();
+    static const char* getTargetSSID();
+    static uint8_t getTargetClientCount();
+    
     // Network selection cursor
     static int getSelectionIndex() { return selectionIndex; }
     static void moveSelectionUp();

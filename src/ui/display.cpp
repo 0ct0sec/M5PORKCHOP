@@ -376,14 +376,26 @@ void Display::drawBottomBar() {
         // OINK: show Networks, Handshakes, Channel, and optionally Deauths/BRO count
         // (PWNED banner is shown in top bar)
         // In DO NO HAM mode, hide D: counter since we're passive
+        // In LOCKING state, show target SSID and client discovery count
         uint16_t netCount = OinkMode::getNetworkCount();
         uint16_t hsCount = OinkMode::getCompleteHandshakeCount();
         uint32_t deauthCount = OinkMode::getDeauthCount();
         uint8_t channel = OinkMode::getChannel();
         uint16_t broCount = OinkMode::getExcludedCount();
         bool passive = Config::wifi().doNoHam;
+        bool locking = OinkMode::isLocking();
         char buf[64];
-        if (passive) {
+        
+        if (locking) {
+            // LOCKING state: show target and discovered clients
+            const char* targetSSID = OinkMode::getTargetSSID();
+            uint8_t clients = OinkMode::getTargetClientCount();
+            // Truncate SSID if too long for display
+            char ssidShort[16];
+            strncpy(ssidShort, targetSSID, 15);
+            ssidShort[15] = '\0';
+            snprintf(buf, sizeof(buf), "LOCK:%s C:%d CH:%d", ssidShort, clients, channel);
+        } else if (passive) {
             // DO NO HAM: no D: counter (we don't deauth)
             if (broCount > 0) {
                 snprintf(buf, sizeof(buf), "N:%d HS:%d CH:%d BRO:%d DOIN NO HAM", netCount, hsCount, channel, broCount);

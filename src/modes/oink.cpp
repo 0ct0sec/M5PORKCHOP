@@ -1575,6 +1575,25 @@ uint16_t OinkMode::getCompleteHandshakeCount() {
     return count;
 }
 
+// LOCKING state queries for display
+bool OinkMode::isLocking() {
+    return running && autoState == AutoState::LOCKING;
+}
+
+const char* OinkMode::getTargetSSID() {
+    if (targetIndex >= 0 && targetIndex < (int)networks.size()) {
+        return networks[targetIndex].ssid;
+    }
+    return "";
+}
+
+uint8_t OinkMode::getTargetClientCount() {
+    if (targetIndex >= 0 && targetIndex < (int)networks.size()) {
+        return networks[targetIndex].clientCount;
+    }
+    return 0;
+}
+
 void OinkMode::autoSaveCheck() {
     // Check if SD card is available
     if (!Config::isSDAvailable()) {
