@@ -382,7 +382,7 @@ Automatic WiGLE v1.6 CSV export during WARHOG mode, plus API upload capability.
 ### WiGLE CSV Format v1.6
 Pre-header with device info, then 14-column data:
 ```
-WigleWifi-1.6,appRelease=PORKCHOP,model=M5Cardputer,release=0.1.5,device=ESP32-S3,display=,board=M5Stack,brand=M5Stack,star=Sol,body=3,subBody=0
+WigleWifi-1.6,appRelease=PORKCHOP,model=M5Cardputer,release=0.1.6,device=ESP32-S3,display=,board=M5Stack,brand=M5Stack,star=Sol,body=3,subBody=0
 MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type
 AA:BB:CC:DD:EE:FF,NetworkName,[WPA2-PSK-CCMP][ESS],2025-01-15 14:30:00,6,2437,-65,51.5074,-0.1278,10.5,5.0,,,WIFI
 ```
