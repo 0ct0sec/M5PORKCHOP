@@ -384,7 +384,7 @@
         * [DEAUTH] indicator for networks without PMF protection
         * [BRO] indicator for networks in your BOAR BROS exclusion list
         * Network selection via ; and . - scroll through discovered APs
-        * Enter key shows network details (SSID, BSSID, RSSI, channel, auth)
+        * Enter key opens CLIENT MONITOR for targeted hunting
         * Bottom bar shows selected network info or scan status
         * Stale networks removed after 5 seconds - real-time accuracy
 
@@ -394,7 +394,9 @@
     RF hell. Bring headphones, your coffee shop is loud.
 
     Scroll through networks to find the interesting ones. Hit Enter to
-    see details. Press Backspace or G0 to bail. Simple as.
+    enter CLIENT MONITOR for focused hunting - see connected clients
+    with proximity arrows and vendor OUI identification. Press D to
+    deauth selected clients directly. Backspace or G0 to bail. Simple as.
 
 
 ----[ 3.5 - File Transfer Mode
@@ -606,7 +608,7 @@
 
 ----[ 3.10 - Achievements
 
-    60 secret badges to prove you're not just grinding mindlessly.
+    63 secret badges to prove you're not just grinding mindlessly.
     Or maybe you are. Either way, proof of pwn.
 
     The Achievements menu shows what you've earned. Locked ones show
@@ -797,11 +799,8 @@
         - Flash the merged bin (porkchop_vX.X.X.bin)
         - Works but nukes XP on every flash
         - Fine for first time, terrible for updates
-
-    M5 Burner OTA (DON'T):
-        - Wrong binary format in the catalog
-        - Will bootloop (recoverable via USB reflash)
-        - Just use the SD card method instead
+        - NOTE: We removed PORKCHOP from M5 Burner's catalog
+          due to format issues. Download from GitHub releases.
 
     We provide both binaries in releases:
         - firmware.bin            = SD card / Launcher, preserves XP

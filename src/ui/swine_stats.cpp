@@ -337,7 +337,7 @@ float SwineStats::getXPMultiplier() {
 
 uint32_t SwineStats::getLockTime() {
     uint8_t classBuffs = calculateClassBuffs();
-    uint32_t base = Config::wifi().lockTime;  // From settings (default 3000ms)
+    uint32_t base = Config::wifi().lockTime;  // From settings (default 4000ms)
     
     // Class buff: SH4RP_TUSKS +1s lock time (more time to discover clients)
     if (classBuffs & (uint8_t)ClassBuff::SH4RP_TUSKS) {

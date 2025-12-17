@@ -1433,8 +1433,8 @@ L19: TRUFFLE R00T        L39: PHIBER 0PT1K
 L20: INJECT P1G          L40: MUDGE UNCHA1NED
 ```
 
-### Achievements (60 Bitflags)
-60 secret badges stored in `data.achievements` uint64_t bitfield. Viewable via Achievements menu.
+### Achievements (63 Bitflags)
+63 secret badges stored in `data.achievements` uint64_t bitfield. Viewable via Achievements menu.
 
 ```cpp
 // Original achievements (bits 0-16)
