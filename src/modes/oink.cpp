@@ -669,6 +669,7 @@ void OinkMode::update() {
                     // PRIORITY 2: Broadcast deauth (less effective, but catches unknown clients)
                     // Only send 1 broadcast per cycle to reduce noise
                     sendDeauthFrame(target->bssid, broadcast, 7);
+                    sendDisassocFrame(target->bssid, broadcast, 8);  // Some devices respond to disassoc only
                     deauthCount++;
                     
                     lastDeauthTime = now;

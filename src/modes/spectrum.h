@@ -18,6 +18,7 @@ struct SpectrumClient {
     uint8_t mac[6];
     int8_t rssi;
     uint32_t lastSeen;
+    const char* vendor;  // Cached OUI lookup
 };
 
 struct SpectrumNetwork {

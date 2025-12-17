@@ -493,21 +493,32 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
             canvas.setTextColor(COLOR_FG, COLOR_BG);
         }
         
-        // Format: "1. Vendor  XX:XX:XX  -XXdB  Xs"
+        // Format: "1. Vendor  XX:XX:XX  -XXdB >> Xs"
         uint32_t age = (millis() - client.lastSeen) / 1000;
-        char line[48];
+        char line[52];
         
-        // Get vendor from OUI database [P7]
-        const char* vendor = OUI::getVendor(client.mac);
+        // Use cached vendor from discovery time
+        const char* vendor = client.vendor ? client.vendor : "Unknown";
+        
+        // Calculate relative position: client vs AP signal
+        // Positive delta = client closer to us than AP
+        int delta = client.rssi - net.rssi;
+        const char* arrow;
+        if (delta > 10) arrow = ">>";       // Much closer to us
+        else if (delta > 3) arrow = "> ";   // Closer
+        else if (delta < -10) arrow = "<<"; // Much farther
+        else if (delta < -3) arrow = "< ";  // Farther
+        else arrow = "==";                  // Same distance
         
         // [P9] Safe string formatting with bounds
-        // Show vendor (9 chars) + last 3 octets for identification
-        snprintf(line, sizeof(line), "%d.%-9s %02X:%02X:%02X %4ddB %lus",
+        // Show vendor (8 chars) + last 2 octets + arrow for hunting
+        snprintf(line, sizeof(line), "%d.%-8s %02X:%02X %3ddB %2lus %s",
             clientIdx + 1,
             vendor,
-            client.mac[3], client.mac[4], client.mac[5],
+            client.mac[4], client.mac[5],
             client.rssi,
-            age);
+            age,
+            arrow);
         
         canvas.setTextDatum(top_left);
         canvas.drawString(line, 4, y + 2);
@@ -1014,9 +1025,11 @@ void SpectrumMode::trackClient(const uint8_t* bssid, const uint8_t* clientMac, i
     
     // Add new client if room
     if (net.clientCount < MAX_SPECTRUM_CLIENTS) {
-        memcpy(net.clients[net.clientCount].mac, clientMac, 6);
-        net.clients[net.clientCount].rssi = rssi;
-        net.clients[net.clientCount].lastSeen = now;
+        SpectrumClient& newClient = net.clients[net.clientCount];
+        memcpy(newClient.mac, clientMac, 6);
+        newClient.rssi = rssi;
+        newClient.lastSeen = now;
+        newClient.vendor = OUI::getVendor(clientMac);  // Cache once
         net.clientCount++;
         
         // Request beep for first few clients (avoid spamming)
