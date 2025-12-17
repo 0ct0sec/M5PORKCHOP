@@ -426,7 +426,7 @@ String CapturesMenu::getSelectedBSSID() {
     if (selectedIndex < captures.size()) {
         return captures[selectedIndex].bssid;
     }
-    return "";
+    return "CR4CK TH3 L00T: [U] [R] [D]";
 }
 void CapturesMenu::drawDetailView(M5Canvas& canvas) {
     if (selectedIndex >= captures.size()) return;

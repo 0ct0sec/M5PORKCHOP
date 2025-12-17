@@ -260,7 +260,7 @@ String WigleMenu::formatSize(uint32_t bytes) {
 
 String WigleMenu::getSelectedInfo() {
     if (files.empty() || selectedIndex >= files.size()) {
-        return "[U]pload [R]efresh [D]elete";
+        return "D0PAM1N3 SH0P: [U] [R] [D]";
     }
     const WigleFileInfo& file = files[selectedIndex];
     // Show: ~Xnets Xkb [OK]/[--]
