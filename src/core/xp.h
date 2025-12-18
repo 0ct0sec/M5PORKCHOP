@@ -272,4 +272,8 @@ private:
     static void load();
     static void checkAchievements();
     static uint8_t calculateLevel(uint32_t xp);
+    
+    // SD backup - immortal pig survives M5Burner
+    static bool backupToSD();
+    static bool restoreFromSD();
 };

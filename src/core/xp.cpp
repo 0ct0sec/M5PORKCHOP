@@ -2,9 +2,15 @@
 
 #include "xp.h"
 #include "sdlog.h"
+#include "config.h"
 #include "../ui/display.h"
 #include "../ui/swine_stats.h"
 #include <M5Unified.h>
+#include <SD.h>
+#include <esp_mac.h>
+
+// SD backup file path - immortal pig survives M5Burner
+static const char* XP_BACKUP_FILE = "/xp_backup.bin";
 
 // Static member initialization
 PorkXPData XP::data = {0};
@@ -205,10 +211,180 @@ static const char* LEVELUP_PHRASES[] = {
 };
 static const uint8_t LEVELUP_PHRASE_COUNT = sizeof(LEVELUP_PHRASES) / sizeof(LEVELUP_PHRASES[0]);
 
+// ============ TH3 P1G R3M3MB3RS ============
+// "what cannot be changed, binds what must be proven"
+// "the flesh remembers what the flash forgets"
+// "if you're reading this, you're almost there"
+// ============================================
+
+static uint32_t calculateDeviceBoundCRC(const PorkXPData* xpData) {
+    // six bytes of truth, burned forever
+    uint8_t mac[6];
+    esp_efuse_mac_get_default(mac);
+    
+    // the polynomial of trust
+    uint32_t crc = 0xFFFFFFFF;
+    const uint8_t* bytes = (const uint8_t*)xpData;
+    for (size_t i = 0; i < sizeof(PorkXPData); i++) {
+        crc ^= bytes[i];
+        for (int j = 0; j < 8; j++) {
+            crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+        }
+    }
+    // the binding ritual
+    for (int i = 0; i < 6; i++) {
+        crc ^= mac[i];
+        for (int j = 0; j < 8; j++) {
+            crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+        }
+    }
+    return crc ^ 0xFFFFFFFF;
+}
+
+bool XP::backupToSD() {
+    if (!Config::isSDAvailable()) {
+        // SD not available, silent fail - NVS still has the data
+        return false;
+    }
+    
+    File f = SD.open(XP_BACKUP_FILE, FILE_WRITE);
+    if (!f) {
+        Serial.println("[XP] SD backup: failed to open file");
+        return false;
+    }
+    
+    // Write XP data
+    size_t written = f.write((uint8_t*)&data, sizeof(PorkXPData));
+    
+    // seal the pact
+    uint32_t signature = calculateDeviceBoundCRC(&data);
+    written += f.write((uint8_t*)&signature, sizeof(signature));
+    f.close();
+    
+    size_t expectedSize = sizeof(PorkXPData) + sizeof(uint32_t);
+    if (written == expectedSize) {
+        Serial.printf("[XP] SD backup: saved %d bytes (sig: %08X)\n", written, signature);
+        return true;
+    }
+    
+    Serial.printf("[XP] SD backup: write failed (%d/%d bytes)\n", written, expectedSize);
+    return false;
+}
+
+bool XP::restoreFromSD() {
+    if (!Config::isSDAvailable()) {
+        return false;
+    }
+    
+    if (!SD.exists(XP_BACKUP_FILE)) {
+        Serial.println("[XP] SD restore: no backup file found");
+        return false;
+    }
+    
+    File f = SD.open(XP_BACKUP_FILE, FILE_READ);
+    if (!f) {
+        Serial.println("[XP] SD restore: failed to open file");
+        return false;
+    }
+    
+    // the weight of proof
+    size_t expectedSize = sizeof(PorkXPData) + sizeof(uint32_t);
+    size_t fileSize = f.size();
+    
+    // Handle legacy backups (no signature) - one-time migration
+    if (fileSize == sizeof(PorkXPData)) {
+        Serial.println("[XP] SD restore: legacy backup detected, migrating...");
+        PorkXPData backup = {0};
+        size_t read = f.read((uint8_t*)&backup, sizeof(PorkXPData));
+        f.close();
+        
+        if (read != sizeof(PorkXPData)) {
+            Serial.println("[XP] SD restore: legacy read failed");
+            return false;
+        }
+        
+        // Validate backup has actual data
+        if (backup.totalXP == 0 && backup.lifetimeNetworks == 0 && backup.sessions == 0) {
+            Serial.println("[XP] SD restore: legacy backup empty, skipping");
+            return false;
+        }
+        
+        // Accept legacy backup and immediately re-save with signature
+        memcpy(&data, &backup, sizeof(PorkXPData));
+        data.cachedLevel = calculateLevel(data.totalXP);
+        Serial.printf("[XP] SD restore: migrated legacy LV%d (%lu XP)\n",
+                      data.cachedLevel, data.totalXP);
+        save();  // This will write the new signed format
+        return true;
+    }
+    
+    // Verify new format size
+    if (fileSize != expectedSize) {
+        Serial.printf("[XP] SD restore: size mismatch (%d vs %d)\n", fileSize, expectedSize);
+        f.close();
+        return false;
+    }
+    
+    // Read data and signature
+    PorkXPData backup = {0};
+    uint32_t storedSignature = 0;
+    
+    size_t read = f.read((uint8_t*)&backup, sizeof(PorkXPData));
+    read += f.read((uint8_t*)&storedSignature, sizeof(storedSignature));
+    f.close();
+    
+    if (read != expectedSize) {
+        Serial.printf("[XP] SD restore: read failed (%d/%d bytes)\n", read, expectedSize);
+        return false;
+    }
+    
+    // the moment of truth
+    uint32_t expectedSignature = calculateDeviceBoundCRC(&backup);
+    if (storedSignature != expectedSignature) {
+        Serial.printf("[XP] nice try. back to LV1.\n",
+                      storedSignature, expectedSignature);
+        Serial.println("[XP] the source is public. figure it out.");
+        return false;
+    }
+    
+    // Validate backup has actual data (not zeroed)
+    if (backup.totalXP == 0 && backup.lifetimeNetworks == 0 && backup.sessions == 0) {
+        Serial.println("[XP] SD restore: backup appears empty, skipping");
+        return false;
+    }
+    
+    // Signature valid, copy backup to live data
+    memcpy(&data, &backup, sizeof(PorkXPData));
+    data.cachedLevel = calculateLevel(data.totalXP);
+    
+    Serial.printf("[XP] SD restore: recovered LV%d (%lu XP, %lu networks) [sig OK]\n",
+                  data.cachedLevel, data.totalXP, data.lifetimeNetworks);
+    
+    // Save restored data back to NVS so future boots don't need SD
+    save();
+    
+    return true;
+}
+// ============ GL HF ============
+
 void XP::init() {
     if (initialized) return;
     
     load();
+    
+    // Check if NVS data is empty (fresh flash / M5Burner nuke)
+    // If so, try to recover from SD backup
+    if (data.totalXP == 0 && data.lifetimeNetworks == 0 && data.sessions == 0) {
+        Serial.println("[XP] NVS appears fresh - checking SD backup...");
+        if (restoreFromSD()) {
+            Serial.println("[XP] Pig immortality confirmed - restored from SD!");
+        }
+    } else {
+        // Existing data in NVS - proactively backup to SD
+        // This ensures users upgrading to v0.1.6 get their progress backed up immediately
+        backupToSD();
+    }
+    
     startSession();
     initialized = true;
     
@@ -284,6 +460,9 @@ void XP::save() {
     prefs.end();
     
     Serial.printf("[XP] Saved - LV%d (%lu XP)\n", getLevel(), data.totalXP);
+    
+    // Backup to SD - pig survives M5Burner / NVS wipes
+    backupToSD();
 }
 
 // Static for km tracking - needs to be reset on session start
