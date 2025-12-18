@@ -113,7 +113,7 @@ size_t BoarBrosMenu::getCount() {
 }
 
 String BoarBrosMenu::getSelectedInfo() {
-    if (bros.empty()) return "[E] Add from OINK mode";
+    if (bros.empty()) return "[B] Add from OINK mode";
     if (selectedIndex < bros.size()) {
         return bros[selectedIndex].bssidStr;
     }
@@ -215,7 +215,7 @@ void BoarBrosMenu::draw(M5Canvas& canvas) {
         canvas.setCursor(4, 35);
         canvas.print("No BOAR BROS yet!");
         canvas.setCursor(4, 50);
-        canvas.print("Press [E] in OINK mode");
+        canvas.print("Press [B] in OINK mode");
         canvas.setCursor(4, 65);
         canvas.print("to exclude a network.");
         return;
