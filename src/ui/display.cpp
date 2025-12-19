@@ -942,9 +942,9 @@ void Display::drawAboutScreen(M5Canvas& canvas) {
     // GitHub (single line)
     canvas.drawString("github.com/0ct0sec/M5PORKCHOP", DISPLAY_W / 2, 50);
     
-    // Build date
+    // Commit hash
     canvas.setTextColor(COLOR_ACCENT);
-    canvas.drawString("built: " __DATE__, DISPLAY_W / 2, 64);
+    canvas.drawString("commit: " BUILD_COMMIT, DISPLAY_W / 2, 64);
     
     // Random quote
     canvas.setTextColor(COLOR_FG);
