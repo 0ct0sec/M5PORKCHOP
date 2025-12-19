@@ -64,6 +64,7 @@ int SpectrumMode::selectedClientIndex = 0;
 uint32_t SpectrumMode::lastClientPrune = 0;
 uint8_t SpectrumMode::clientsDiscoveredThisSession = 0;
 volatile bool SpectrumMode::pendingClientBeep = false;
+volatile uint8_t SpectrumMode::pendingNetworkXP = 0;  // Deferred XP for new networks (avoids callback crash)
 
 // Achievement tracking for client monitor (v0.1.6)
 uint32_t SpectrumMode::clientMonitorEntryTime = 0;
@@ -166,6 +167,16 @@ void SpectrumMode::update() {
         pendingClientBeep = false;
         if (Config::personality().soundEnabled) {
             M5.Speaker.tone(1200, 80);  // Short high beep for new client
+        }
+    }
+    
+    // Process deferred XP from onBeacon callback (avoids level-up popup crash)
+    // XP::addXP can trigger Display::showLevelUp which blocks - unsafe from WiFi callback
+    if (pendingNetworkXP > 0) {
+        uint8_t xpCount = pendingNetworkXP;
+        pendingNetworkXP = 0;  // Clear before processing (atomic enough for single producer)
+        for (uint8_t i = 0; i < xpCount; i++) {
+            XP::addXP(XPEvent::NETWORK_FOUND);
         }
     }
     
@@ -754,8 +765,9 @@ void SpectrumMode::onBeacon(const uint8_t* bssid, uint8_t channel, int8_t rssi, 
     
     networks.push_back(net);
     
-    // Award XP for new network discovery (+1 XP, passive observation)
-    XP::addXP(XPEvent::NETWORK_FOUND);
+    // Defer XP to main loop (onBeacon runs in WiFi callback - can't call Display::showLevelUp)
+    // If pendingNetworkXP overflows (255), we just miss some +1 XP - acceptable
+    if (pendingNetworkXP < 255) pendingNetworkXP++;
     
     // Auto-select first network
     if (selectedIndex < 0) {

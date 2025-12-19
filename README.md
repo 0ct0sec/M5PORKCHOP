@@ -155,11 +155,17 @@
         family. Family don't get deauth'd. Family don't get stalked.
         Family lives in /boar_bros.txt on your SD card forever.
 
+        Design philosophy: We always LISTEN to a Bro, but never PUNCH
+        a Bro in the face. Passive capture still works - if Bro's client
+        reconnects naturally and we catch the handshake, that's just
+        being observant. We just don't actively attack Bros.
+
         * Home router? BRO. Work WiFi? ...your call.
         * Hit [B] mid-attack and watch the frames stop cold
         * Hidden networks join as "NONAME BRO" - anonymous bros welcome
         * Spectrum mode tags 'em with [BRO] - visible loyalty
         * Menu lets you manage your crew, [D] to cut ties
+        * Passive handshake capture still works - we're listening, not punching
 
         The exclusion list isn't about mercy. It's about not having
         to explain to your roommate why Netflix keeps dropping.

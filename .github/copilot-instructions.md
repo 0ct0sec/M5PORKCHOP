@@ -1033,8 +1033,16 @@ Press [E] in OINK mode to add the selected network to the exclusion list:
 **Behavior:**
 - Excluded networks skipped in `getNextTarget()` for attack targeting
 - Excluded networks skipped in deauth storms
+- **Passive capture still works** - BOAR BROS philosophy is "listen to Bro, never punch Bro"
+- If a Bro's client reconnects naturally and EAPOL is captured, that's passive observation
 - Persists across reboots via SD card file
 - Max 50 entries (`MAX_BOAR_BROS`)
+
+**Design Philosophy:**
+BOAR BROS prevents ACTIVE attacks (deauth, stalking) but NOT passive observation.
+We always LISTEN to a Bro, but never PUNCH a Bro in the face. If a handshake
+gets captured from a Bro network, it means a client reconnected naturally
+during our scanning window - that's just being observant, not aggressive.
 
 **Key Functions:**
 - `OinkMode::excludeNetwork(int index)` - Add network to boarBros map
@@ -1187,6 +1195,23 @@ if (!pendingTargetBusy && !pendingTargetAdd) {
 }
 ```
 **Why**: Scan callback runs in NimBLE task context. Using a single-slot queue avoids heap allocation in callback. Missing one advertisement is harmless - device will be caught on next advertisement (continuous scanning).
+
+### SPECTRUM Mode - Deferred XP for Network Discovery
+XP for new networks is deferred from callback to main loop:
+```cpp
+// In onBeacon (WiFi callback context):
+if (pendingNetworkXP < 255) pendingNetworkXP++;  // Just increment counter
+
+// In update() (main loop context):
+if (pendingNetworkXP > 0) {
+    uint8_t xpCount = pendingNetworkXP;
+    pendingNetworkXP = 0;
+    for (uint8_t i = 0; i < xpCount; i++) {
+        XP::addXP(XPEvent::NETWORK_FOUND);  // Safe to trigger level-up popup here
+    }
+}
+```
+**Why**: `XP::addXP()` can trigger `Display::showLevelUp()` which blocks for 2.5 seconds with speaker tones. Calling this from WiFi promiscuous callback causes crash (wrong task context, watchdog timeout, display corruption). The counter approach defers XP processing to main loop where display operations are safe.
 
 ### Avatar - setGrassMoving Early Exit
 Per-frame calls to `setGrassMoving()` must be cheap:

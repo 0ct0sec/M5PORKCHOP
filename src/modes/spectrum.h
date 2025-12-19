@@ -89,6 +89,7 @@ private:
     static uint32_t lastClientPrune;     // Last stale client cleanup
     static uint8_t clientsDiscoveredThisSession;  // For limiting beeps
     static volatile bool pendingClientBeep;       // Deferred beep for new client
+    static volatile uint8_t pendingNetworkXP;     // Deferred XP for new networks (avoids callback crash)
     
     // Achievement tracking for client monitor (v0.1.6)
     static uint32_t clientMonitorEntryTime;  // When we entered client monitor
