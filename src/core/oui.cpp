@@ -517,7 +517,7 @@ const char* OUI::getVendor(const uint8_t* mac) {
     // Check for locally-administered address (randomized MAC)
     // Bit 1 of first byte = 1 means locally administered (not from manufacturer)
     if (mac[0] & 0x02) {
-        return "Random";
+        return "RANDOM";
     }
     
     for (size_t i = 0; i < OUI_TABLE_SIZE; i++) {
@@ -530,7 +530,7 @@ const char* OUI::getVendor(const uint8_t* mac) {
             return vendorBuf;
         }
     }
-    return "Unknown";
+    return "UNKNOWN";
 }
 
 // Self-test: verify table has entries [P7]

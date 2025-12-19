@@ -110,7 +110,7 @@ void CapturesMenu::scanCaptures() {
                 }
             }
             if (info.ssid.isEmpty()) {
-                info.ssid = "[unknown]";
+                info.ssid = "[UNKNOWN]";
             }
             
             // Check WPA-SEC status
@@ -262,10 +262,10 @@ void CapturesMenu::handleInput() {
 }
 
 String CapturesMenu::formatTime(time_t t) {
-    if (t == 0) return "Unknown";
+    if (t == 0) return "UNKNOWN";
     
     struct tm* timeinfo = localtime(&t);
-    if (!timeinfo) return "Unknown";
+    if (!timeinfo) return "UNKNOWN";
     
     char buf[32];
     // Format: "Dec 06 14:32"

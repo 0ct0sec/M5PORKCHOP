@@ -74,21 +74,21 @@ void Porkchop::init() {
     // Order: Modes -> Data/Stats -> Services
     std::vector<MenuItem> mainMenuItems = {
         // === MODES ===
-        {"OINK", 1, "Hunt for handshakes"},
-        {"WARHOG", 2, "Wardrive with GPS"},
-        {"PIGGY BLUES", 8, "BLE notification spam"},
-        {"HOG ON SPECTRUM", 10, "WiFi spectrum analyzer"},
+        {"OINK", 1, "HUNT FOR HANDSHAKES"},
+        {"WARHOG", 2, "WARDRIVE WITH GPS"},
+        {"PIGGY BLUES", 8, "BLE NOTIFICATION SPAM"},
+        {"HOG ON SPECTRUM", 10, "WIFI SPECTRUM ANALYZER"},
         // === DATA & STATS ===
-        {"SWINE STATS", 11, "Lifetime stats & buffs"},
-        {"LOOT", 4, "View saved loot"},
-        {"PORK TRACKS", 13, "Upload to WiGLE"},
-        {"BOAR BROS", 12, "Manage friendly networks"},
-        {"ACHIEVEMENTS", 9, "Proof of pwn"},
+        {"SWINE STATS", 11, "LIFETIME STATS & BUFFS"},
+        {"LOOT", 4, "VIEW SAVED LOOT"},
+        {"PORK TRACKS", 13, "UPLOAD TO WIGLE"},
+        {"BOAR BROS", 12, "MANAGE FRIENDLY NETWORKS"},
+        {"ACHIEVEMENTS", 9, "PROOF OF PWN"},
         // === SERVICES ===
-        {"FILE TRANSFER", 3, "WiFi file server"},
-        {"LOG VIEWER", 7, "Debug log tail"},
-        {"SETTINGS", 5, "Tweak the pig"},
-        {"ABOUT", 6, "Credits and info"}
+        {"FILE TRANSFER", 3, "WIFI FILE SERVER"},
+        {"LOG VIEWER", 7, "DEBUG LOG TAIL"},
+        {"SETTINGS", 5, "TWEAK THE PIG"},
+        {"ABOUT", 6, "CREDITS AND INFO"}
     };
     Menu::setItems(mainMenuItems);
     Menu::setTitle("PORKCHOP OS");

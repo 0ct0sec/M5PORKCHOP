@@ -11,7 +11,7 @@
 // Static member initialization
 bool WPASec::cacheLoaded = false;
 char WPASec::lastError[64] = "";
-char WPASec::statusMessage[64] = "Ready";
+char WPASec::statusMessage[64] = "READY";
 std::map<String, WPASec::CacheEntry> WPASec::crackedCache;
 std::map<String, bool> WPASec::uploadedCache;
 
@@ -20,7 +20,7 @@ void WPASec::init() {
     crackedCache.clear();
     uploadedCache.clear();
     strcpy(lastError, "");
-    strcpy(statusMessage, "Ready");
+    strcpy(statusMessage, "READY");
 }
 
 // ============================================================================
@@ -29,7 +29,7 @@ void WPASec::init() {
 
 bool WPASec::connect() {
     if (WiFi.status() == WL_CONNECTED) {
-        strcpy(statusMessage, "Already connected");
+        strcpy(statusMessage, "ALREADY CONNECTED");
         return true;
     }
     
@@ -37,12 +37,12 @@ bool WPASec::connect() {
     String password = Config::wifi().otaPassword;
     
     if (ssid.isEmpty()) {
-        strcpy(lastError, "No WiFi SSID configured");
-        strcpy(statusMessage, "No WiFi SSID");
+        strcpy(lastError, "NO WIFI SSID CONFIGURED");
+        strcpy(statusMessage, "NO WIFI SSID");
         return false;
     }
     
-    strcpy(statusMessage, "Connecting...");
+    strcpy(statusMessage, "CONNECTING...");
     Serial.printf("[WPASEC] Connecting to %s\n", ssid.c_str());
     
     WiFi.disconnect(true);
@@ -61,8 +61,8 @@ bool WPASec::connect() {
         return true;
     }
     
-    strcpy(lastError, "Connection timeout");
-    strcpy(statusMessage, "Connect failed");
+    strcpy(lastError, "CONNECTION TIMEOUT");
+    strcpy(statusMessage, "CONNECT FAILED");
     Serial.println("[WPASEC] Connection failed");
     WiFi.disconnect(true);
     return false;
@@ -71,7 +71,7 @@ bool WPASec::connect() {
 void WPASec::disconnect() {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
-    strcpy(statusMessage, "Disconnected");
+    strcpy(statusMessage, "DISCONNECTED");
     Serial.println("[WPASEC] Disconnected");
 }
 
@@ -111,7 +111,7 @@ bool WPASec::loadCache() {
     
     File f = SD.open(CACHE_FILE, FILE_READ);
     if (!f) {
-        strcpy(lastError, "Cannot open cache");
+        strcpy(lastError, "CANNOT OPEN CACHE");
         return false;
     }
     
@@ -153,7 +153,7 @@ bool WPASec::loadCache() {
 bool WPASec::saveCache() {
     File f = SD.open(CACHE_FILE, FILE_WRITE);
     if (!f) {
-        strcpy(lastError, "Cannot write cache");
+        strcpy(lastError, "CANNOT WRITE CACHE");
         return false;
     }
     
@@ -255,17 +255,17 @@ void WPASec::markUploaded(const char* bssid) {
 
 bool WPASec::fetchResults() {
     if (!isConnected()) {
-        strcpy(lastError, "Not connected to WiFi");
+        strcpy(lastError, "NOT CONNECTED TO WIFI");
         return false;
     }
     
     String key = Config::wifi().wpaSecKey;
     if (key.isEmpty()) {
-        strcpy(lastError, "No WPA-SEC key configured");
+        strcpy(lastError, "NO WPA-SEC KEY CONFIGURED");
         return false;
     }
     
-    strcpy(statusMessage, "Fetching results...");
+    strcpy(statusMessage, "FETCHING RESULTS...");
     Serial.println("[WPASEC] Fetching results from WPA-SEC");
     
     WiFiClientSecure client;
@@ -500,7 +500,7 @@ bool WPASec::uploadCapture(const char* pcapPath) {
     }
     
     snprintf(lastError, sizeof(lastError), "Upload failed: %s", statusLine.substring(0, 30).c_str());
-    strcpy(statusMessage, "Upload failed");
+    strcpy(statusMessage, "UPLOAD FAILED");
     SDLog::log("WPASEC", "Upload failed: %s", filename.c_str());
     Serial.printf("[WPASEC] Upload failed: %s\n", statusLine.c_str());
     return false;

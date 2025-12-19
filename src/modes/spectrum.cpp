@@ -525,8 +525,12 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
         uint32_t age = (millis() - client.lastSeen) / 1000;
         char line[52];
         
-        // Use cached vendor from discovery time
-        const char* vendor = client.vendor ? client.vendor : "Unknown";
+        // Use cached vendor from discovery time - uppercase for display
+        const char* vendorRaw = client.vendor ? client.vendor : "UNKNOWN";
+        char vendorUpper[10];
+        strncpy(vendorUpper, vendorRaw, 9);
+        vendorUpper[9] = '\0';
+        for (int i = 0; vendorUpper[i]; i++) vendorUpper[i] = toupper(vendorUpper[i]);
         
         // Calculate relative position: client vs AP signal
         // Positive delta = client closer to us than AP
@@ -542,7 +546,7 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
         // Show vendor (8 chars) + last 2 octets + arrow for hunting
         snprintf(line, sizeof(line), "%d.%-8s %02X:%02X %3ddB %2lus %s",
             clientIdx + 1,
-            vendor,
+            vendorUpper,
             client.mac[4], client.mac[5],
             client.rssi,
             age,
@@ -777,19 +781,19 @@ void SpectrumMode::onBeacon(const uint8_t* bssid, uint8_t channel, int8_t rssi, 
 
 String SpectrumMode::getSelectedInfo() {
     // Guard against callback race
-    if (busy) return "Scanning...";
+    if (busy) return "SCANNING...";
     
     // [P8] Client monitoring mode - show monitored network + client count
     if (monitoringNetwork) {
         if (monitoredNetworkIndex >= 0 && monitoredNetworkIndex < (int)networks.size()) {
             const auto& net = networks[monitoredNetworkIndex];
             char buf[48];
-            const char* ssid = net.ssid[0] ? net.ssid : "[hidden]";
+            const char* ssid = net.ssid[0] ? net.ssid : "[HIDDEN]";
             snprintf(buf, sizeof(buf), "MON:%s C:%d CH%d", 
                      ssid, net.clientCount, net.channel);
             return String(buf);
         }
-        return "Monitoring...";
+        return "MONITORING...";
     }
     
     if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
@@ -804,7 +808,7 @@ String SpectrumMode::getSelectedInfo() {
         if (net.ssid[0]) {
             ssid = net.wasRevealed ? String("*") + net.ssid : net.ssid;
         } else {
-            ssid = "[hidden]";
+            ssid = "[HIDDEN]";
         }
         if (ssid.length() > MAX_SSID_DISPLAY) {
             ssid = ssid.substring(0, MAX_SSID_DISPLAY) + "..";
@@ -818,9 +822,9 @@ String SpectrumMode::getSelectedInfo() {
         return String(buf);
     }
     if (networks.empty()) {
-        return "Scanning...";
+        return "SCANNING...";
     }
-    return "Press Enter to select";
+    return "PRESS ENTER TO SELECT";
 }
 
 // Promiscuous callback - extract beacon info

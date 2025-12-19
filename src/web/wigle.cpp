@@ -11,7 +11,7 @@
 
 // Static member initialization
 char WiGLE::lastError[64] = "";
-char WiGLE::statusMessage[64] = "Ready";
+char WiGLE::statusMessage[64] = "READY";
 std::vector<String> WiGLE::uploadedFiles;
 bool WiGLE::listLoaded = false;
 
@@ -19,7 +19,7 @@ void WiGLE::init() {
     uploadedFiles.clear();
     listLoaded = false;
     strcpy(lastError, "");
-    strcpy(statusMessage, "Ready");
+    strcpy(statusMessage, "READY");
     loadUploadedList();
 }
 
@@ -29,7 +29,7 @@ void WiGLE::init() {
 
 bool WiGLE::connect() {
     if (WiFi.status() == WL_CONNECTED) {
-        strcpy(statusMessage, "Already connected");
+        strcpy(statusMessage, "ALREADY CONNECTED");
         return true;
     }
     
@@ -37,12 +37,12 @@ bool WiGLE::connect() {
     String password = Config::wifi().otaPassword;
     
     if (ssid.isEmpty()) {
-        strcpy(lastError, "No WiFi SSID configured");
-        strcpy(statusMessage, "No WiFi SSID");
+        strcpy(lastError, "NO WIFI SSID CONFIGURED");
+        strcpy(statusMessage, "NO WIFI SSID");
         return false;
     }
     
-    strcpy(statusMessage, "Connecting...");
+    strcpy(statusMessage, "CONNECTING...");
     Serial.printf("[WIGLE] Connecting to %s\n", ssid.c_str());
     
     WiFi.disconnect(true);
@@ -61,8 +61,8 @@ bool WiGLE::connect() {
         return true;
     }
     
-    strcpy(lastError, "Connection timeout");
-    strcpy(statusMessage, "Connect failed");
+    strcpy(lastError, "CONNECTION TIMEOUT");
+    strcpy(statusMessage, "CONNECT FAILED");
     Serial.println("[WIGLE] Connection failed");
     WiFi.disconnect(true);
     return false;
@@ -71,7 +71,7 @@ bool WiGLE::connect() {
 void WiGLE::disconnect() {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
-    strcpy(statusMessage, "Disconnected");
+    strcpy(statusMessage, "DISCONNECTED");
     Serial.println("[WIGLE] Disconnected");
 }
 
@@ -182,35 +182,35 @@ bool WiGLE::hasCredentials() {
 
 bool WiGLE::uploadFile(const char* csvPath) {
     if (!isConnected()) {
-        strcpy(lastError, "Not connected to WiFi");
+        strcpy(lastError, "NOT CONNECTED TO WIFI");
         return false;
     }
     
     if (!hasCredentials()) {
-        strcpy(lastError, "No WiGLE API credentials");
+        strcpy(lastError, "NO WIGLE API CREDENTIALS");
         return false;
     }
     
     if (!SD.exists(csvPath)) {
-        snprintf(lastError, sizeof(lastError), "File not found");
+        snprintf(lastError, sizeof(lastError), "FILE NOT FOUND");
         return false;
     }
     
     File csvFile = SD.open(csvPath, FILE_READ);
     if (!csvFile) {
-        strcpy(lastError, "Cannot open file");
+        strcpy(lastError, "CANNOT OPEN FILE");
         return false;
     }
     
     size_t fileSize = csvFile.size();
     // WiGLE limit is 180MB, but we'll be more conservative on ESP32
     if (fileSize > 500000) {  // 500KB limit for ESP32 memory safety
-        strcpy(lastError, "File too large (>500KB)");
+        strcpy(lastError, "FILE TOO LARGE (>500KB)");
         csvFile.close();
         return false;
     }
     
-    strcpy(statusMessage, "Uploading...");
+    strcpy(statusMessage, "UPLOADING...");
     Serial.printf("[WIGLE] Uploading %s (%d bytes)\n", csvPath, fileSize);
     
     // Build multipart form data boundaries
@@ -271,7 +271,7 @@ bool WiGLE::uploadFile(const char* csvPath) {
         size_t written = client.write(chunk, bytesRead);
         if (written != bytesRead) {
             Serial.printf("[WIGLE] Write error: %d of %d bytes\n", written, bytesRead);
-            strcpy(lastError, "Write error");
+            strcpy(lastError, "WRITE ERROR");
             csvFile.close();
             client.stop();
             return false;
@@ -288,7 +288,7 @@ bool WiGLE::uploadFile(const char* csvPath) {
     
     if (bytesSent != fileSize) {
         Serial.printf("[WIGLE] Incomplete upload: %d of %d bytes\n", bytesSent, fileSize);
-        strcpy(lastError, "Incomplete upload");
+        strcpy(lastError, "INCOMPLETE UPLOAD");
         client.stop();
         return false;
     }
@@ -307,7 +307,7 @@ bool WiGLE::uploadFile(const char* csvPath) {
     }
     
     if (!client.available()) {
-        strcpy(lastError, "Response timeout");
+        strcpy(lastError, "RESPONSE TIMEOUT");
         client.stop();
         return false;
     }
@@ -337,7 +337,7 @@ bool WiGLE::uploadFile(const char* csvPath) {
     
     // Check for success (200 response and "success":true in body)
     if (statusLine.indexOf("200") > 0 && body.indexOf("\"success\":true") >= 0) {
-        strcpy(statusMessage, "Upload OK");
+        strcpy(statusMessage, "UPLOAD OK");
         Serial.println("[WIGLE] Upload successful");
         SDLog::log("WIGLE", "Upload OK: %s", filename.c_str());
         
@@ -360,7 +360,7 @@ bool WiGLE::uploadFile(const char* csvPath) {
         snprintf(lastError, sizeof(lastError), "HTTP %s", statusLine.substring(9, 12).c_str());
     }
     
-    strcpy(statusMessage, "Upload failed");
+    strcpy(statusMessage, "UPLOAD FAILED");
     SDLog::log("WIGLE", "Upload failed: %s", filename.c_str());
     Serial.printf("[WIGLE] Upload failed: %s\n", lastError);
     return false;
