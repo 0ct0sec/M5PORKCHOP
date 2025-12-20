@@ -10,6 +10,7 @@
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../modes/oink.h"
+#include "../modes/donoham.h"
 #include "../modes/warhog.h"
 #include "../modes/piggyblues.h"
 #include "../modes/spectrum.h"
@@ -120,6 +121,7 @@ void Display::update() {
             break;
             
         case PorkchopMode::OINK_MODE:
+        case PorkchopMode::DNH_MODE:
         case PorkchopMode::WARHOG_MODE:
         case PorkchopMode::PIGGYBLUES_MODE:
             // Draw piglet avatar and mood bubble (info embedded in bubble)
@@ -214,6 +216,10 @@ void Display::drawTopBar() {
             break;
         case PorkchopMode::OINK_MODE:
             modeStr = "OINK";
+            modeColor = COLOR_ACCENT;
+            break;
+        case PorkchopMode::DNH_MODE:
+            modeStr = "DO NO HAM";
             modeColor = COLOR_ACCENT;
             break;
         case PorkchopMode::WARHOG_MODE:
@@ -443,6 +449,15 @@ void Display::drawBottomBar() {
                 snprintf(buf, sizeof(buf), "N:%03d HS:%02d D:%04lu CH:%02d", netCount, hsCount, deauthCount, channel);
             }
         }
+        stats = String(buf);
+    } else if (mode == PorkchopMode::DNH_MODE) {
+        // DNH: Networks, PMKIDs, Handshakes, Channel
+        uint16_t netCount = DoNoHamMode::getNetworkCount();
+        uint16_t pmkidCount = DoNoHamMode::getPMKIDCount();
+        uint16_t hsCount = DoNoHamMode::getHandshakeCount();
+        uint8_t channel = DoNoHamMode::getCurrentChannel();
+        char buf[48];
+        snprintf(buf, sizeof(buf), "N:%03d P:%02d HS:%02d CH:%02d DNH", netCount, pmkidCount, hsCount, channel);
         stats = String(buf);
     } else if (mode == PorkchopMode::PIGGYBLUES_MODE) {
         // PIGGYBLUES: TX:total A:apple G:android S:samsung W:windows

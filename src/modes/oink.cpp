@@ -1,6 +1,8 @@
 // Oink Mode implementation
 
 #include "oink.h"
+#include "donoham.h"
+#include "../core/porkchop.h"
 #include "../core/config.h"
 #include "../core/wsl_bypasser.h"
 #include "../core/sdlog.h"
@@ -141,11 +143,11 @@ const size_t MAX_NETWORKS = 200;       // Max tracked networks
 const size_t MAX_HANDSHAKES = 50;      // Max handshakes (each can be large)
 const size_t MAX_PMKIDS = 50;          // Max PMKIDs (smaller than handshakes)
 
-// DO NO HAM mode - hardcoded optimal values for passive recon
+// OINK passive mode (D key toggle) - hardcoded optimal values for passive recon
 // (not configurable - these are the best settings for fast walking)
-const uint16_t DNH_HOP_INTERVAL = 150;     // 150ms = fast sweeps for mobile recon
-const size_t DNH_MAX_NETWORKS = 150;       // Limited to prevent OOM when walking
-const uint32_t DNH_STALE_TIMEOUT = 45000;  // 45s - faster cleanup when mobile
+const uint16_t OINK_PASSIVE_HOP_INTERVAL = 150;     // 150ms = fast sweeps for mobile recon
+const size_t OINK_PASSIVE_MAX_NETWORKS = 150;       // Limited to prevent OOM when walking
+const uint32_t OINK_PASSIVE_STALE_TIMEOUT = 45000;  // 45s - faster cleanup when mobile
 const size_t HEAP_MIN_THRESHOLD = 30000;   // 30KB minimum free heap to add networks
 
 // Deauth timing
@@ -551,7 +553,7 @@ void OinkMode::update() {
         case AutoState::SCANNING:
             {
                 bool doNoHam = Config::wifi().doNoHam;
-                uint16_t hopInterval = doNoHam ? DNH_HOP_INTERVAL : SwineStats::getChannelHopInterval();
+                uint16_t hopInterval = doNoHam ? OINK_PASSIVE_HOP_INTERVAL : SwineStats::getChannelHopInterval();
                 
                 // Check if dwelling on channel to catch beacon for PMKID SSID
                 bool dwelling = false;
@@ -866,7 +868,7 @@ void OinkMode::update() {
     // Brief lock for vector erase operations
     if (now - lastScanTime > 30000) {
         oinkBusy = true;  // Brief lock for cleanup
-        uint32_t staleTimeout = Config::wifi().doNoHam ? DNH_STALE_TIMEOUT : 60000;
+        uint32_t staleTimeout = Config::wifi().doNoHam ? OINK_PASSIVE_STALE_TIMEOUT : 60000;
         for (auto it = networks.begin(); it != networks.end();) {
             if (now - it->lastSeen > staleTimeout) {
                 it = networks.erase(it);
@@ -1006,6 +1008,27 @@ void OinkMode::hopChannel() {
 }
 
 void OinkMode::promiscuousCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
+    // Dispatch to DNH mode if active (shared callback)
+    if (DoNoHamMode::isRunning()) {
+        wifi_promiscuous_pkt_t* pkt = (wifi_promiscuous_pkt_t*)buf;
+        uint16_t len = pkt->rx_ctrl.sig_len;
+        int8_t rssi = pkt->rx_ctrl.rssi;
+        if (len > 4) len -= 4;
+        if (len < 24) return;
+        
+        const uint8_t* payload = pkt->payload;
+        uint8_t frameSubtype = (payload[0] >> 4) & 0x0F;
+        
+        if (type == WIFI_PKT_MGMT) {
+            if (frameSubtype == 0x08) {  // Beacon
+                DoNoHamMode::handleBeacon(payload, len, rssi);
+            }
+        } else if (type == WIFI_PKT_DATA) {
+            DoNoHamMode::handleEAPOL(payload, len, rssi);
+        }
+        return;
+    }
+    
     if (!running) return;
     
     // Skip if main thread is accessing networks/handshakes vectors
@@ -1183,7 +1206,7 @@ void OinkMode::processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) 
         // Limit network count to prevent OOM
         // NOTE: Don't do vector erase in callback - just drop if at capacity
         // The update() loop handles cleanup of stale networks
-        size_t maxNetworks = Config::wifi().doNoHam ? DNH_MAX_NETWORKS : MAX_NETWORKS;
+        size_t maxNetworks = Config::wifi().doNoHam ? OINK_PASSIVE_MAX_NETWORKS : MAX_NETWORKS;
         if (networks.size() >= maxNetworks) {
             // At capacity - skip adding new network (update() will clean stale ones)
             return;

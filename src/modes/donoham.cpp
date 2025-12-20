@@ -105,7 +105,8 @@ void DoNoHamMode::start() {
     // Set channel
     esp_wifi_set_channel(currentChannel, WIFI_SECOND_CHAN_NONE);
     
-    // Enable promiscuous mode (callback registered by OINK, dispatches to us)
+    // Enable promiscuous mode with shared callback (OINK's callback dispatches to us)
+    esp_wifi_set_promiscuous_rx_cb(OinkMode::promiscuousCallback);
     esp_wifi_set_promiscuous(true);
     
     running = true;

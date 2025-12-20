@@ -157,6 +157,9 @@ public:
     static void removeBoarBro(uint64_t bssid);  // Remove from exclusion list
     static const std::map<uint64_t, String>& getExcludedMap() { return boarBros; }
     
+    // Promiscuous mode callback (public for shared use with DO NO HAM mode)
+    static void promiscuousCallback(void* buf, wifi_promiscuous_pkt_type_t type);
+    
 private:
     static bool running;
     static bool scanning;
@@ -180,9 +183,7 @@ private:
     static uint16_t beaconFrameLen;
     static bool beaconCaptured;
     
-    // Promiscuous mode callback (runs in WiFi task context, not ISR)
-    static void promiscuousCallback(void* buf, wifi_promiscuous_pkt_type_t type);
-    
+    // Private processing functions (callback dispatches here)
     static void processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi);
     static void processProbeResponse(const uint8_t* payload, uint16_t len, int8_t rssi);
     static void processDataFrame(const uint8_t* payload, uint16_t len, int8_t rssi);
