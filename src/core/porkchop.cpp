@@ -416,6 +416,10 @@ void Porkchop::handleInput() {
                 case 'T':
                     setMode(PorkchopMode::SETTINGS);
                     break;
+                case 'd': // DO NO HAM mode
+                case 'D':
+                    setMode(PorkchopMode::DNH_MODE);
+                    break;
             }
         }
     }
