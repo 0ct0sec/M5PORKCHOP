@@ -783,14 +783,14 @@ String SpectrumMode::getSelectedInfo() {
     // Guard against callback race
     if (busy) return "SCANNING...";
     
-    // [P8] Client monitoring mode - show monitored network + client count
+    // [P8] Client monitoring mode - show client count and channel (SSID in header)
     if (monitoringNetwork) {
         if (monitoredNetworkIndex >= 0 && monitoredNetworkIndex < (int)networks.size()) {
             const auto& net = networks[monitoredNetworkIndex];
-            char buf[48];
-            // Use getMonitoredSSID() - already truncates to 11 chars for bottom bar
-            snprintf(buf, sizeof(buf), "MON:%s C:%02d CH:%02d", 
-                     getMonitoredSSID().c_str(), net.clientCount, net.channel);
+            char buf[32];
+            // SSID already shown in header - no duplication needed
+            snprintf(buf, sizeof(buf), "MON C:%02d CH:%02d", 
+                     net.clientCount, net.channel);
             return String(buf);
         }
         return "MONITORING...";
