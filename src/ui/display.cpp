@@ -219,7 +219,7 @@ void Display::drawTopBar() {
             modeColor = COLOR_ACCENT;
             break;
         case PorkchopMode::DNH_MODE:
-            modeStr = "DO NO HAM";
+            modeStr = "C. DONOHAM";
             modeColor = COLOR_ACCENT;
             break;
         case PorkchopMode::WARHOG_MODE:

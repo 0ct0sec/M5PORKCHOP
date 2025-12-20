@@ -131,7 +131,7 @@ void DoNoHamMode::start() {
     running = true;
     
     // UI feedback
-    Display::showToast("BRAVO 6, GOING DARK");
+    Display::showToast("PEACEFUL VIBES - NO TROUBLE TODAY");
     Avatar::setState(AvatarState::NEUTRAL);  // Calm, passive state
     Mood::onPassiveRecon(networks.size(), currentChannel);
     
@@ -286,7 +286,7 @@ void DoNoHamMode::update() {
                     // Announce capture
                     if (pendingPMKIDCreate.ssid[0] != 0) {
                         Serial.printf("[DNH] PMKID captured: %s\n", pendingPMKIDCreate.ssid);
-                        Display::showToast("GHOST PMKID!");
+                        Display::showToast("BOOMBOCLAAT! PMKID");
                         M5.Speaker.tone(880, 100);
                         delay(50);
                         M5.Speaker.tone(1100, 100);
@@ -358,7 +358,7 @@ void DoNoHamMode::update() {
     
     // Process handshake capture event (UI update)
     if (pendingHandshakeCapture) {
-        Display::showToast("GHOST HS!");
+        Display::showToast("NATURAL HANDSHAKE BLESSED - RESPECT DI HERB");
         M5.Speaker.tone(880, 100);
         delay(50);
         M5.Speaker.tone(1320, 100);

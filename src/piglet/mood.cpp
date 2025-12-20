@@ -286,28 +286,28 @@ const char* PHRASES_EXCITED[] = {
 };
 
 const char* PHRASES_HUNTING[] = {
-    "snout to ground",
-    "sniff n drift",
-    "hunting truffles",
-    "curious piggy",
-    "diggin deep",
-    "where da truffles"
+    "proper snouting",
+    "sniffin round like mad",
+    "hunting them truffles bruv",
+    "right aggro piggy",
+    "diggin deep mate",
+    "oi where's me truffles"
 };
 
 // OINK mode quiet phrases - when hunting but finding nothing
 const char* PHRASES_OINK_QUIET[] = {
-    "ether is silent",
-    "sniffing dead air",
-    "no truffles here",
-    "channels empty",
-    "where the beacons at",
-    "radio silence",
-    "faraday cage?",
-    "lonely spectrum",
-    "snout finds nothing",
-    "airwaves dry",
-    "hunting ghosts",
-    "802.11 void"
+    "bloody ether's dead",
+    "sniffin sod all",
+    "no truffles here bruv",
+    "channels proper empty",
+    "where's the beacons mate",
+    "dead radio yeah",
+    "faraday cage innit",
+    "lonely spectrum proper",
+    "snout finds bugger all",
+    "airwaves bone dry",
+    "chasin ghosts mate",
+    "802.11 wasteland"
 };
 
 const char* PHRASES_SLEEPY[] = {
@@ -415,29 +415,29 @@ const char* PHRASES_PIGGYBLUES_IDLE[] = {
 
 // Deauth success - 802.11 hacker rap style
 const char* PHRASES_DEAUTH_SUCCESS[] = {
-    "%s disassoc'd",
-    "%s reason code 7",
-    "%s frame dropped",
-    "%s wifi canceled",
+    "%s proper mullered",
+    "%s reason code 7 mate",
+    "%s frame binned bruv",
+    "%s wifi cancelled innit",
     "%s unauth'd lol",
-    "%s ejected ez",
-    "%s 802.11 rekt",
-    "%s connection ded",
-    "%s off my channel",
-    "%s skill issue"
+    "%s ejected proper",
+    "%s 802.11 banged up",
+    "%s connection dead",
+    "%s off me channel",
+    "%s absolute muppet"
 };
 
 // PMKID captured - clientless hash extraction style
 const char* PHRASES_PMKID_CAPTURED[] = {
-    "pmkid yoinked",
-    "clientless hash",
-    "rsn ie pwned",
-    "eapol-free loot",
-    "passive extraction",
-    "hashcat ready",
-    "no client needed",
-    "pmkid extracted",
-    "silent pwn mode"
+    "pmkid nicked proper",
+    "clientless hash bruv",
+    "rsn ie proper pwned",
+    "eapol-free loot mate",
+    "passive extraction sorted",
+    "hashcat ready innit",
+    "no client needed yeah",
+    "pmkid extracted proper",
+    "silent pwn mode chuffed"
 };
 
 // Rare phrases - 5% chance to appear for surprise variety
@@ -1221,18 +1221,18 @@ const char* PHRASES_SNIFFING[] = {
 
 // DO NO HAM passive recon phrases - peaceful observer mode
 const char* PHRASES_PASSIVE_RECON[] = {
-    "peaceful snoopin",
-    "no harm mode",
-    "quiet observer",
-    "ham-free scan",
-    "passive piggy",
-    "silent sweep",
-    "sniff dont bite",
-    "recon only",
-    "zen mode sniffin",
-    "watchful snout",
-    "ghost recon",
-    "stealth census"
+    "peaceful observin seen",
+    "no trouble dis time ya",
+    "quiet watcher blessed",
+    "irie passive scan",
+    "chill vibes bredren",
+    "silent sweep respect",
+    "sniff no bite easy",
+    "recon only jah guide",
+    "zen mode inna air",
+    "watchful snout blessed",
+    "ghost recon irie",
+    "stealth sweep respect"
 };
 
 // Deauth/digging phrases - 802.11 hacker rap style
