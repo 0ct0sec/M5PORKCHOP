@@ -76,7 +76,7 @@ void Porkchop::init() {
     std::vector<MenuItem> mainMenuItems = {
         // === MODES ===
         {"OINK", 1, "HUNT FOR HANDSHAKES"},
-        {"C. DONOHAM", 14, "PASSIVE RECON (NO ATTACKS)"},
+        {"CHILL DONOHAM", 14, "PASSIVE RECON (NO ATTACKS)"},
         {"SGT WARHOG", 2, "WARDRIVE WITH GPS"},
         {"PIGGY BLUES", 8, "BLE NOTIFICATION SPAM"},
         {"HOG ON SPECTRUM", 10, "WIFI SPECTRUM ANALYZER"},
@@ -476,8 +476,8 @@ void Porkchop::handleInput() {
             sess.passiveTimeStart = millis();
             
             // Show toast before mode switch (loading screen)
-            Display::showToast("SILENCE, WE LISTEN, JAH BLESS");
-            delay(300);
+            Display::showToast("IRIE VIBES ONLY NOW");
+            delay(800);
             
             // Seamless switch to DNH mode
             setMode(PorkchopMode::DNH_MODE);
@@ -502,8 +502,8 @@ void Porkchop::handleInput() {
             sess.passiveTimeStart = 0;
             
             // Show toast before mode switch (loading screen)
-            Display::showToast("SCREAMING AT THE ETHER INNIT");
-            delay(300);
+            Display::showToast("PROPER MAD ONE INNIT");
+            delay(800);
             
             // Seamless switch to OINK mode
             setMode(PorkchopMode::OINK_MODE);
