@@ -393,6 +393,7 @@ void DoNoHamMode::update() {
     // Periodic save (every 2 seconds)
     if (now - lastSaveTime > 2000) {
         saveAllPMKIDs();
+        saveAllHandshakes();
         lastSaveTime = now;
     }
     
