@@ -9,6 +9,7 @@ m5porkchop_builds/
 porkchop_*.bins
 
 release_notes/
+release_notes/commit_message_style.txt
 
 docs/*_plan.txt
 docs/*_check.txt
