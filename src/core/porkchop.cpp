@@ -476,8 +476,8 @@ void Porkchop::handleInput() {
             sess.passiveTimeStart = millis();
             
             // Show toast before mode switch (loading screen)
-            Display::showToast("SILENCE, WE LISTEN, JAH BLESS");
-            delay(300);
+            Display::showToast("IRIE VIBES ONLY NOW");
+            delay(800);
             
             // Seamless switch to DNH mode
             setMode(PorkchopMode::DNH_MODE);
@@ -502,8 +502,8 @@ void Porkchop::handleInput() {
             sess.passiveTimeStart = 0;
             
             // Show toast before mode switch (loading screen)
-            Display::showToast("SCREAMING AT THE ETHER INNIT");
-            delay(300);
+            Display::showToast("PROPER MAD ONE INNIT");
+            delay(800);
             
             // Seamless switch to OINK mode
             setMode(PorkchopMode::OINK_MODE);
