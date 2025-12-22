@@ -1567,7 +1567,7 @@ const char* PHRASES_MENU_IDLE[] = {
     "pick ur poison",
     "press key or perish",
     "awaiting chaos",
-    "idle paws...",
+    "idle hooves...",
     "root or reboot",
     "802.11 on standby",
     "snout calibrated",

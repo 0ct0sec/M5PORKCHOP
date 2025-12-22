@@ -415,14 +415,8 @@ void Display::drawBottomBar() {
             bool hidden = OinkMode::isTargetHidden();
             
             if (hidden || targetSSID[0] == '\0') {
-                // Hidden network - show last 4 bytes of BSSID
-                const uint8_t* bssid = OinkMode::getTargetBSSID();
-                if (bssid) {
-                    snprintf(buf, sizeof(buf), "LOCK:??%02X%02X C:%02d CH:%02d", 
-                             bssid[4], bssid[5], clients, channel);
-                } else {
-                    snprintf(buf, sizeof(buf), "LOCK:??? C:%02d CH:%02d", clients, channel);
-                }
+                // Hidden network - show [GHOST] label (clearer than ???)
+                snprintf(buf, sizeof(buf), "LOCK:[GHOST] C:%02d CH:%02d", clients, channel);
             } else {
                 // Normal network - 18 chars now, proper sick innit
                 char ssidShort[19];

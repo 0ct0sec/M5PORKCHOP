@@ -427,7 +427,12 @@ void CapturesMenu::nukeLoot() {
 
 String CapturesMenu::getSelectedBSSID() {
     if (selectedIndex < captures.size()) {
-        return captures[selectedIndex].bssid;
+        const CaptureInfo& cap = captures[selectedIndex];
+        // PMKIDs can't be uploaded to WPA-SEC (requires PCAP)
+        if (cap.isPMKID) {
+            return "L0C4L CR4CK: [R] [D]";
+        }
+        return "CR4CK TH3 L00T: [U] [R] [D]";
     }
     return "CR4CK TH3 L00T: [U] [R] [D]";
 }
@@ -473,6 +478,9 @@ void CapturesMenu::drawDetailView(M5Canvas& canvas) {
     } else if (cap.status == CaptureStatus::UPLOADED) {
         canvas.drawString("UPLOADED, WAITING...", centerX, boxY + 38);
         canvas.drawString("[R] REFRESH RESULTS", centerX, boxY + 54);
+    } else if (cap.isPMKID) {
+        canvas.drawString("PMKID - LOCAL CRACK ONLY", centerX, boxY + 38);
+        canvas.drawString("hashcat -m 22000", centerX, boxY + 54);
     } else {
         canvas.drawString("NOT UPLOADED YET", centerX, boxY + 38);
         canvas.drawString("[U] UPLOAD TO WPA-SEC", centerX, boxY + 54);
@@ -523,6 +531,13 @@ void CapturesMenu::uploadSelected() {
     // Already cracked? No need to upload
     if (cap.status == CaptureStatus::CRACKED) {
         Display::showToast("ALREADY CRACKED!");
+        delay(500);
+        return;
+    }
+    
+    // PMKIDs can't be uploaded (WPA-SEC requires PCAP format)
+    if (cap.isPMKID) {
+        Display::showToast("PMKID = LOCAL ONLY. GPU WILL THANK YOU.");
         delay(500);
         return;
     }

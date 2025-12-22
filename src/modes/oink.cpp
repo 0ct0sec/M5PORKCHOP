@@ -2241,6 +2241,10 @@ bool OinkMode::saveAllPMKIDs() {
                 snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
                          p.bssid[0], p.bssid[1], p.bssid[2],
                          p.bssid[3], p.bssid[4], p.bssid[5]);
+                // Delete existing file first to ensure clean overwrite (FILE_WRITE appends on ESP32)
+                if (SD.exists(txtFilename)) {
+                    SD.remove(txtFilename);
+                }
                 File txtFile = SD.open(txtFilename, FILE_WRITE);
                 if (txtFile) {
                     txtFile.println(p.ssid);
@@ -2576,6 +2580,7 @@ int OinkMode::getNextTarget() {
     // First pass: networks with clients, no handshake, attackAttempts < 3
     for (int i = 0; i < (int)networks.size(); i++) {
         if (isExcluded(networks[i].bssid)) continue;  // BOAR BRO - skip
+        if (networks[i].ssid[0] == 0) continue;  // Hidden network - skip (no SSID for cracking)
         if (networks[i].hasPMF) continue;
         if (networks[i].hasHandshake) continue;
         if (networks[i].authmode == WIFI_AUTH_OPEN) continue;  // Open = no handshake
@@ -2587,6 +2592,7 @@ int OinkMode::getNextTarget() {
     // Second pass: any network without handshake, attackAttempts < 2
     for (int i = 0; i < (int)networks.size(); i++) {
         if (isExcluded(networks[i].bssid)) continue;  // BOAR BRO - skip
+        if (networks[i].ssid[0] == 0) continue;  // Hidden network - skip (no SSID for cracking)
         if (networks[i].hasPMF) continue;
         if (networks[i].hasHandshake) continue;
         if (networks[i].authmode == WIFI_AUTH_OPEN) continue;
@@ -2598,6 +2604,7 @@ int OinkMode::getNextTarget() {
     // Third pass: retry networks with clients even if attempted before
     for (int i = 0; i < (int)networks.size(); i++) {
         if (isExcluded(networks[i].bssid)) continue;  // BOAR BRO - skip
+        if (networks[i].ssid[0] == 0) continue;  // Hidden network - skip (no SSID for cracking)
         if (networks[i].hasPMF) continue;
         if (networks[i].hasHandshake) continue;
         if (networks[i].authmode == WIFI_AUTH_OPEN) continue;

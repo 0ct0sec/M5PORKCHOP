@@ -75,22 +75,22 @@ void Porkchop::init() {
     // Order: Modes -> Data/Stats -> Services
     std::vector<MenuItem> mainMenuItems = {
         // === MODES ===
-        {"OINK", 1, "GO MENTAL - DEAUTH N CAPTURE INNIT"},
-        {"CHILL DONOHAM", 14, "PEACEFUL TING - JAH GUIDE THE SCAN"},
-        {"SGT WARHOG", 2, "RECON WALK - OSCAR MIKE WITH GPS"},
-        {"PIGGY BLUES", 8, "SLAY MODE - DEATH DROP ON BLE"},
-        {"HOG ON SPECTRUM", 10, "SPECTRUM GAZE - NIETZSCHE KNOWS"},
+        {"OINK", 1, "DEAUTH N CAPTURE INNIT"},
+        {"CHILL DONOHAM", 14, "JAH BLESS THE RX"},
+        {"SGT WARHOG", 2, "OSCAR MIKE WITH GPS"},
+        {"PIGGY BLUES", 8, "SLAY ON BLEAY"},
+        {"HOG ON SPECTRUM", 10, "NIETZSCHE KNOWS"},
         // === DATA & STATS ===
-        {"SWINE STATS", 11, "RPG STATS - BUFFS DEBUFFS CLASSES"},
-        {"LOOT", 4, "WAR CHEST - HASHCAT/WPA-SEC READY CAPTURES"},
-        {"PORK TRACKS", 13, "WARDRIVING DATA - SHARE THE COORDZ"},
-        {"BOAR BROS", 12, "WHITELIST - RESPECT THE BRO CODE"},
-        {"ACHIEVEMENTS", 9, "UNLOCK LOG - SECRET TITLES N BADGES"},
+        {"SWINE STATS", 11, "PIGRESSION"},
+        {"LOOT", 4, "HASHCAT FOOD"},
+        {"PORK TRACKS", 13, "OP DEBRIEF"},
+        {"BOAR BROS", 12, "RESPECT THE FAMILY"},
+        {"ACHIEVEMENTS", 9, "YOU DO IT ON STEAM"},
         // === SERVICES ===
-        {"FILE TRANSFER", 3, "HTTP SERVER - SD CARD WEB ACCESS"},
-        {"LOG VIEWER", 7, "SYSTEM TAIL - DEBUG LOG VIEWER"},
-        {"SETTINGS", 5, "CONFIG PANEL - PINS WIFI LOGGING"},
-        {"ABOUT", 6, "META DATA - VERSION N CONTRIBUTORS"}
+        {"FILE TRANSFER", 3, "CABLES HELL NAH"},
+        {"LOG VIEWER", 7, "KEEP IT CLEAN KIDDO"},
+        {"SETTINGS", 5, "now in lowercase"},
+        {"ABOUT", 6, "SHOW YOUR THERAPIST"}
     };
     Menu::setItems(mainMenuItems);
     Menu::setTitle("PORKCHOP OS");

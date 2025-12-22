@@ -716,6 +716,10 @@ void DoNoHamMode::saveAllPMKIDs() {
         char txtFilename[64];
         snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
                  p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5]);
+        // Delete existing file first to ensure clean overwrite (FILE_WRITE appends on ESP32)
+        if (SD.exists(txtFilename)) {
+            SD.remove(txtFilename);
+        }
         File txtFile = SD.open(txtFilename, FILE_WRITE);
         if (txtFile) {
             txtFile.println(p.ssid);
