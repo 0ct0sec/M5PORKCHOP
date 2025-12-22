@@ -76,8 +76,8 @@ void Porkchop::init() {
     std::vector<MenuItem> mainMenuItems = {
         // === MODES ===
         {"OINK", 1, "DEAUTH N CAPTURE INNIT"},
-        {"CHILL DONOHAM", 14, "JAH BLESS DI RX"},
-        {"SGT WARHOG", 2, "OSCAR MIKE WITH GPS"},
+        {"DONOHAM", 14, "JAH BLESS DI RX"},
+        {"WARHOG", 2, "OSCAR MIKE WITH GPS"},
         {"PIGGY BLUES", 8, "SLAY ON BLEAY"},
         {"HOG ON SPECTRUM", 10, "NIETZSCHE KNOWS"},
         // === DATA & STATS ===
