@@ -104,12 +104,35 @@ void Challenges::generate() {
             target *= tmpl.hardMult;
         }
         
+        // ============ LEVEL SCALING ============
+        // pig's demands grow with power
+        // L1-10: 1.0x, L11-20: 1.5x, L21-30: 2.0x, L31-40: 3.0x
+        uint8_t level = XP::getLevel();
+        if (level >= 31) {
+            target = (target * 3);          // 3.0x
+        } else if (level >= 21) {
+            target = (target * 2);          // 2.0x
+        } else if (level >= 11) {
+            target = (target * 3) / 2;      // 1.5x
+        }
+        // L1-10 stays at 1.0x (no change)
+        
         // calculate XP reward: EASY=base, MEDIUM=2x, HARD=4x
         uint16_t reward = tmpl.xpRewardBase;
         if (diff == ChallengeDifficulty::MEDIUM) {
             reward *= 2;
         } else if (diff == ChallengeDifficulty::HARD) {
             reward *= 4;
+        }
+        
+        // ============ REWARD SCALING ============
+        // pig rewards scale with pig demands (same multipliers)
+        if (level >= 31) {
+            reward = (reward * 3);          // 3.0x
+        } else if (level >= 21) {
+            reward = (reward * 2);          // 2.0x
+        } else if (level >= 11) {
+            reward = (reward * 3) / 2;      // 1.5x
         }
         
         // format the challenge name with target value
@@ -192,8 +215,15 @@ void Challenges::updateProgress(ChallengeType type, uint16_t delta) {
             
             // pig is pleased. announce it.
             char toast[48];
-            snprintf(toast, sizeof(toast), "* %s *", ch.name);
-            Display::showToast(toast);
+            // difficulty-specific toast messages
+            const char* toastMsg;
+            switch (ch.difficulty) {
+                case ChallengeDifficulty::EASY:   toastMsg = "FIRST BLOOD. PIG STIRS."; break;
+                case ChallengeDifficulty::MEDIUM: toastMsg = "PROGRESS NOTED. PIG LISTENS."; break;
+                case ChallengeDifficulty::HARD:   toastMsg = "BRUTAL. PIG RESPECTS."; break;
+                default:                          toastMsg = "PIG APPROVES."; break;
+            }
+            Display::showToast(toastMsg);
             
             // distinct jingle for challenge complete
             // rising tones: accomplishment achieved
@@ -216,7 +246,7 @@ void Challenges::updateProgress(ChallengeType type, uint16_t delta) {
                 const uint16_t BONUS_XP = 100;
                 XP::addXP(BONUS_XP);
                 
-                Display::showToast("* ALL TRIALS COMPLETE *");
+                Display::showToast("WORTHY. 115200 REMEMBERS.");
                 
                 // Victory fanfare - triumphant jingle
                 if (Config::personality().soundEnabled) {
