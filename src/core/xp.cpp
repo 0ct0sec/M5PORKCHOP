@@ -20,7 +20,7 @@ Preferences XP::prefs;
 bool XP::initialized = false;
 void (*XP::levelUpCallback)(uint8_t, uint8_t) = nullptr;
 
-// XP values for each event type (synced with docs/RPG_IMPLEMENTATION_PLAN.txt)
+// XP values for each event type (v0.1.8 rebalanced - nerf spam, buff skill)
 static const uint16_t XP_VALUES[] = {
     1,      // NETWORK_FOUND
     3,      // NETWORK_HIDDEN
@@ -31,13 +31,13 @@ static const uint16_t XP_VALUES[] = {
     75,     // PMKID_CAPTURED
     2,      // DEAUTH_SENT
     15,     // DEAUTH_SUCCESS
-    2,      // WARHOG_LOGGED
-    25,     // DISTANCE_KM
-    2,      // BLE_BURST
-    3,      // BLE_APPLE
-    2,      // BLE_ANDROID
-    2,      // BLE_SAMSUNG
-    2,      // BLE_WINDOWS
+    1,      // WARHOG_LOGGED (nerfed: passive driving)
+    30,     // DISTANCE_KM (buffed: physical effort)
+    1,      // BLE_BURST (nerfed: spam)
+    2,      // BLE_APPLE (nerfed: spam)
+    1,      // BLE_ANDROID (nerfed: spam)
+    1,      // BLE_SAMSUNG (nerfed: spam)
+    1,      // BLE_WINDOWS (nerfed: spam)
     5,      // GPS_LOCK
     25,     // ML_ROGUE_DETECTED
     10,     // SESSION_30MIN
@@ -46,7 +46,7 @@ static const uint16_t XP_VALUES[] = {
     20,     // LOW_BATTERY_CAPTURE
     // DO NO HAM / BOAR BROS events (v0.1.4+)
     2,      // DNH_NETWORK_PASSIVE - same as regular network
-    100,    // DNH_PMKID_GHOST - rare passive PMKID!
+    150,    // DNH_PMKID_GHOST (buffed: very rare passive!)
     5,      // BOAR_BRO_ADDED
     15      // BOAR_BRO_MERCY - mid-attack exclusion
 };
@@ -487,6 +487,7 @@ static const uint16_t WARHOG_XP_CAP = 300;   // ~150 geotagged networks
 static uint8_t captureStreak = 0;            // consecutive captures without 5min gap
 static uint32_t lastCaptureTime = 0;         // for streak timeout
 static const uint32_t STREAK_TIMEOUT_MS = 300000;  // 5 minutes to maintain streak
+static bool ultraStreakAnnounced = false;    // one-time toast for streak 20
 
 void XP::startSession() {
     memset(&session, 0, sizeof(session));
@@ -502,6 +503,7 @@ void XP::startSession() {
     // Reset dopamine hooks
     captureStreak = 0;
     lastCaptureTime = 0;
+    ultraStreakAnnounced = false;
     
     data.sessions++;
     
@@ -557,6 +559,11 @@ void XP::addXP(XPEvent event) {
             }
             captureStreak = (captureStreak < 255) ? captureStreak + 1 : 255;
             lastCaptureTime = millis();
+            // ULTRA STREAK! celebration at 20 captures
+            if (captureStreak == 20 && !ultraStreakAnnounced) {
+                Display::showToast("ULTRA STREAK!");
+                ultraStreakAnnounced = true;
+            }
             // Check for clutch capture (handshake at <10% battery)
             if (M5.Power.getBatteryLevel() < 10 && !hasAchievement(ACH_CLUTCH_CAPTURE)) {
                 unlockAchievement(ACH_CLUTCH_CAPTURE);
@@ -572,6 +579,11 @@ void XP::addXP(XPEvent event) {
             }
             captureStreak = (captureStreak < 255) ? captureStreak + 1 : 255;
             lastCaptureTime = millis();
+            // ULTRA STREAK! celebration at 20 captures
+            if (captureStreak == 20 && !ultraStreakAnnounced) {
+                Display::showToast("ULTRA STREAK!");
+                ultraStreakAnnounced = true;
+            }
             // Check for clutch capture (PMKID at <10% battery)
             if (M5.Power.getBatteryLevel() < 10 && !hasAchievement(ACH_CLUTCH_CAPTURE)) {
                 unlockAchievement(ACH_CLUTCH_CAPTURE);
