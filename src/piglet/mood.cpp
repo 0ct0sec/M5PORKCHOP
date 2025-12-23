@@ -89,13 +89,17 @@ uint32_t Mood::getLastActivityTime() {
     return lastActivityTime;
 }
 
+void Mood::adjustHappiness(int delta) {
+    happiness = constrain(happiness + delta, -100, 100);
+}
+
 // --- Phase 6: Phrase Chaining ---
-// Queue up to 3 phrases for sequential display
+// Queue up to 4 phrases for sequential display (expanded for 5-line riddles)
 
 static const uint32_t PHRASE_CHAIN_DELAY_MS = 2000;  // 2 seconds between chain phrases
 
 static void queuePhrase(const String& phrase) {
-    if (Mood::phraseQueueCount < 3) {
+    if (Mood::phraseQueueCount < 4) {
         Mood::phraseQueue[Mood::phraseQueueCount] = phrase;
         Mood::phraseQueueCount++;
     }
@@ -221,6 +225,11 @@ static bool tryQueueRiddle() {
     riddleShownThisBoot = true;
     riddleActive = true;  // LED mode active
     Display::setLED(255, 0, 0);  // Red glow during riddle
+    
+    // Achievement for witnessing the prophecy
+    if (!XP::hasAchievement(ACH_PROPHECY_WITNESS)) {
+        XP::unlockAchievement(ACH_PROPHECY_WITNESS);
+    }
     
     // Pick random riddle
     int pick = random(0, RIDDLE_COUNT);

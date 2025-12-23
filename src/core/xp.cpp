@@ -423,6 +423,7 @@ void XP::load() {
     data.boarBrosAdded = prefs.getUInt("brosadd", 0);
     data.mercyCount = prefs.getUInt("mercy", 0);
     data.titleOverride = static_cast<TitleOverride>(prefs.getUChar("titleo", 0));
+    data.unlockables = prefs.getUInt("unlock", 0);  // Unlockables v0.1.8
     data.cachedLevel = calculateLevel(data.totalXP);
     
     prefs.end();
@@ -457,6 +458,7 @@ void XP::save() {
     prefs.putUInt("brosadd", data.boarBrosAdded);
     prefs.putUInt("mercy", data.mercyCount);
     prefs.putUChar("titleo", static_cast<uint8_t>(data.titleOverride));
+    prefs.putUInt("unlock", data.unlockables);  // Unlockables v0.1.8
     
     prefs.end();
     
@@ -1106,6 +1108,22 @@ uint8_t XP::getUnlockedCount() {
     return count;
 }
 
+// Unlockables (v0.1.8) - secret challenges
+void XP::setUnlockable(uint8_t bitIndex) {
+    if (bitIndex >= 32) return;  // Only 32 bits available
+    data.unlockables |= (1UL << bitIndex);
+    save();  // Persist immediately
+}
+
+bool XP::hasUnlockable(uint8_t bitIndex) {
+    if (bitIndex >= 32) return false;
+    return (data.unlockables & (1UL << bitIndex)) != 0;
+}
+
+uint32_t XP::getUnlockables() {
+    return data.unlockables;
+}
+
 const char* XP::getAchievementName(PorkAchievement ach) {
     uint8_t idx = 0;
     uint64_t mask = 1ULL;
@@ -1291,8 +1309,8 @@ void XP::checkAchievements() {
         unlockAchievement(ACH_GPS_ADDICT);
     }
     
-    // 50km in session (ultramarathon)
-    if (session.distanceM >= 50000 && !hasAchievement(ACH_ULTRAMARATHON)) {
+    // 42.195km in session (actual marathon distance)
+    if (session.distanceM >= 42195 && !hasAchievement(ACH_ULTRAMARATHON)) {
         unlockAchievement(ACH_ULTRAMARATHON);
     }
     
@@ -1417,20 +1435,23 @@ void XP::checkAchievements() {
     
     // ===== COMBINED ACHIEVEMENTS (v0.1.4+) =====
     
-    // Inner Peace: 1hr passive + 10 bros + 0 deauths this session
-    // Check session-based conditions (must add 10 bros THIS session)
-    if (!hasAchievement(ACH_INNER_PEACE) && !session.everDeauthed) {
-        uint32_t sessionMinutes = (millis() - session.startTime) / 60000;
-        if (sessionMinutes >= 60 && session.boarBrosThisSession >= 10) {
-            unlockAchievement(ACH_INNER_PEACE);
-        }
-    }
-    
     // Pacifist Run: 50+ networks discovered, all added to bros
     // This is session-based: networks == boarBrosThisSession this session
     if (!hasAchievement(ACH_PACIFIST_RUN)) {
         if (session.networks >= 50 && session.networks <= session.boarBrosThisSession) {
             unlockAchievement(ACH_PACIFIST_RUN);
+        }
+    }
+    
+    // ===== ULTIMATE ACHIEVEMENT (v0.1.8) =====
+    
+    // TH3_C0MPL3T10N1ST: All other achievements unlocked
+    // Check if all bits 0-62 are set (excluding bit 63 itself)
+    if (!hasAchievement(ACH_FULL_CLEAR)) {
+        // Mask for all achievements except FULL_CLEAR itself
+        const uint64_t ALL_OTHER_ACHIEVEMENTS = (1ULL << 63) - 1;  // bits 0-62
+        if ((data.achievements & ALL_OTHER_ACHIEVEMENTS) == ALL_OTHER_ACHIEVEMENTS) {
+            unlockAchievement(ACH_FULL_CLEAR);
         }
     }
 }

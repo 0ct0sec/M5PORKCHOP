@@ -101,7 +101,7 @@ enum PorkAchievement : uint64_t {
     ACH_HALF_MARATHON   = 1ULL << 30,  // 21km in session
     ACH_HUNDRED_KM      = 1ULL << 31,  // 100km lifetime
     ACH_GPS_ADDICT      = 1ULL << 32,  // 500 GPS-tagged networks
-    ACH_ULTRAMARATHON   = 1ULL << 33,  // 50km in session
+    ACH_ULTRAMARATHON   = 1ULL << 33,  // 42.195km in session (actual marathon)
     
     // BLE/PIGGYBLUES milestones
     ACH_PARANOID_ANDROID = 1ULL << 34, // 100 Android FastPair spam
@@ -137,14 +137,19 @@ enum PorkAchievement : uint64_t {
     ACH_WITNESS_PROTECT = 1ULL << 56,  // 25 bros added lifetime (unlocks P4C1F1ST_P0RK)
     ACH_FULL_ROSTER     = 1ULL << 57,  // Currently have 50 bros (max limit)
     
-    // Combined DO NO HAM + BOAR BROS achievements (bits 58-59)
-    ACH_INNER_PEACE     = 1ULL << 58,  // 1hr passive + 10 bros + 0 deauths this session
+    // Lore achievement (bit 58) - v0.1.8
+    ACH_PROPHECY_WITNESS = 1ULL << 58,  // Witnessed the riddle prophecy
+    
+    // Combined DO NO HAM + BOAR BROS achievements (bit 59)
     ACH_PACIFIST_RUN    = 1ULL << 59,  // 50+ networks discovered, all added to bros
     
     // CLIENT MONITOR achievements (bits 60-62) - v0.1.6 hunting features
     ACH_QUICK_DRAW      = 1ULL << 60,  // Deauth 5 clients in under 30 seconds
     ACH_DEAD_EYE        = 1ULL << 61,  // Deauth within 2 seconds of entering monitor
     ACH_HIGH_NOON       = 1ULL << 62,  // Deauth during 12:00 hour (noon)
+    
+    // Ultimate achievement (bit 63) - v0.1.8
+    ACH_FULL_CLEAR      = 1ULL << 63,  // All other achievements unlocked (TH3_C0MPL3T10N1ST)
 };
 
 // Persistent XP data structure (stored in NVS)
@@ -174,6 +179,7 @@ struct PorkXPData {
     uint32_t boarBrosAdded;     // Total networks added to BOAR BROS
     uint32_t mercyCount;        // Mid-attack exclusions (mercy kills)
     TitleOverride titleOverride; // Player-selected title override
+    uint32_t unlockables;       // Unlockables bitfield (v0.1.8) - secret challenges
 };
 
 // Session-only stats (not persisted)
@@ -243,6 +249,11 @@ public:
     static uint64_t getAchievements();
     static uint8_t getUnlockedCount();  // Count of unlocked achievements
     static const char* getAchievementName(PorkAchievement ach);
+    
+    // Unlockables (v0.1.8) - secret challenges
+    static void setUnlockable(uint8_t bitIndex);
+    static bool hasUnlockable(uint8_t bitIndex);
+    static uint32_t getUnlockables();
     
     // Stats access
     static const PorkXPData& getData();

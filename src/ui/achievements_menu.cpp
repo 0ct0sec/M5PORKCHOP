@@ -53,7 +53,7 @@ static const struct {
     { ACH_HALF_MARATHON,  "HALF MARAT0N",   "Walk 21km in a single session" },
     { ACH_HUNDRED_KM,     "HUNDRED K1L0",   "Walk 100km total lifetime" },
     { ACH_GPS_ADDICT,     "GPS 4DD1CT",     "Log 500 GPS-tagged networks" },
-    { ACH_ULTRAMARATHON,  "ULTRAMAR4THON",  "Walk 50km in a single session" },
+    { ACH_ULTRAMARATHON,  "ULTRAMAR4THON",  "Walk 42.195km in one session" },
     { ACH_PARANOID_ANDROID,"PARANOID ANDR01D","Send 100 Android FastPair spam" },
     { ACH_SAMSUNG_SPRAY,  "SAMSUNG SPR4Y",  "Send 100 Samsung BLE spam" },
     { ACH_WINDOWS_PANIC,  "W1ND0WS PANIC",  "Send 100 Windows SwiftPair spam" },
@@ -80,13 +80,16 @@ static const struct {
     { ACH_MERCY_MODE,     "M3RCY M0D3",     "First mid-attack exclusion" },
     { ACH_WITNESS_PROTECT,"W1TN3SS PR0T3CT","25 networks protected (unlocks title)" },
     { ACH_FULL_ROSTER,    "FULL R0ST3R",    "50 networks in BOAR BROS (max)" },
+    // Lore achievement (v0.1.8)
+    { ACH_PROPHECY_WITNESS, "PR0PH3CY W1TN3SS", "Witnessed the riddle prophecy" },
     // Combined DO NO HAM + BOAR BROS achievements
-    { ACH_INNER_PEACE,    "1NN3R P34C3",    "1hr passive + 10 bros + no deauths" },
     { ACH_PACIFIST_RUN,   "P4C1F1ST RUN",   "50+ networks, all added as bros" },
     // CLIENT MONITOR achievements (v0.1.6+)
     { ACH_QUICK_DRAW,     "QU1CK DR4W",     "Deauth 5 clients in 30 seconds" },
     { ACH_DEAD_EYE,       "D34D 3Y3",       "Deauth <2s after entering monitor" },
     { ACH_HIGH_NOON,      "H1GH N00N",      "Deauth during noon hour" },
+    // Ultimate achievement (v0.1.8)
+    { ACH_FULL_CLEAR,     "TH3_C0MPL3T10N1ST", "Unlock all other achievements" },
 };
 
 void AchievementsMenu::init() {

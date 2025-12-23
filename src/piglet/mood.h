@@ -40,6 +40,7 @@ public:
     static int getCurrentHappiness();
     static int getEffectiveHappiness();  // Happiness with momentum applied
     static uint32_t getLastActivityTime();  // For buff/debuff idle detection
+    static void adjustHappiness(int delta);  // Direct happiness adjustment
     
     // Phase 6: Public for phrase chaining helper functions
     static String currentPhrase;

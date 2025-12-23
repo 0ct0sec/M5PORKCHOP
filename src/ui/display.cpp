@@ -23,6 +23,7 @@
 #include "swine_stats.h"
 #include "boar_bros_menu.h"
 #include "wigle_menu.h"
+#include "unlockables_menu.h"
 
 // Theme color getters - read from config
 // Theme definitions (single copy, declared extern in display.h)
@@ -179,6 +180,10 @@ void Display::update() {
         case PorkchopMode::WIGLE_MENU:
             WigleMenu::draw(mainCanvas);
             break;
+            
+        case PorkchopMode::UNLOCKABLES:
+            UnlockablesMenu::draw(mainCanvas);
+            break;
     }
     
     drawBottomBar();
@@ -284,6 +289,10 @@ void Display::drawTopBar() {
                 snprintf(buf, sizeof(buf), "PORK TR4CKS (%d)", WigleMenu::getCount());
                 modeStr = buf;
             }
+            modeColor = COLOR_ACCENT;
+            break;
+        case PorkchopMode::UNLOCKABLES:
+            modeStr = "UNL0CK4BL3S";
             modeColor = COLOR_ACCENT;
             break;
     }
@@ -652,19 +661,19 @@ void Display::flashSiren(uint8_t cycles) {
     
     // Police siren effect - red/blue alternating flash
     // Uses ESP32-S3 built-in neopixelWrite() - no library needed!
-    // Non-blocking timing would require a state machine, so we do quick blocking flashes
-    // 3 cycles × 2 colors × 40ms = 240ms total (acceptable for big events)
-    
+    // Note: LED brightness depends on display brightness (shared power rail)
+    // Users at 100% brightness get full siren effect
+
     for (uint8_t i = 0; i < cycles; i++) {
         // RED flash
         neopixelWrite(LED_PIN, 255, 0, 0);
         delay(40);
-        
+
         // BLUE flash
         neopixelWrite(LED_PIN, 0, 0, 255);
         delay(40);
     }
-    
+
     // Turn off LED
     neopixelWrite(LED_PIN, 0, 0, 0);
 }

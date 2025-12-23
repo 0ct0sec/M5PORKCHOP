@@ -22,7 +22,8 @@ enum class PorkchopMode : uint8_t {
     LOG_VIEWER,     // View SD card logs
     SWINE_STATS,    // Lifetime stats and buffs overlay
     BOAR_BROS,      // Manage excluded networks
-    WIGLE_MENU      // WiGLE file uploads
+    WIGLE_MENU,     // WiGLE file uploads
+    UNLOCKABLES     // Secret challenges menu
 };
 
 // Events for async callbacks
