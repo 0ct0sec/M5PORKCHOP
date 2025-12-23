@@ -22,6 +22,7 @@
 #include "config.h"
 #include "xp.h"
 #include "sdlog.h"
+#include "challenges.h"
 
 Porkchop::Porkchop() 
     : currentMode(PorkchopMode::IDLE)
@@ -440,6 +441,9 @@ void Porkchop::handleInput() {
                 case 'd': // DO NO HAM mode
                 case 'D':
                     setMode(PorkchopMode::DNH_MODE);
+                    break;
+                case '1': // Reveal session challenges to Serial
+                    Challenges::printToSerial();
                     break;
             }
         }

@@ -46,6 +46,9 @@ public:
     // the pig wakes. three trials await.
     static void generate();
     
+    // reveal demands to the worthy (Serial output)
+    static void printToSerial();
+    
     // single integration point - called from XP::addXP()
     static void onXPEvent(XPEvent event);
     

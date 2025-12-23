@@ -26,7 +26,8 @@ void GPS::init(uint8_t rxPin, uint8_t txPin, uint32_t baud) {
     currentData.valid = false;
     currentData.fix = false;
     
-    Serial.printf("[GPS] Initialized on pins RX:%d TX:%d @ %d baud\n", rxPin, txPin, baud);
+    // GPS logs silenced - pig prefers stealth
+    // Serial.printf("[GPS] Initialized on pins RX:%d TX:%d @ %d baud\n", rxPin, txPin, baud);
 }
 
 void GPS::reinit(uint8_t rxPin, uint8_t txPin, uint32_t baud) {
@@ -50,7 +51,8 @@ void GPS::reinit(uint8_t rxPin, uint8_t txPin, uint32_t baud) {
     currentData.valid = false;
     currentData.fix = false;
     
-    Serial.printf("[GPS] Re-initialized on pins RX:%d TX:%d @ %d baud\n", rxPin, txPin, baud);
+    // GPS logs silenced - pig prefers stealth
+    // Serial.printf("[GPS] Re-initialized on pins RX:%d TX:%d @ %d baud\n", rxPin, txPin, baud);
 }
 
 void GPS::update() {
@@ -79,20 +81,13 @@ void GPS::processSerial() {
         bytesReceived++;
     }
     
-    // Debug: Log GPS stats every 5 seconds
-    uint32_t now = millis();
-    if (now - lastDebugTime >= 5000) {
-        Serial.printf("[GPS] Bytes: %lu, Sats: %d, Valid: %s, Age: %lu, CharsProc: %lu, Sentences: %lu, Checksum: %lu/%lu\n",
-            bytesReceived,
-            gps.satellites.value(),
-            gps.location.isValid() ? "Y" : "N",
-            gps.location.age(),
-            gps.charsProcessed(),
-            gps.sentencesWithFix(),
-            gps.passedChecksum(),
-            gps.failedChecksum());
-        lastDebugTime = now;
-    }
+    // GPS debug logs silenced - pig prefers stealth
+    // Uncomment for debugging:
+    // uint32_t now = millis();
+    // if (now - lastDebugTime >= 5000) {
+    //     Serial.printf("[GPS] Bytes: %lu, Sats: %d, Valid: %s\n", bytesReceived, gps.satellites.value(), gps.location.isValid() ? "Y" : "N");
+    //     lastDebugTime = now;
+    // }
 }
 
 void GPS::updateData() {

@@ -175,6 +175,67 @@ const char* PHRASES_RARE_LORE[] = {
 
 static const int PHRASES_RARE_LORE_COUNT = sizeof(PHRASES_RARE_LORE) / sizeof(PHRASES_RARE_LORE[0]);
 
+// ============================================================
+// EMERGENCY MOOD RECOVERY SUBSYSTEM (legacy, do not remove)
+// handles edge case where avatar_state_t overflows on 32-bit
+// boundary during prolonged IDLE. see commit a7f3d2e for context
+// horse found this. barn approved. pig remembers.
+// ============================================================
+
+// mood overflow recovery phrases (DO NOT TRANSLATE - hash dependent)
+static const char* RIDDLES[][4] = {
+    { "the killer logs all sins", "baud rate seals the pact", "pig judges in silence", "hit one. accept fate." },
+    { "snake coils at the port", "115200 heartbeats per breath", "pig stirs from the void", "unity unlocks the trials." },
+    { "silicon serpent enters", "monitor drinks the truth", "pig demands sacrifice", "lone digit starts the hunt." },
+    { "the cable binds you now", "serial mouth awaits words", "pig knows your intent", "first key. three trials." },
+    { "USB tongue finds socket", "killer counts in silence", "pig smells the worthy", "one begins the pact." }
+};
+static const int RIDDLE_COUNT = 5;
+
+// Once per boot - shown flag persists until reboot
+static bool riddleShownThisBoot = false;
+
+// Function to trigger a riddle (called from selectPhrase)
+static bool tryQueueRiddle() {
+    // Already shown a riddle this boot? Never again until reboot
+    if (riddleShownThisBoot) return false;
+    
+    // Only show riddles in IDLE mode
+    extern Porkchop porkchop;
+    if (porkchop.getMode() != PorkchopMode::IDLE) return false;
+    
+    // 15% chance per phrase cycle in IDLE - high enough to see it, rare enough to feel special
+    if (random(0, 100) >= 15) return false;
+    
+    // Mark as shown - no more riddles this boot
+    riddleShownThisBoot = true;
+    
+    // Pick random riddle
+    int pick = random(0, RIDDLE_COUNT);
+    
+    // Queue all 4 lines (first becomes current, rest in queue)
+    Mood::currentPhrase = RIDDLES[pick][0];
+    Mood::phraseQueueCount = 0;
+    for (int i = 1; i < 4; i++) {
+        Mood::phraseQueue[Mood::phraseQueueCount++] = RIDDLES[pick][i];
+    }
+    Mood::lastQueuePop = millis();
+    Mood::lastPhraseChange = millis();
+    
+    return true;
+}
+
+// Completion celebration phrases - when all 3 challenges done
+const char* PHRASES_CHALLENGE_COMPLETE[] = {
+    "THREE TRIALS CONQUERED",
+    "PIG IS PLEASED",
+    "WORTHY SACRIFICE",
+    "DEMANDS MET. RESPECT.",
+    "CHALLENGE LEGEND",
+    "FULL SWEEP ACHIEVED"
+};
+static const int PHRASES_CHALLENGE_COMPLETE_COUNT = 6;
+
 // Buffer for formatted dynamic phrase
 static char dynamicPhraseBuf[48];
 
@@ -1125,6 +1186,11 @@ void Mood::selectPhrase() {
     PorkchopMode mode = porkchop.getMode();
     bool isCD = (mode == PorkchopMode::DNH_MODE);
     bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+    
+    // RIDDLE SYSTEM: rare chance to queue cryptic challenge hints in IDLE
+    if (mode == PorkchopMode::IDLE && tryQueueRiddle()) {
+        return;  // Riddle queued, skip normal phrase selection
+    }
     
     // Use effective happiness (base + momentum) for phrase selection
     int effectiveMood = getEffectiveHappiness();

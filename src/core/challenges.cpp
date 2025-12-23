@@ -124,13 +124,48 @@ void Challenges::generate() {
         snprintf(ch.name, sizeof(ch.name), tmpl.nameFormat, target);
     }
     
-    // pig announces demands
-    Serial.println("[CHALLENGES] pig wakes. demands action:");
-    for (int i = 0; i < 3; i++) {
-        const char* diffStr = (i == 0) ? "EASY" : (i == 1) ? "MEDIUM" : "HARD";
-        Serial.printf("  [%s] %s (+%d XP)\n", 
-            diffStr, challenges[i].name, challenges[i].xpReward);
+    // pig's demands generated in silence
+    // curious users can invoke printToSerial() to see them
+}
+
+// ============================================================
+// SERIAL OUTPUT
+// the pig reveals demands to the worthy. press '1' in IDLE.
+// ============================================================
+
+void Challenges::printToSerial() {
+    if (activeCount == 0) {
+        Serial.println("\n[PIG] no demands. pig sleeps.");
+        return;
     }
+    
+    Serial.println();
+    Serial.println("+------------------------------------------+");
+    Serial.println("|     PIG WAKES. PIG DEMANDS ACTION.       |");
+    Serial.println("+------------------------------------------+");
+    
+    for (int i = 0; i < activeCount; i++) {
+        const ActiveChallenge& ch = challenges[i];
+        const char* diffStr = (i == 0) ? "EASY  " : (i == 1) ? "MEDIUM" : "HARD  ";
+        const char* status = ch.completed ? "[*]" : ch.failed ? "[X]" : "[ ]";
+        
+        // Fixed width: 42 chars inside box
+        char line[64];
+        snprintf(line, sizeof(line), " %s %s %-20s +%3d XP", status, diffStr, ch.name, ch.xpReward);
+        Serial.printf("|%-42s|\n", line);
+        
+        if (!ch.completed && !ch.failed) {
+            snprintf(line, sizeof(line), "       progress: %d / %d", ch.progress, ch.target);
+            Serial.printf("|%-42s|\n", line);
+        }
+    }
+    
+    Serial.println("+------------------------------------------+");
+    char summary[64];
+    snprintf(summary, sizeof(summary), "           completed: %d / %d", getCompletedCount(), activeCount);
+    Serial.printf("|%-42s|\n", summary);
+    Serial.println("+------------------------------------------+");
+    Serial.println();
 }
 
 // ============================================================
@@ -172,8 +207,33 @@ void Challenges::updateProgress(ChallengeType type, uint16_t delta) {
             
             delay(400);  // let user see the toast
             
-            Serial.printf("[CHALLENGES] pig pleased. '%s' complete. +%d XP.\n",
+            Serial.printf("[CHALLENGES] pig pleased. '%s' complete. +%d XP.\\n",
                           ch.name, ch.xpReward);
+            
+            // Check for full sweep bonus (all 3 completed)
+            if (allCompleted()) {
+                // TRIPLE THREAT BONUS - pig respects dedication
+                const uint16_t BONUS_XP = 100;
+                XP::addXP(BONUS_XP);
+                
+                Display::showToast("* ALL TRIALS COMPLETE *");
+                
+                // Victory fanfare - triumphant jingle
+                if (Config::personality().soundEnabled) {
+                    delay(200);
+                    M5.Speaker.tone(800, 80);
+                    delay(100);
+                    M5.Speaker.tone(1000, 80);
+                    delay(100);
+                    M5.Speaker.tone(1200, 80);
+                    delay(100);
+                    M5.Speaker.tone(1500, 200);
+                }
+                
+                delay(500);
+                
+                Serial.println("[CHALLENGES] *** FULL SWEEP! +100 BONUS XP ***");
+            }
         }
     }
 }
