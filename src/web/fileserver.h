@@ -48,6 +48,7 @@ private:
     static void handleUpload();
     static void handleUploadProcess();
     static void handleDelete();
+    static void handleBulkDelete();
     static void handleMkdir();
     static void handleSDInfo();
     static void handleNotFound();

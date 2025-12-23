@@ -1029,15 +1029,17 @@ void Display::drawFileTransferScreen(M5Canvas& canvas) {
         canvas.setTextColor(COLOR_FG);
         canvas.drawString(FileServer::getStatus(), DISPLAY_W / 2, 60);
     } else if (FileServer::isRunning() && FileServer::isConnected()) {
-        // Show IP address
+        // Show IP address - PIG SCREAMS UPPERCASE
         canvas.drawString("CONNECTED! BROWSE TO:", DISPLAY_W / 2, 30);
         
         canvas.setTextColor(COLOR_SUCCESS);
-        String url = "http://" + FileServer::getIP();
+        String ip = FileServer::getIP();
+        ip.toUpperCase();
+        String url = "HTTP://" + ip;
         canvas.drawString(url, DISPLAY_W / 2, 45);
         
         canvas.setTextColor(COLOR_FG);
-        canvas.drawString("or http://porkchop.local", DISPLAY_W / 2, 60);
+        canvas.drawString("OR HTTP://PORKCHOP.LOCAL", DISPLAY_W / 2, 60);
     } else if (FileServer::isRunning()) {
         // Server running but WiFi lost
         canvas.drawString("LINK DEAD.", DISPLAY_W / 2, 35);

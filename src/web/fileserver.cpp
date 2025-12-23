@@ -17,174 +17,165 @@ uint32_t FileServer::lastReconnectCheck = 0;
 static File uploadFile;
 static String uploadDir;
 
-// Black & white HTML interface with full filesystem navigation
+// Black & white HTML interface - Midnight Commander style dual-pane
 static const char HTML_TEMPLATE[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PORKCHOP File Manager</title>
+    <title>PORKCHOP COMMANDER</title>
     <style>
-        :root { --pink: #FFAEAD; --bg: #000; }
+        :root { --pink: #FFAEAD; --bg: #000; --sel: #331a1a; --active: #442222; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
             background: var(--bg); 
             color: var(--pink); 
             font-family: 'Courier New', monospace;
-            font-size: 1.0em;
-            padding: 20px;
-            max-width: 900px;
-            margin: 0 auto;
-        }
-        .logo {
-            white-space: pre;
-            font-size: 0.35em;
-            line-height: 1.1;
-            margin-bottom: 10px;
-            overflow-x: auto;
+            font-size: 0.9em;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
         .header {
-            border-bottom: 2px solid var(--pink);
-            padding-bottom: 10px;
-            margin-bottom: 15px;
+            padding: 5px 10px;
+            border-bottom: 1px solid var(--pink);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
         }
-        .sd-info {
-            opacity: 0.6;
-            font-size: 0.85em;
-            margin-top: 5px;
+        .header h1 { font-size: 1em; font-weight: normal; }
+        .sd-info { opacity: 0.6; font-size: 0.85em; }
+        .panes {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
         }
-        .breadcrumb {
-            margin: 10px 0;
-            padding: 10px 12px;
+        .pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #331a1a;
+            overflow: hidden;
+        }
+        .pane:last-child { border-right: none; }
+        .pane.active .pane-header { background: var(--active); }
+        .pane-header {
+            padding: 6px 10px;
             background: #0a0505;
-            border: 1px solid #331a1a;
-            font-size: 0.95em;
+            border-bottom: 1px solid #331a1a;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+            flex-shrink: 0;
         }
-        .breadcrumb a { color: var(--pink); text-decoration: none; }
-        .breadcrumb a:hover { text-decoration: underline; }
-        .breadcrumb span { opacity: 0.5; }
+        .pane-path { 
+            flex: 1; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            white-space: nowrap;
+        }
+        .pane-select-info { opacity: 0.7; margin-left: 10px; }
         .file-list {
-            border: 1px solid #331a1a;
-            margin: 10px 0;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
         .file-item { 
             display: flex; 
-            justify-content: space-between; 
             align-items: center;
-            padding: 12px 10px;
-            border-bottom: 1px solid #1a0d0d;
-            transition: background 0.1s;
+            padding: 4px 8px;
+            cursor: pointer;
+            border-bottom: 1px solid #0a0505;
         }
         .file-item:hover { background: #0f0808; }
-        .file-item:last-child { border-bottom: none; }
-        .file-icon { 
-            width: 24px; 
-            text-align: center; 
-            margin-right: 8px; 
-            opacity: 0.6;
+        .file-item.focused { background: var(--sel); outline: 1px solid var(--pink); }
+        .file-item.selected { background: var(--active); }
+        .file-item.selected.focused { background: #553333; }
+        .file-check { 
+            width: 20px; 
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.3;
         }
-        .file-icon.dir { opacity: 1; }
-        .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-        .file-name a { color: var(--pink); text-decoration: none; }
-        .file-name a:hover { text-decoration: underline; }
-        .file-size { opacity: 0.5; margin: 0 15px; min-width: 70px; text-align: right; font-size: 0.85em; }
-        .file-actions { display: flex; gap: 5px; }
+        .file-item.selected .file-check { opacity: 1; }
+        .file-icon { 
+            width: 20px; 
+            text-align: center; 
+            opacity: 0.5;
+            flex-shrink: 0;
+        }
+        .file-icon.dir { opacity: 1; color: var(--pink); }
+        .file-name { 
+            flex: 1; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            white-space: nowrap;
+            padding: 0 8px;
+        }
+        .file-size { 
+            opacity: 0.4; 
+            min-width: 60px; 
+            text-align: right; 
+            font-size: 0.85em;
+            flex-shrink: 0;
+        }
+        .toolbar {
+            display: flex;
+            gap: 5px;
+            padding: 8px;
+            background: #050505;
+            border-top: 1px solid #331a1a;
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
         .btn {
             background: var(--pink);
             color: var(--bg);
             border: none;
-            padding: 6px 14px;
+            padding: 5px 12px;
             cursor: pointer;
             font-family: inherit;
-            font-size: 0.85em;
-            transition: opacity 0.15s;
+            font-size: 0.8em;
         }
         .btn:hover { opacity: 0.8; }
-        .btn:active { opacity: 0.6; }
-        .btn-outline { background: transparent; color: var(--pink); border: 1px solid var(--pink); opacity: 0.7; }
+        .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .btn-outline { 
+            background: transparent; 
+            color: var(--pink); 
+            border: 1px solid var(--pink); 
+            opacity: 0.7; 
+        }
         .btn-outline:hover { opacity: 1; background: #1a0d0d; }
-        .btn-danger { background: transparent; color: var(--pink); border: 1px solid var(--pink); opacity: 0.5; }
-        .btn-danger:hover { opacity: 1; background: #1a0505; }
-        .btn-sm { padding: 4px 10px; font-size: 0.8em; }
-        .toolbar {
+        .btn-danger { background: #442222; color: var(--pink); }
+        .fkey-bar {
             display: flex;
-            gap: 8px;
-            margin: 12px 0;
-            flex-wrap: wrap;
-            align-items: center;
+            background: #111;
+            border-top: 1px solid #331a1a;
+            flex-shrink: 0;
         }
-        .upload-btn {
-            position: relative;
-            overflow: hidden;
-        }
-        .upload-btn input[type="file"] {
-            position: absolute;
-            left: 0; top: 0;
-            width: 100%; height: 100%;
-            opacity: 0;
+        .fkey {
+            flex: 1;
+            padding: 6px 4px;
+            text-align: center;
+            font-size: 0.75em;
+            border-right: 1px solid #222;
             cursor: pointer;
         }
-        .dropzone {
-            border: 2px dashed #331a1a;
-            padding: 20px;
-            text-align: center;
-            opacity: 0.5;
-            margin: 10px 0;
-            transition: all 0.2s;
-            display: none;
-        }
-        .dropzone.active {
-            display: block;
-        }
-        .dropzone.dragover {
-            border-color: var(--pink);
-            opacity: 1;
-            background: #0a0505;
-        }
-        .progress-container {
-            margin: 10px 0;
-            display: none;
-        }
-        .progress-container.active { display: block; }
-        .progress-bar {
-            width: 100%;
-            height: 6px;
-            background: #1a0d0d;
-            border-radius: 3px;
-            overflow: hidden;
-        }
-        .progress-fill {
-            height: 100%;
-            background: var(--pink);
-            width: 0%;
-            transition: width 0.2s;
-        }
-        .progress-text {
+        .fkey:hover { background: #1a0d0d; }
+        .fkey:last-child { border-right: none; }
+        .fkey span { opacity: 0.5; }
+        .status {
+            padding: 4px 10px;
             font-size: 0.8em;
-            opacity: 0.6;
-            margin-top: 5px;
-        }
-        .status { 
-            font-size: 0.85em;
-            padding: 8px 0;
-            min-height: 24px;
-            opacity: 0.7;
-        }
-        .status.success { opacity: 1; }
-        .status.error { opacity: 1; }
-        input[type="text"] {
-            background: #0a0505;
-            color: var(--pink);
-            border: 1px solid #331a1a;
-            padding: 8px 12px;
-            font-family: inherit;
-            font-size: 1em;
-            width: 100%;
-        }
-        input[type="text"]:focus {
-            outline: none;
-            border-color: var(--pink);
+            background: #050505;
+            border-top: 1px solid #1a0d0d;
+            min-height: 22px;
+            flex-shrink: 0;
         }
         .modal {
             display: none;
@@ -199,70 +190,101 @@ static const char HTML_TEMPLATE[] PROGMEM = R"rawliteral(
         .modal-content {
             background: var(--bg);
             border: 1px solid var(--pink);
-            padding: 25px;
-            max-width: 350px;
+            padding: 20px;
+            max-width: 400px;
             width: 90%;
         }
-        .modal-content h3 { margin-bottom: 20px; font-weight: normal; }
-        .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
-        .empty-state {
-            padding: 40px;
-            text-align: center;
-            opacity: 0.4;
+        .modal-content h3 { margin-bottom: 15px; font-weight: normal; }
+        .modal-actions { display: flex; gap: 10px; margin-top: 15px; }
+        input[type="text"] {
+            background: #0a0505;
+            color: var(--pink);
+            border: 1px solid #331a1a;
+            padding: 8px;
+            font-family: inherit;
+            width: 100%;
+        }
+        input[type="text"]:focus { outline: none; border-color: var(--pink); }
+        .upload-btn { position: relative; overflow: hidden; }
+        .upload-btn input[type="file"] {
+            position: absolute;
+            left: 0; top: 0;
+            width: 100%; height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .progress-bar {
+            height: 4px;
+            background: #1a0d0d;
+            margin-top: 5px;
+            display: none;
+        }
+        .progress-bar.active { display: block; }
+        .progress-fill {
+            height: 100%;
+            background: var(--pink);
+            width: 0%;
+            transition: width 0.1s;
         }
         @media (max-width: 600px) {
-            .logo { font-size: 0.25em; }
+            .panes { flex-direction: column; }
+            .pane { border-right: none; border-bottom: 1px solid #331a1a; }
             .file-size { display: none; }
-            .btn { padding: 8px 12px; }
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <pre class="logo"> ██▓███   ▒█████   ██▀███   ██ ▄█▀ ▄████▄   ██░ ██  ▒█████   ██▓███  
-▓██░  ██▒▒██▒  ██▒▓██ ▒ ██▒ ██▄█▒ ▒██▀ ▀█  ▓██░ ██▒▒██▒  ██▒▓██░  ██▒
-▓██░ ██▓▒▒██░  ██▒▓██ ░▄█ ▒▓███▄░ ▒▓█    ▄ ▒██▀▀██░▒██░  ██▒▓██░ ██▓▒
-▒██▄█▓▒ ▒▒██   ██░▒██▀▀█▄  ▓██ █▄ ▒▓▓▄ ▄██▒░▓█ ░██ ▒██   ██░▒██▄█▓▒ ▒
-▒██▒ ░  ░░ ████▓▒░░██▓ ▒██▒▒██▒ █▄▒ ▓███▀ ░░▓█▒░██▓░ ████▓▒░▒██▒ ░  ░
-▒▓▒░ ░  ░░ ▒░▒░▒░ ░ ▒▓ ░▒▓░▒ ▒▒ ▓▒░ ░▒ ▒  ░ ▒ ░░▒░▒░ ▒░▒░▒░ ▒▓▒░ ░  ░
-░▒ ░       ░ ▒ ▒░   ░▒ ░ ▒░░ ░▒ ▒░  ░  ▒    ▒ ░▒░ ░  ░ ▒ ▒░ ░▒ ░     
-░░       ░ ░ ░ ▒    ░░   ░ ░ ░░ ░ ░         ░  ░░ ░░ ░ ░ ▒  ░░       
-             ░ ░     ░     ░  ░   ░ ░       ░  ░  ░    ░ ░           
-                                  ░                                  </pre>
-        <div class="sd-info" id="sdInfo">Loading...</div>
+        <h1>PORKCHOP COMMANDER</h1>
+        <div class="sd-info" id="sdInfo">...</div>
     </div>
     
-    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="panes">
+        <div class="pane active" id="paneL" onclick="setActivePane('L')">
+            <div class="pane-header">
+                <div class="pane-path" id="pathL">/</div>
+                <div class="pane-select-info" id="selInfoL"></div>
+            </div>
+            <div class="file-list" id="listL"></div>
+        </div>
+        <div class="pane" id="paneR" onclick="setActivePane('R')">
+            <div class="pane-header">
+                <div class="pane-path" id="pathR">/</div>
+                <div class="pane-select-info" id="selInfoR"></div>
+            </div>
+            <div class="file-list" id="listR"></div>
+        </div>
+    </div>
     
     <div class="toolbar">
-        <button class="btn btn-outline" onclick="loadDir(currentPath)">Refresh</button>
-        <button class="btn btn-outline" onclick="showNewFolderModal()">+ Folder</button>
-        <label class="btn upload-btn">
-            Upload
-            <input type="file" id="fileInput" name="file" multiple onchange="uploadFiles(this.files)">
-        </label>
+        <button class="btn btn-outline" onclick="refresh()">Refresh</button>
+        <button class="btn btn-outline" onclick="showNewFolderModal()">+Folder</button>
+        <label class="btn upload-btn">Upload<input type="file" multiple onchange="uploadFiles(this.files)"></label>
+        <button class="btn" onclick="selectAll()">Sel All</button>
+        <button class="btn btn-outline" onclick="selectNone()">Sel None</button>
+        <button class="btn" onclick="downloadSelected()" id="btnDownload">Download</button>
+        <button class="btn btn-danger" onclick="deleteSelected()" id="btnDelete">Delete</button>
     </div>
     
-    <div class="dropzone" id="dropzone">
-        Drop files here to upload
+    <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+    
+    <div class="fkey-bar">
+        <div class="fkey" onclick="showHelp()"><span>F1</span> Help</div>
+        <div class="fkey" onclick="refresh()"><span>F2</span> Refresh</div>
+        <div class="fkey" onclick="showNewFolderModal()"><span>F7</span> MkDir</div>
+        <div class="fkey" onclick="deleteSelected()"><span>F8</span> Delete</div>
+        <div class="fkey" onclick="downloadSelected()"><span>F9</span> Get</div>
+        <div class="fkey"><span>Tab</span> Switch</div>
     </div>
     
-    <div class="progress-container" id="progressContainer">
-        <div class="progress-bar">
-            <div class="progress-fill" id="progressFill"></div>
-        </div>
-        <div class="progress-text" id="progressText">Uploading...</div>
-    </div>
-    
-    <div class="file-list" id="fileList"></div>
-    
-    <div class="status" id="status"></div>
+    <div class="status" id="status">Ready | Arrow keys navigate | Space select | Enter open | Tab switch pane</div>
     
     <!-- New Folder Modal -->
     <div class="modal" id="newFolderModal" onclick="if(event.target===this)hideModal()">
         <div class="modal-content">
             <h3>New Folder</h3>
-            <input type="text" id="newFolderName" placeholder="Folder name" onkeydown="if(event.key==='Enter')createFolder();if(event.key==='Escape')hideModal()">
+            <input type="text" id="newFolderName" placeholder="Folder name" 
+                   onkeydown="if(event.key==='Enter')createFolder();if(event.key==='Escape')hideModal()">
             <div class="modal-actions">
                 <button class="btn" onclick="createFolder()">Create</button>
                 <button class="btn btn-outline" onclick="hideModal()">Cancel</button>
@@ -270,243 +292,448 @@ static const char HTML_TEMPLATE[] PROGMEM = R"rawliteral(
         </div>
     </div>
     
-    <script>
-        let currentPath = '/';
+    <!-- Help Modal -->
+    <div class="modal" id="helpModal" onclick="if(event.target===this)hideModal()">
+        <div class="modal-content">
+            <h3>Keyboard Shortcuts</h3>
+            <pre style="font-size:0.85em;line-height:1.6;opacity:0.8">
+Arrow Up/Down  Navigate files
+Enter          Open folder / Download file
+Space          Toggle selection
+Tab            Switch pane
+Ctrl+A         Select all
+Delete/F8      Delete selected
+F7             New folder
+F9             Download selected
+Backspace      Go to parent folder
+            </pre>
+            <div class="modal-actions">
+                <button class="btn" onclick="hideModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+// Pane state
+const panes = {
+    L: { path: '/', items: [], selected: new Set(), focusIdx: 0 },
+    R: { path: '/', items: [], selected: new Set(), focusIdx: 0 }
+};
+let activePane = 'L';
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    loadSDInfo();
+    loadPane('L', '/');
+    loadPane('R', '/');
+    document.addEventListener('keydown', handleKeydown);
+});
+
+function setActivePane(id) {
+    activePane = id;
+    document.getElementById('paneL').classList.toggle('active', id === 'L');
+    document.getElementById('paneR').classList.toggle('active', id === 'R');
+}
+
+async function loadSDInfo() {
+    try {
+        const r = await fetch('/api/sdinfo');
+        const d = await r.json();
+        const pct = ((d.used / d.total) * 100).toFixed(0);
+        document.getElementById('sdInfo').textContent = 
+            formatSize(d.used * 1024) + ' / ' + formatSize(d.total * 1024) + ' (' + pct + '%)';
+    } catch(e) {
+        document.getElementById('sdInfo').textContent = 'SD unavailable';
+    }
+}
+
+async function loadPane(id, path) {
+    const pane = panes[id];
+    pane.path = path;
+    pane.selected.clear();
+    pane.focusIdx = 0;
+    
+    document.getElementById('path' + id).textContent = path || '/';
+    const list = document.getElementById('list' + id);
+    list.innerHTML = '<div style="padding:20px;opacity:0.5">Loading...</div>';
+    
+    try {
+        const r = await fetch('/api/ls?dir=' + encodeURIComponent(path) + '&full=1');
+        const items = await r.json();
         
-        async function loadSDInfo() {
-            try {
-                const resp = await fetch('/api/sdinfo');
-                const info = await resp.json();
-                const pct = ((info.used / info.total) * 100).toFixed(0);
-                document.getElementById('sdInfo').textContent = 
-                    formatSize(info.used) + ' / ' + formatSize(info.total) + ' (' + pct + '% used)';
-            } catch(e) {
-                document.getElementById('sdInfo').textContent = 'SD card unavailable';
-            }
+        // Sort: directories first, then alphabetically
+        pane.items = [];
+        
+        // Parent directory entry
+        if (path !== '/') {
+            pane.items.push({ name: '..', isDir: true, isParent: true, size: 0 });
         }
         
-        function updateBreadcrumb() {
-            const parts = currentPath.split('/').filter(p => p);
-            let html = '<a href="#" onclick="loadDir(\'/\');return false;">~</a>';
-            let path = '';
-            for (const p of parts) {
-                path += '/' + p;
-                const safePath = path;
-                html += ' <span>/</span> <a href="#" onclick="loadDir(\'' + safePath + '\');return false;">' + p + '</a>';
-            }
-            document.getElementById('breadcrumb').innerHTML = html;
-        }
+        // Directories
+        items.filter(i => i.isDir).sort((a,b) => a.name.localeCompare(b.name))
+            .forEach(i => pane.items.push(i));
         
-        async function loadDir(path) {
-            currentPath = path || '/';
-            updateBreadcrumb();
-            
-            const container = document.getElementById('fileList');
-            container.innerHTML = '<div class="file-item" style="color:#666">Loading...</div>';
-            
-            try {
-                const resp = await fetch('/api/ls?dir=' + encodeURIComponent(currentPath) + '&full=1');
-                const items = await resp.json();
-                
-                let html = '';
-                
-                // Parent directory link
-                if (currentPath !== '/') {
-                    const parent = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/';
-                    html += '<div class="file-item">';
-                    html += '<span class="file-icon dir">..</span>';
-                    html += '<span class="file-name"><a href="#" onclick="loadDir(\'' + parent + '\');return false;">Parent Directory</a></span>';
-                    html += '<span class="file-size"></span>';
-                    html += '<div class="file-actions"></div>';
-                    html += '</div>';
-                }
-                
-                // Folders first
-                for (const item of items.filter(i => i.isDir).sort((a,b) => a.name.localeCompare(b.name))) {
-                    const itemPath = (currentPath === '/' ? '' : currentPath) + '/' + item.name;
-                    const escapedPath = itemPath.replace(/'/g, "\\'");
-                    html += '<div class="file-item">';
-                    html += '<span class="file-icon dir">/</span>';
-                    html += '<span class="file-name"><a href="#" onclick="loadDir(\'' + escapedPath + '\');return false;">' + escapeHtml(item.name) + '</a></span>';
-                    html += '<span class="file-size"></span>';
-                    html += '<div class="file-actions">';
-                    html += '<button class="btn btn-danger btn-sm" onclick="del(\'' + escapedPath + '\', true)">Del</button>';
-                    html += '</div></div>';
-                }
-                
-                // Then files
-                for (const item of items.filter(i => !i.isDir).sort((a,b) => a.name.localeCompare(b.name))) {
-                    const itemPath = (currentPath === '/' ? '' : currentPath) + '/' + item.name;
-                    const escapedPath = itemPath.replace(/'/g, "\\'");
-                    html += '<div class="file-item">';
-                    html += '<span class="file-icon">*</span>';
-                    html += '<span class="file-name">' + escapeHtml(item.name) + '</span>';
-                    html += '<span class="file-size">' + formatSize(item.size) + '</span>';
-                    html += '<div class="file-actions">';
-                    html += '<button class="btn btn-outline btn-sm" onclick="download(\'' + escapedPath + '\')">Get</button>';
-                    html += '<button class="btn btn-danger btn-sm" onclick="del(\'' + escapedPath + '\', false)">Del</button>';
-                    html += '</div></div>';
-                }
-                
-                if (!html && currentPath === '/') {
-                    html = '<div class="empty-state">No files yet</div>';
-                } else if (!html) {
-                    html = '<div class="empty-state">Empty folder</div>';
-                }
-                
-                container.innerHTML = html;
-            } catch (e) {
-                container.innerHTML = '<div class="empty-state">Error loading directory</div>';
-            }
-        }
+        // Files
+        items.filter(i => !i.isDir).sort((a,b) => a.name.localeCompare(b.name))
+            .forEach(i => pane.items.push(i));
         
-        function escapeHtml(str) {
-            return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        }
+        renderPane(id);
+    } catch(e) {
+        list.innerHTML = '<div style="padding:20px;opacity:0.5">Error loading</div>';
+    }
+    updateSelectionInfo(id);
+}
+
+function renderPane(id) {
+    const pane = panes[id];
+    const list = document.getElementById('list' + id);
+    
+    if (pane.items.length === 0) {
+        list.innerHTML = '<div style="padding:20px;opacity:0.4;text-align:center">Empty</div>';
+        return;
+    }
+    
+    let html = '';
+    pane.items.forEach((item, idx) => {
+        const isSel = pane.selected.has(idx);
+        const isFocus = (idx === pane.focusIdx && activePane === id);
+        const cls = 'file-item' + (isSel ? ' selected' : '') + (isFocus ? ' focused' : '');
+        const icon = item.isDir ? '/' : '*';
+        const iconCls = item.isDir ? 'file-icon dir' : 'file-icon';
+        const check = isSel ? '[x]' : '[ ]';
+        const size = item.isDir ? '' : formatSize(item.size);
         
-        function formatSize(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
-            if (bytes < 1024*1024*1024) return (bytes/1024/1024).toFixed(1) + ' MB';
-            return (bytes/1024/1024/1024).toFixed(2) + ' GB';
-        }
-        
-        function download(path) {
-            window.location.href = '/download?f=' + encodeURIComponent(path);
-        }
-        
-        async function del(path, isDir) {
-            const name = path.split('/').pop();
-            const msg = isDir ? 'Delete folder "' + name + '" and all contents?' : 'Delete "' + name + '"?';
-            if (!confirm(msg)) return;
-            
-            setStatus('Deleting...', '');
-            const endpoint = isDir ? '/rmdir' : '/delete';
-            const resp = await fetch(endpoint + '?f=' + encodeURIComponent(path));
-            if (resp.ok) {
-                setStatus('Deleted: ' + name, 'success');
-                loadDir(currentPath);
-            } else {
-                setStatus('Delete failed', 'error');
-            }
-        }
-        
-        function setStatus(msg, type) {
-            const el = document.getElementById('status');
-            el.textContent = msg;
-            el.className = 'status' + (type ? ' ' + type : '');
-        }
-        
-        function showNewFolderModal() {
-            document.getElementById('newFolderModal').style.display = 'flex';
-            document.getElementById('newFolderName').value = '';
-            document.getElementById('newFolderName').focus();
-        }
-        
-        function hideModal() {
-            document.getElementById('newFolderModal').style.display = 'none';
-        }
-        
-        async function createFolder() {
-            const name = document.getElementById('newFolderName').value.trim();
-            if (!name) { alert('Enter folder name'); return; }
-            if (name.includes('/') || name.includes('..')) { alert('Invalid name'); return; }
-            
-            const path = (currentPath === '/' ? '' : currentPath) + '/' + name;
-            const resp = await fetch('/mkdir?f=' + encodeURIComponent(path));
-            if (resp.ok) {
-                setStatus('Created: ' + name, 'success');
-                hideModal();
-                loadDir(currentPath);
-            } else {
-                setStatus('Create folder failed', 'error');
-            }
-        }
-        
-        async function uploadFiles(files) {
-            if (!files || !files.length) return;
-            
-            const container = document.getElementById('progressContainer');
-            const fill = document.getElementById('progressFill');
-            const text = document.getElementById('progressText');
-            container.classList.add('active');
-            
-            let uploaded = 0;
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                text.textContent = 'Uploading ' + (i+1) + '/' + files.length + ': ' + file.name;
-                fill.style.width = '0%';
-                
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                try {
-                    await new Promise((resolve, reject) => {
-                        const xhr = new XMLHttpRequest();
-                        xhr.upload.onprogress = (e) => {
-                            if (e.lengthComputable) {
-                                fill.style.width = (e.loaded / e.total * 100) + '%';
-                            }
-                        };
-                        xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error('Failed'));
-                        xhr.onerror = () => reject(new Error('Network error'));
-                        xhr.open('POST', '/upload?dir=' + encodeURIComponent(currentPath));
-                        xhr.send(formData);
-                    });
-                    uploaded++;
-                } catch (e) {
-                    setStatus('Upload error: ' + file.name, 'error');
-                }
-            }
-            
-            container.classList.remove('active');
-            document.getElementById('fileInput').value = '';
-            
-            if (uploaded === files.length) {
-                setStatus('Uploaded ' + uploaded + ' file(s)', 'success');
-            } else {
-                setStatus('Uploaded ' + uploaded + '/' + files.length + ' files', uploaded > 0 ? 'success' : 'error');
-            }
-            loadDir(currentPath);
-        }
-        
-        // Drag and drop
-        const dropzone = document.getElementById('dropzone');
-        let dragCounter = 0;
-        
-        document.body.addEventListener('dragenter', (e) => {
+        html += '<div class="' + cls + '" data-idx="' + idx + '" data-pane="' + id + '"';
+        html += ' onclick="onItemClick(event,' + idx + ',\'' + id + '\')"';
+        html += ' ondblclick="onItemDblClick(' + idx + ',\'' + id + '\')">';
+        html += '<div class="file-check">' + check + '</div>';
+        html += '<div class="' + iconCls + '">' + icon + '</div>';
+        html += '<div class="file-name">' + escapeHtml(item.name) + '</div>';
+        html += '<div class="file-size">' + size + '</div>';
+        html += '</div>';
+    });
+    list.innerHTML = html;
+    
+    // Scroll focused item into view
+    const focused = list.querySelector('.focused');
+    if (focused) focused.scrollIntoView({ block: 'nearest' });
+}
+
+function onItemClick(event, idx, paneId) {
+    setActivePane(paneId);
+    panes[paneId].focusIdx = idx;
+    
+    if (event.ctrlKey || event.metaKey) {
+        toggleSelect(paneId, idx);
+    } else if (event.shiftKey) {
+        // Range select not implemented for simplicity
+        toggleSelect(paneId, idx);
+    } else {
+        renderPane(paneId);
+    }
+}
+
+function onItemDblClick(idx, paneId) {
+    const pane = panes[paneId];
+    const item = pane.items[idx];
+    
+    if (item.isParent) {
+        const parent = pane.path.substring(0, pane.path.lastIndexOf('/')) || '/';
+        loadPane(paneId, parent);
+    } else if (item.isDir) {
+        const newPath = (pane.path === '/' ? '' : pane.path) + '/' + item.name;
+        loadPane(paneId, newPath);
+    } else {
+        downloadFile(paneId, idx);
+    }
+}
+
+function toggleSelect(paneId, idx) {
+    const pane = panes[paneId];
+    const item = pane.items[idx];
+    if (item.isParent) return; // Can't select parent dir
+    
+    if (pane.selected.has(idx)) {
+        pane.selected.delete(idx);
+    } else {
+        pane.selected.add(idx);
+    }
+    renderPane(paneId);
+    updateSelectionInfo(paneId);
+}
+
+function updateSelectionInfo(id) {
+    const pane = panes[id];
+    const count = pane.selected.size;
+    const el = document.getElementById('selInfo' + id);
+    el.textContent = count > 0 ? '[' + count + ' sel]' : '';
+    
+    // Update toolbar buttons
+    const totalSel = panes.L.selected.size + panes.R.selected.size;
+    document.getElementById('btnDelete').textContent = totalSel > 0 ? 'Delete (' + totalSel + ')' : 'Delete';
+    document.getElementById('btnDownload').textContent = totalSel > 0 ? 'Download (' + totalSel + ')' : 'Download';
+}
+
+function selectAll() {
+    const pane = panes[activePane];
+    pane.items.forEach((item, idx) => {
+        if (!item.isParent) pane.selected.add(idx);
+    });
+    renderPane(activePane);
+    updateSelectionInfo(activePane);
+}
+
+function selectNone() {
+    const pane = panes[activePane];
+    pane.selected.clear();
+    renderPane(activePane);
+    updateSelectionInfo(activePane);
+}
+
+function handleKeydown(e) {
+    // Don't handle if in modal input
+    if (document.activeElement.tagName === 'INPUT') return;
+    
+    const pane = panes[activePane];
+    
+    switch(e.key) {
+        case 'ArrowUp':
             e.preventDefault();
-            dragCounter++;
-            dropzone.classList.add('active');
-        });
-        
-        document.body.addEventListener('dragleave', (e) => {
-            dragCounter--;
-            if (dragCounter === 0) dropzone.classList.remove('active');
-        });
-        
-        document.body.addEventListener('dragover', (e) => {
+            if (pane.focusIdx > 0) {
+                pane.focusIdx--;
+                renderPane(activePane);
+            }
+            break;
+        case 'ArrowDown':
             e.preventDefault();
-            dropzone.classList.add('dragover');
-        });
-        
-        dropzone.addEventListener('dragleave', () => {
-            dropzone.classList.remove('dragover');
-        });
-        
-        dropzone.addEventListener('drop', (e) => {
+            if (pane.focusIdx < pane.items.length - 1) {
+                pane.focusIdx++;
+                renderPane(activePane);
+            }
+            break;
+        case 'Enter':
             e.preventDefault();
-            dragCounter = 0;
-            dropzone.classList.remove('active', 'dragover');
-            if (e.dataTransfer.files.length) {
-                uploadFiles(e.dataTransfer.files);
+            onItemDblClick(pane.focusIdx, activePane);
+            break;
+        case ' ':
+            e.preventDefault();
+            toggleSelect(activePane, pane.focusIdx);
+            break;
+        case 'Tab':
+            e.preventDefault();
+            setActivePane(activePane === 'L' ? 'R' : 'L');
+            renderPane('L');
+            renderPane('R');
+            break;
+        case 'Backspace':
+            e.preventDefault();
+            if (pane.path !== '/') {
+                const parent = pane.path.substring(0, pane.path.lastIndexOf('/')) || '/';
+                loadPane(activePane, parent);
+            }
+            break;
+        case 'Delete':
+            e.preventDefault();
+            deleteSelected();
+            break;
+        case 'a':
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                selectAll();
+            }
+            break;
+        case 'F1':
+            e.preventDefault();
+            showHelp();
+            break;
+        case 'F2':
+            e.preventDefault();
+            refresh();
+            break;
+        case 'F7':
+            e.preventDefault();
+            showNewFolderModal();
+            break;
+        case 'F8':
+            e.preventDefault();
+            deleteSelected();
+            break;
+        case 'F9':
+            e.preventDefault();
+            downloadSelected();
+            break;
+    }
+}
+
+function getSelectedPaths() {
+    const paths = [];
+    ['L', 'R'].forEach(id => {
+        const pane = panes[id];
+        pane.selected.forEach(idx => {
+            const item = pane.items[idx];
+            if (!item.isParent) {
+                const path = (pane.path === '/' ? '' : pane.path) + '/' + item.name;
+                paths.push({ path, isDir: item.isDir });
             }
         });
+    });
+    return paths;
+}
+
+async function deleteSelected() {
+    const items = getSelectedPaths();
+    if (items.length === 0) {
+        setStatus('Nothing selected');
+        return;
+    }
+    
+    const msg = 'Delete ' + items.length + ' item(s)? This cannot be undone.';
+    if (!confirm(msg)) return;
+    
+    setStatus('Deleting ' + items.length + ' items...');
+    
+    try {
+        const resp = await fetch('/api/bulkdelete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: items.map(i => i.path) })
+        });
+        const result = await resp.json();
+        setStatus('Deleted ' + result.deleted + '/' + items.length + ' items');
+        refresh();
+    } catch(e) {
+        setStatus('Delete error: ' + e.message);
+    }
+}
+
+async function downloadSelected() {
+    const items = getSelectedPaths().filter(i => !i.isDir);
+    if (items.length === 0) {
+        setStatus('No files selected (folders not downloadable as bulk)');
+        return;
+    }
+    
+    setStatus('Downloading ' + items.length + ' file(s)...');
+    
+    // Download files sequentially (browser limitation)
+    for (let i = 0; i < items.length; i++) {
+        await new Promise(resolve => {
+            const a = document.createElement('a');
+            a.href = '/download?f=' + encodeURIComponent(items[i].path);
+            a.download = items[i].path.split('/').pop();
+            a.click();
+            setTimeout(resolve, 300); // Small delay between downloads
+        });
+    }
+    
+    setStatus('Downloaded ' + items.length + ' file(s)');
+}
+
+function downloadFile(paneId, idx) {
+    const pane = panes[paneId];
+    const item = pane.items[idx];
+    if (item.isDir) return;
+    
+    const path = (pane.path === '/' ? '' : pane.path) + '/' + item.name;
+    window.location.href = '/download?f=' + encodeURIComponent(path);
+}
+
+function refresh() {
+    loadPane('L', panes.L.path);
+    loadPane('R', panes.R.path);
+    loadSDInfo();
+}
+
+function showNewFolderModal() {
+    document.getElementById('newFolderModal').style.display = 'flex';
+    document.getElementById('newFolderName').value = '';
+    setTimeout(() => document.getElementById('newFolderName').focus(), 50);
+}
+
+function showHelp() {
+    document.getElementById('helpModal').style.display = 'flex';
+}
+
+function hideModal() {
+    document.getElementById('newFolderModal').style.display = 'none';
+    document.getElementById('helpModal').style.display = 'none';
+}
+
+async function createFolder() {
+    const name = document.getElementById('newFolderName').value.trim();
+    if (!name) { alert('Enter folder name'); return; }
+    if (name.includes('/') || name.includes('..')) { alert('Invalid name'); return; }
+    
+    const pane = panes[activePane];
+    const path = (pane.path === '/' ? '' : pane.path) + '/' + name;
+    
+    try {
+        const resp = await fetch('/mkdir?f=' + encodeURIComponent(path));
+        if (resp.ok) {
+            setStatus('Created: ' + name);
+            hideModal();
+            loadPane(activePane, pane.path);
+        } else {
+            setStatus('Failed to create folder');
+        }
+    } catch(e) {
+        setStatus('Error: ' + e.message);
+    }
+}
+
+async function uploadFiles(files) {
+    if (!files || !files.length) return;
+    
+    const pane = panes[activePane];
+    const bar = document.getElementById('progressBar');
+    const fill = document.getElementById('progressFill');
+    bar.classList.add('active');
+    
+    let uploaded = 0;
+    for (let i = 0; i < files.length; i++) {
+        setStatus('Uploading ' + (i+1) + '/' + files.length + ': ' + files[i].name);
+        fill.style.width = '0%';
         
-        // Initial load
-        loadSDInfo();
-        loadDir('/');
-    </script>
+        const formData = new FormData();
+        formData.append('file', files[i]);
+        
+        try {
+            await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) fill.style.width = (e.loaded/e.total*100) + '%';
+                };
+                xhr.onload = () => xhr.status === 200 ? resolve() : reject();
+                xhr.onerror = () => reject();
+                xhr.open('POST', '/upload?dir=' + encodeURIComponent(pane.path));
+                xhr.send(formData);
+            });
+            uploaded++;
+        } catch(e) {
+            setStatus('Upload failed: ' + files[i].name);
+        }
+    }
+    
+    bar.classList.remove('active');
+    setStatus('Uploaded ' + uploaded + '/' + files.length + ' files');
+    loadPane(activePane, pane.path);
+}
+
+function setStatus(msg) {
+    document.getElementById('status').textContent = msg;
+}
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + 'B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + 'K';
+    if (bytes < 1024*1024*1024) return (bytes/1024/1024).toFixed(1) + 'M';
+    return (bytes/1024/1024/1024).toFixed(2) + 'G';
+}
+
+function escapeHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
 </body>
 </html>
 )rawliteral";
@@ -560,12 +787,12 @@ void FileServer::startServer() {
     server->on("/", HTTP_GET, handleRoot);
     server->on("/api/ls", HTTP_GET, handleFileList);
     server->on("/api/sdinfo", HTTP_GET, handleSDInfo);
+    server->on("/api/bulkdelete", HTTP_POST, handleBulkDelete);
     server->on("/download", HTTP_GET, handleDownload);
     server->on("/upload", HTTP_POST, handleUpload, handleUploadProcess);
     server->on("/delete", HTTP_GET, handleDelete);
     server->on("/rmdir", HTTP_GET, handleDelete);  // Same handler, will detect folder
     server->on("/mkdir", HTTP_GET, handleMkdir);
-    server->on("/downloadzip", HTTP_GET, handleDownload);  // ZIP handled in download
     server->onNotFound(handleNotFound);
     
     server->begin();
@@ -834,6 +1061,48 @@ void FileServer::handleUploadProcess() {
     }
 }
 
+// Recursive delete helper - properly handles nested directories
+static bool deletePathRecursive(const String& path) {
+    File f = SD.open(path);
+    if (!f) return false;
+    
+    bool isDir = f.isDirectory();
+    f.close();
+    
+    if (!isDir) {
+        return SD.remove(path);
+    }
+    
+    // It's a directory - delete all contents first (depth-first)
+    File dir = SD.open(path);
+    if (!dir) return false;
+    
+    File entry = dir.openNextFile();
+    while (entry) {
+        String entryPath = path + "/" + String(entry.name());
+        bool entryIsDir = entry.isDirectory();
+        entry.close();
+        
+        if (entryIsDir) {
+            // Recurse into subdirectory
+            if (!deletePathRecursive(entryPath)) {
+                dir.close();
+                return false;
+            }
+        } else {
+            if (!SD.remove(entryPath)) {
+                dir.close();
+                return false;
+            }
+        }
+        entry = dir.openNextFile();
+    }
+    dir.close();
+    
+    // Now remove the empty directory
+    return SD.rmdir(path);
+}
+
 void FileServer::handleDelete() {
     String path = server->arg("f");
     if (path.isEmpty()) {
@@ -847,37 +1116,7 @@ void FileServer::handleDelete() {
         return;
     }
     
-    // Check if it's a directory
-    File f = SD.open(path);
-    bool isDir = f && f.isDirectory();
-    f.close();
-    
-    bool success = false;
-    if (isDir) {
-        // Recursive delete for directories
-        success = SD.rmdir(path);
-        if (!success) {
-            // Try to remove contents first
-            File dir = SD.open(path);
-            if (dir) {
-                File entry = dir.openNextFile();
-                while (entry) {
-                    String entryPath = path + "/" + String(entry.name());
-                    if (entry.isDirectory()) {
-                        SD.rmdir(entryPath);
-                    } else {
-                        SD.remove(entryPath);
-                    }
-                    entry.close();
-                    entry = dir.openNextFile();
-                }
-                dir.close();
-            }
-            success = SD.rmdir(path);
-        }
-    } else {
-        success = SD.remove(path);
-    }
+    bool success = deletePathRecursive(path);
     
     if (success) {
         server->send(200, "text/plain", "Deleted");
@@ -885,6 +1124,67 @@ void FileServer::handleDelete() {
     } else {
         server->send(500, "text/plain", "Delete failed");
     }
+}
+
+void FileServer::handleBulkDelete() {
+    // Read JSON body
+    if (!server->hasArg("plain")) {
+        server->send(400, "application/json", "{\"error\":\"Missing body\"}");
+        return;
+    }
+    
+    String body = server->arg("plain");
+    
+    // Simple JSON parsing for {"paths":["path1","path2",...]}
+    // Using manual parsing to avoid ArduinoJson dependency in this module
+    int deleted = 0;
+    int failed = 0;
+    
+    int idx = body.indexOf("\"paths\"");
+    if (idx < 0) {
+        server->send(400, "application/json", "{\"error\":\"Missing paths array\"}");
+        return;
+    }
+    
+    int arrStart = body.indexOf('[', idx);
+    int arrEnd = body.indexOf(']', arrStart);
+    if (arrStart < 0 || arrEnd < 0) {
+        server->send(400, "application/json", "{\"error\":\"Invalid paths array\"}");
+        return;
+    }
+    
+    String arrContent = body.substring(arrStart + 1, arrEnd);
+    
+    // Parse each path from the array
+    int pos = 0;
+    while (pos < (int)arrContent.length()) {
+        int quoteStart = arrContent.indexOf('"', pos);
+        if (quoteStart < 0) break;
+        
+        int quoteEnd = arrContent.indexOf('"', quoteStart + 1);
+        if (quoteEnd < 0) break;
+        
+        String path = arrContent.substring(quoteStart + 1, quoteEnd);
+        pos = quoteEnd + 1;
+        
+        // Security check
+        if (path.indexOf("..") >= 0) {
+            failed++;
+            continue;
+        }
+        
+        if (deletePathRecursive(path)) {
+            deleted++;
+            Serial.printf("[FILESERVER] Bulk deleted: %s\n", path.c_str());
+        } else {
+            failed++;
+        }
+        
+        yield();  // Feed watchdog during bulk operations
+    }
+    
+    String response = "{\"deleted\":" + String(deleted) + ",\"failed\":" + String(failed) + "}";
+    server->send(200, "application/json", response);
 }
 
 void FileServer::handleMkdir() {
