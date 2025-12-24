@@ -9,12 +9,6 @@ m5porkchop_builds/
 porkchop_*.bins
 
 release_notes/
-release_notes/commit_message_style.txt
-
-docs/*_plan.txt
-docs/*_check.txt
-
-# copilot instructions - burned like samizdat when boots stomp outside.
-# stays local til proper editor workflow learned.
-# new samizdat writes itself when fingers remember paths. may jah guide keystrokes.
 .github/copilot-instructions.md
+temp/
+docs/
