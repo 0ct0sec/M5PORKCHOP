@@ -21,15 +21,36 @@ bool Config::init() {
         Serial.println("[CONFIG] SPIFFS mount failed");
     }
     
+    // Allow SPI bus to stabilize after M5.begin()
+    // Critical for Cardputer ADV and v1.1 which share SPI with display
+    delay(50);
+    
     // M5Cardputer handles SD initialization via M5.begin()
     // SD is on the built-in SD card slot (GPIO 12 for CS)
+    // Retry with progressive SPI speeds for reliability
+    sdAvailable = false;
+    const int maxRetries = 3;
+    const uint32_t speeds[] = {10000000, 20000000, 25000000};  // 10MHz, 20MHz, 25MHz
     
-    if (!SD.begin(GPIO_NUM_12, SPI, 25000000)) {
-        Serial.println("[CONFIG] SD card init failed, using SPIFFS");
-        sdAvailable = false;
+    for (int attempt = 0; attempt < maxRetries && !sdAvailable; attempt++) {
+        uint32_t speed = speeds[attempt];
+        Serial.printf("[CONFIG] SD init attempt %d/%d at %luMHz\n", 
+                      attempt + 1, maxRetries, speed / 1000000);
+        
+        if (attempt > 0) {
+            SD.end();  // Clean up previous failed attempt
+            delay(100);  // Allow bus to settle
+        }
+        
+        if (SD.begin(GPIO_NUM_12, SPI, speed)) {
+            Serial.printf("[CONFIG] SD card mounted at %luMHz\n", speed / 1000000);
+            sdAvailable = true;
+        }
+    }
+    
+    if (!sdAvailable) {
+        Serial.println("[CONFIG] SD card init failed after retries, using SPIFFS");
     } else {
-        Serial.println("[CONFIG] SD card mounted");
-        sdAvailable = true;
         SDLog::log("CFG", "SD card mounted OK");
         
         // Create directories on SD if needed
@@ -39,6 +60,7 @@ bool Config::init() {
         if (!SD.exists("/logs")) SD.mkdir("/logs");
         if (!SD.exists("/wardriving")) SD.mkdir("/wardriving");
     }
+
     
     // Load personality from SPIFFS (always use SPIFFS for settings)
     if (!loadPersonality()) {
@@ -64,6 +86,50 @@ bool Config::init() {
 }
 
 bool Config::isSDAvailable() {
+    return sdAvailable;
+}
+
+bool Config::reinitSD() {
+    Serial.println("[CONFIG] Attempting SD card re-initialization...");
+    
+    // Clean up any existing SD state
+    SD.end();
+    delay(100);
+    
+    // Retry with progressive SPI speeds (same as init)
+    sdAvailable = false;
+    const int maxRetries = 3;
+    const uint32_t speeds[] = {10000000, 20000000, 25000000};
+    
+    for (int attempt = 0; attempt < maxRetries && !sdAvailable; attempt++) {
+        uint32_t speed = speeds[attempt];
+        Serial.printf("[CONFIG] SD reinit attempt %d/%d at %luMHz\n", 
+                      attempt + 1, maxRetries, speed / 1000000);
+        
+        if (attempt > 0) {
+            SD.end();
+            delay(100);
+        }
+        
+        if (SD.begin(GPIO_NUM_12, SPI, speed)) {
+            Serial.printf("[CONFIG] SD card mounted at %luMHz\n", speed / 1000000);
+            sdAvailable = true;
+        }
+    }
+    
+    if (sdAvailable) {
+        SDLog::log("CFG", "SD card re-initialized OK");
+        
+        // Ensure directories exist
+        if (!SD.exists("/handshakes")) SD.mkdir("/handshakes");
+        if (!SD.exists("/mldata")) SD.mkdir("/mldata");
+        if (!SD.exists("/models")) SD.mkdir("/models");
+        if (!SD.exists("/logs")) SD.mkdir("/logs");
+        if (!SD.exists("/wardriving")) SD.mkdir("/wardriving");
+    } else {
+        Serial.println("[CONFIG] SD card reinit failed");
+    }
+    
     return sdAvailable;
 }
 
