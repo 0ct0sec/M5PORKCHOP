@@ -535,8 +535,7 @@
         "Connecting you to the internet..." message. looks professional.
         
         custom portal: drop /portal.html on your SD card. the pig loads it
-        automatically at mode start. go wild - phishing pages, rickrolls,
-        whatever fits your threat model. just remember: you own the outcome.
+        automatically at mode start.
         
         when portal is active: toast shows "KARMA+PORTAL" instead of
         "KARMA ACTIVE". you'll know.
@@ -544,6 +543,16 @@
     sound notifications:
         * regular device hook: double ascending beep (1200→1600Hz)
         * Apple device hook: triple ascending beep (1200→1500→1800Hz)
+
+    smart behaviors:
+        * SSID rotation pauses while clients are connected (resumes on disconnect)
+        * disconnection detected within ~10 seconds (fast timeout)
+        * new probes still queue for XP even while rotation is paused
+
+    note on MAC randomization: modern devices (iOS 14+, Android 10+) randomize
+    their MAC addresses. the pig shows [RandomMAC] in logs when detected. each
+    reconnection from a randomized device appears as a new unique hook. this is
+    expected behavior - there's no way to correlate randomized MACs.
 
     why devices fall for this: most phones/laptops have "auto-join known
     networks" enabled by default. they probe for remembered SSIDs constantly.

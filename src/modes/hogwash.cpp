@@ -129,6 +129,10 @@ void HogwashMode::start() {
     // Start soft AP
     startSoftAP();
     
+    // Set station inactivity timeout to 10 seconds (default is 300s!)
+    // This makes ESP32 detect client disconnections much faster
+    esp_wifi_set_inactive_time(WIFI_IF_AP, 10);
+    
     // Start captive portal if enabled in settings
     portalEnabled = Config::wifi().hogwashCaptivePortal;
     if (portalEnabled) {
@@ -190,9 +194,11 @@ void HogwashMode::update() {
         Serial.printf("[HOGWASH] XP granted for new SSID: %s\n", pendingSSID);
     }
     
-    // Cycle SSID periodically (but NOT while clients are connected)
+    // Cycle SSID periodically (but NOT while clients are CURRENTLY connected)
     // Changing SSID disconnects all clients, so pause rotation to keep hooks alive
-    if (hookedCount == 0 && now - lastSSIDChange > ssidCycleIntervalMs) {
+    uint8_t connectedStations = WiFi.softAPgetStationNum();
+    
+    if (connectedStations == 0 && now - lastSSIDChange > ssidCycleIntervalMs) {
         cycleToNextSSID();
         lastSSIDChange = now;
     }
@@ -414,14 +420,19 @@ void HogwashMode::checkConnectedStations() {
                 }
             }
             
-            Serial.printf("[HOGWASH] HOOKED! Station: %02X:%02X:%02X:%02X:%02X:%02X (Apple: %s)\n",
+            // Check if MAC is randomized (locally-administered bit)
+            bool isRandomizedMAC = (sta->mac[0] & 0x02) != 0;
+            
+            Serial.printf("[HOGWASH] HOOKED! %02X:%02X:%02X:%02X:%02X:%02X%s%s\n",
                           sta->mac[0], sta->mac[1], sta->mac[2],
                           sta->mac[3], sta->mac[4], sta->mac[5],
-                          newSta.isApple ? "Y" : "N");
+                          newSta.isApple ? " (Apple)" : "",
+                          isRandomizedMAC ? " [RandomMAC]" : "");
             
-            SDLog::log("HOG", "HOOK: %02X:%02X:%02X:%02X:%02X:%02X",
+            SDLog::log("HOG", "HOOK: %02X:%02X:%02X:%02X:%02X:%02X%s",
                        sta->mac[0], sta->mac[1], sta->mac[2],
-                       sta->mac[3], sta->mac[4], sta->mac[5]);
+                       sta->mac[3], sta->mac[4], sta->mac[5],
+                       isRandomizedMAC ? " [R]" : "");
         }
     }
 }
@@ -538,16 +549,15 @@ void HogwashMode::probeCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
                         pendingNewSSID = true;
                     }
                     
-                    // Update current SSID immediately for fresh probes
-                    // BUT only if no clients connected (changing SSID disconnects them)
-                    if (hookedCount == 0) {
+                    // Switch SSID only if no clients connected (would disconnect them)
+                    uint8_t numStations = WiFi.softAPgetStationNum();
+                    
+                    if (numStations == 0) {
                         strncpy(currentSSID, ssid, 32);
                         currentSSID[32] = '\0';
                         updateSoftAPSSID();
-                        Serial.printf("[HOGWASH] New probe, switching to: %s\n", ssid);
-                    } else {
-                        Serial.printf("[HOGWASH] New probe queued (clients connected): %s\n", ssid);
                     }
+                    // Note: New probes still queue for XP even when clients are connected
                 }
             }
             break;
