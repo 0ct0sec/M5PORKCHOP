@@ -92,4 +92,13 @@ private:
     // Station event callback
     static void stationEventHandler(void* arg, esp_event_base_t event_base,
                                     int32_t event_id, void* event_data);
+    
+    // Captive portal
+    static bool portalEnabled;
+    static bool portalRunning;
+    static String portalHTML;
+    static void startCaptivePortal();
+    static void stopCaptivePortal();
+    static void handleCaptivePortal();  // Process DNS and HTTP
+    static void loadPortalHTML();       // Load from SD card
 };

@@ -23,10 +23,20 @@
 #include <M5Cardputer.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <DNSServer.h>
+#include <WebServer.h>
+#include <SD.h>
+
+// DNS and HTTP servers for captive portal
+static DNSServer dnsServer;
+static WebServer webServer(80);
 
 // Static member initialization
 bool HogwashMode::running = false;
 bool HogwashMode::confirmed = false;
+bool HogwashMode::portalEnabled = false;
+bool HogwashMode::portalRunning = false;
+String HogwashMode::portalHTML = "";
 SSIDEntry HogwashMode::ssidQueue[HOGWASH_SSID_QUEUE_SIZE] = {0};
 uint8_t HogwashMode::ssidQueueHead = 0;
 uint8_t HogwashMode::ssidQueueCount = 0;
@@ -119,13 +129,19 @@ void HogwashMode::start() {
     // Start soft AP
     startSoftAP();
     
+    // Start captive portal if enabled in settings
+    portalEnabled = Config::wifi().hogwashCaptivePortal;
+    if (portalEnabled) {
+        startCaptivePortal();
+    }
+    
     running = true;
     
     // Set pig mood - DEVIOUS for the scheming karma AP pig
     Avatar::setState(AvatarState::DEVIOUS);
-    Display::showToast("KARMA ACTIVE");
+    Display::showToast(portalEnabled ? "KARMA+PORTAL" : "KARMA ACTIVE");
     
-    SDLog::log("HOG", "HOGWASH mode started on channel %d", channel);
+    SDLog::log("HOG", "HOGWASH mode started on channel %d (portal: %s)", channel, portalEnabled ? "ON" : "OFF");
     Serial.println("[HOGWASH] Mode started");
 }
 
@@ -142,6 +158,11 @@ void HogwashMode::stop() {
     
     // Small delay before AP disconnect
     delay(50);
+    
+    // Stop captive portal if running
+    if (portalRunning) {
+        stopCaptivePortal();
+    }
     
     // Stop soft AP
     stopSoftAP();
@@ -191,6 +212,11 @@ void HogwashMode::update() {
     if (now - lastMoodUpdate > 3000) {  // Every 3 seconds
         Mood::onHogwashUpdate(currentSSID, hookedCount, probeCount);
         lastMoodUpdate = now;
+    }
+    
+    // Process captive portal requests (DNS and HTTP)
+    if (portalRunning) {
+        handleCaptivePortal();
     }
 }
 
@@ -530,4 +556,137 @@ void HogwashMode::stationEventHandler(void* arg, esp_event_base_t event_base,
                                        int32_t event_id, void* event_data) {
     // Handle station connect/disconnect events
     // Called from ESP-IDF event loop
+}
+
+// ============ CAPTIVE PORTAL IMPLEMENTATION ============
+
+// Default HTML served if no custom file exists
+static const char* DEFAULT_PORTAL_HTML = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Free WiFi</title>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .logo { font-size: 4rem; margin-bottom: 20px; }
+        h1 { font-size: 2rem; margin: 0 0 10px 0; color: #ff6b9d; }
+        p { font-size: 1rem; color: #aaa; margin: 5px 0; }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #333;
+            border-top: 4px solid #ff6b9d;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 30px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .footer { margin-top: 40px; font-size: 0.8rem; color: #555; }
+    </style>
+</head>
+<body>
+    <div class="logo">🐷</div>
+    <h1>Welcome to Free WiFi</h1>
+    <p>Connecting you to the internet...</p>
+    <div class="spinner"></div>
+    <p>Please wait while we verify your connection.</p>
+    <div class="footer">Powered by PORKCHOP 🥓</div>
+</body>
+</html>
+)rawliteral";
+
+void HogwashMode::loadPortalHTML() {
+    // Try to load custom HTML from SD card
+    portalHTML = "";
+    
+    if (SD.exists("/portal.html")) {
+        File file = SD.open("/portal.html", FILE_READ);
+        if (file) {
+            portalHTML = file.readString();
+            file.close();
+            Serial.printf("[HOGWASH] Loaded custom portal.html (%d bytes)\n", portalHTML.length());
+            SDLog::log("HOG", "Custom portal loaded: %d bytes", portalHTML.length());
+        }
+    }
+    
+    // Use default if no custom file
+    if (portalHTML.length() == 0) {
+        portalHTML = DEFAULT_PORTAL_HTML;
+        Serial.println("[HOGWASH] Using default portal HTML");
+    }
+}
+
+void HogwashMode::startCaptivePortal() {
+    if (portalRunning) return;
+    
+    // Load HTML from SD or use default
+    loadPortalHTML();
+    
+    // Start DNS server - redirect all domains to our IP
+    IPAddress apIP = WiFi.softAPIP();
+    dnsServer.start(53, "*", apIP);
+    
+    // HTTP handlers
+    webServer.onNotFound([]() {
+        webServer.send(200, "text/html", portalHTML);
+    });
+    
+    // Captive portal detection endpoints
+    webServer.on("/generate_204", []() {
+        webServer.send(200, "text/html", portalHTML);
+    });
+    webServer.on("/gen_204", []() {
+        webServer.send(200, "text/html", portalHTML);
+    });
+    webServer.on("/hotspot-detect.html", []() {
+        webServer.send(200, "text/html", portalHTML);
+    });
+    webServer.on("/connecttest.txt", []() {
+        webServer.send(200, "text/html", portalHTML);
+    });
+    webServer.on("/success.txt", []() {
+        webServer.send(200, "text/html", portalHTML);
+    });
+    
+    webServer.begin();
+    portalRunning = true;
+    
+    Serial.printf("[HOGWASH] Captive portal started on %s\n", apIP.toString().c_str());
+    SDLog::log("HOG", "Portal started: %s", apIP.toString().c_str());
+}
+
+void HogwashMode::stopCaptivePortal() {
+    if (!portalRunning) return;
+    
+    webServer.stop();
+    dnsServer.stop();
+    portalRunning = false;
+    portalHTML = "";  // Free memory
+    
+    Serial.println("[HOGWASH] Captive portal stopped");
+}
+
+void HogwashMode::handleCaptivePortal() {
+    if (!portalRunning) return;
+    
+    dnsServer.processNextRequest();
+    webServer.handleClient();
 }
