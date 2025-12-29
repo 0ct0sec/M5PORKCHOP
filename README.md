@@ -512,8 +512,38 @@
         HOGWASH_APPLE_HOOK: +35 XP for Apple devices (harder targets)
         HOGWASH_SESSION:    +10 XP every 5 minutes active
 
-    Karma Portal setting (Settings > Karma Portal: OFF by default):
-    enable for DNS captive portal redirect. stealth mode? leave it off.
+    settings:
+        Karma Portal: OFF by default. enables captive portal (see below)
+        SSID Cycle:   1-30 seconds (default 5s). how often to switch SSID
+
+    CAPTIVE PORTAL (when Karma Portal: ON):
+    
+        devices connect to your karma AP but have nowhere to go. with the
+        captive portal enabled, they see a fake "connecting..." page instead
+        of a connection error. keeps them hooked longer. looks legit.
+        
+        how it works:
+        
+            * DNS server redirects ALL domains to 192.168.4.1
+            * HTTP server serves portal HTML on port 80
+            * handles platform-specific detection endpoints:
+                - Android: /generate_204, /gen_204
+                - iOS/macOS: /hotspot-detect.html
+                - Windows: /connecttest.txt, /success.txt
+        
+        default portal: pig-branded dark theme with loading spinner and
+        "Connecting you to the internet..." message. looks professional.
+        
+        custom portal: drop /portal.html on your SD card. the pig loads it
+        automatically at mode start. go wild - phishing pages, rickrolls,
+        whatever fits your threat model. just remember: you own the outcome.
+        
+        when portal is active: toast shows "KARMA+PORTAL" instead of
+        "KARMA ACTIVE". you'll know.
+
+    sound notifications:
+        * regular device hook: double ascending beep (1200→1600Hz)
+        * Apple device hook: triple ascending beep (1200→1500→1800Hz)
 
     why devices fall for this: most phones/laptops have "auto-join known
     networks" enabled by default. they probe for remembered SSIDs constantly.

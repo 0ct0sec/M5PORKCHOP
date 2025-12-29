@@ -393,6 +393,138 @@ void test_hogwashXPCap_hook_not_capped(void) {
 }
 
 // ============================================================================
+// Captive Portal Tests
+// ============================================================================
+
+// Simulate portal HTML loading logic
+struct PortalConfig {
+    bool enabled;
+    bool running;
+    char html[1024];
+    bool customLoaded;
+};
+
+// Default portal HTML (truncated for test)
+static const char* TEST_DEFAULT_HTML = "<html><body>Default Portal</body></html>";
+
+inline void loadPortalHTML(PortalConfig* cfg, const char* customHTML) {
+    cfg->customLoaded = false;
+    
+    if (customHTML != nullptr && strlen(customHTML) > 0) {
+        strncpy(cfg->html, customHTML, sizeof(cfg->html) - 1);
+        cfg->html[sizeof(cfg->html) - 1] = '\0';
+        cfg->customLoaded = true;
+    } else {
+        strncpy(cfg->html, TEST_DEFAULT_HTML, sizeof(cfg->html) - 1);
+        cfg->html[sizeof(cfg->html) - 1] = '\0';
+    }
+}
+
+inline void startPortal(PortalConfig* cfg) {
+    if (cfg->running) return;
+    cfg->running = true;
+}
+
+inline void stopPortal(PortalConfig* cfg) {
+    if (!cfg->running) return;
+    cfg->running = false;
+    cfg->html[0] = '\0';  // Free memory
+}
+
+// Check if URL is a captive portal detection endpoint
+inline bool isCaptivePortalEndpoint(const char* url) {
+    if (url == nullptr) return false;
+    
+    // Android endpoints
+    if (strcmp(url, "/generate_204") == 0) return true;
+    if (strcmp(url, "/gen_204") == 0) return true;
+    
+    // Apple endpoints
+    if (strcmp(url, "/hotspot-detect.html") == 0) return true;
+    
+    // Windows endpoints
+    if (strcmp(url, "/connecttest.txt") == 0) return true;
+    if (strcmp(url, "/success.txt") == 0) return true;
+    
+    return false;
+}
+
+void test_portal_loadDefaultHTML(void) {
+    PortalConfig cfg = {0};
+    loadPortalHTML(&cfg, nullptr);
+    
+    TEST_ASSERT_FALSE(cfg.customLoaded);
+    TEST_ASSERT_EQUAL_STRING(TEST_DEFAULT_HTML, cfg.html);
+}
+
+void test_portal_loadCustomHTML(void) {
+    PortalConfig cfg = {0};
+    const char* custom = "<html><body>Custom PortaL</body></html>";
+    loadPortalHTML(&cfg, custom);
+    
+    TEST_ASSERT_TRUE(cfg.customLoaded);
+    TEST_ASSERT_EQUAL_STRING(custom, cfg.html);
+}
+
+void test_portal_loadEmptyCustom_usesDefault(void) {
+    PortalConfig cfg = {0};
+    loadPortalHTML(&cfg, "");
+    
+    TEST_ASSERT_FALSE(cfg.customLoaded);
+    TEST_ASSERT_EQUAL_STRING(TEST_DEFAULT_HTML, cfg.html);
+}
+
+void test_portal_startStop(void) {
+    PortalConfig cfg = {0};
+    loadPortalHTML(&cfg, nullptr);
+    
+    TEST_ASSERT_FALSE(cfg.running);
+    
+    startPortal(&cfg);
+    TEST_ASSERT_TRUE(cfg.running);
+    
+    stopPortal(&cfg);
+    TEST_ASSERT_FALSE(cfg.running);
+    TEST_ASSERT_EQUAL_STRING("", cfg.html);  // Memory freed
+}
+
+void test_portal_startIdempotent(void) {
+    PortalConfig cfg = {0};
+    cfg.running = true;
+    
+    startPortal(&cfg);  // Should not crash or change state
+    TEST_ASSERT_TRUE(cfg.running);
+}
+
+void test_portal_stopIdempotent(void) {
+    PortalConfig cfg = {0};
+    cfg.running = false;
+    
+    stopPortal(&cfg);  // Should not crash or change state
+    TEST_ASSERT_FALSE(cfg.running);
+}
+
+void test_portal_androidEndpoints(void) {
+    TEST_ASSERT_TRUE(isCaptivePortalEndpoint("/generate_204"));
+    TEST_ASSERT_TRUE(isCaptivePortalEndpoint("/gen_204"));
+}
+
+void test_portal_appleEndpoints(void) {
+    TEST_ASSERT_TRUE(isCaptivePortalEndpoint("/hotspot-detect.html"));
+}
+
+void test_portal_windowsEndpoints(void) {
+    TEST_ASSERT_TRUE(isCaptivePortalEndpoint("/connecttest.txt"));
+    TEST_ASSERT_TRUE(isCaptivePortalEndpoint("/success.txt"));
+}
+
+void test_portal_unknownEndpoint(void) {
+    TEST_ASSERT_FALSE(isCaptivePortalEndpoint("/random"));
+    TEST_ASSERT_FALSE(isCaptivePortalEndpoint("/"));
+    TEST_ASSERT_FALSE(isCaptivePortalEndpoint(nullptr));
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -429,6 +561,18 @@ int main(int argc, char **argv) {
     RUN_TEST(test_hogwashXPCap_at_limit);
     RUN_TEST(test_hogwashXPCap_over_limit);
     RUN_TEST(test_hogwashXPCap_hook_not_capped);
+    
+    // Captive portal tests
+    RUN_TEST(test_portal_loadDefaultHTML);
+    RUN_TEST(test_portal_loadCustomHTML);
+    RUN_TEST(test_portal_loadEmptyCustom_usesDefault);
+    RUN_TEST(test_portal_startStop);
+    RUN_TEST(test_portal_startIdempotent);
+    RUN_TEST(test_portal_stopIdempotent);
+    RUN_TEST(test_portal_androidEndpoints);
+    RUN_TEST(test_portal_appleEndpoints);
+    RUN_TEST(test_portal_windowsEndpoints);
+    RUN_TEST(test_portal_unknownEndpoint);
     
     return UNITY_END();
 }
