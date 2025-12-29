@@ -18,6 +18,7 @@
 #include "../modes/donoham.h"
 #include "../modes/warhog.h"
 #include "../modes/piggyblues.h"
+#include "../modes/hogwash.h"
 #include "../modes/spectrum.h"
 #include "../modes/call_papa.h"
 #include "../web/fileserver.h"
@@ -82,6 +83,7 @@ void Porkchop::init() {
         {"DONOHAM", 14, "JAH BLESS DI RX"},
         {"WARHOG", 2, "OSCAR MIKE WITH GPS"},
         {"PIGGY BLUES", 8, "SLAY ON BLEAY"},
+        {"HOGWASH", 17, "KARMA IS REAL"},
         {"CALL PIG JUNIOR", 16, "SYNC FROM SIRLOIN"},
         {"HOG ON SPECTRUM", 10, "NIETZSCHE KNOWS"},
         // === DATA & STATS ===
@@ -119,6 +121,7 @@ void Porkchop::init() {
             case 14: setMode(PorkchopMode::DNH_MODE); break;
             case 15: setMode(PorkchopMode::UNLOCKABLES); break;
             case 16: setMode(PorkchopMode::CALL_PAPA_MODE); break;
+            case 17: setMode(PorkchopMode::HOGWASH_MODE); break;
         }
         Menu::clearSelected();
     });
@@ -160,7 +163,8 @@ void Porkchop::setMode(PorkchopMode mode) {
         currentMode != PorkchopMode::SWINE_STATS &&
         currentMode != PorkchopMode::BOAR_BROS &&
         currentMode != PorkchopMode::WIGLE_MENU &&
-        currentMode != PorkchopMode::UNLOCKABLES) {
+        currentMode != PorkchopMode::UNLOCKABLES &&
+        currentMode != PorkchopMode::HOGWASH_MODE) {
         previousMode = currentMode;
     }
     currentMode = mode;
@@ -186,6 +190,9 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::PIGGYBLUES_MODE:
             PiggyBluesMode::stop();
+            break;
+        case PorkchopMode::HOGWASH_MODE:
+            HogwashMode::stop();
             break;
         case PorkchopMode::SPECTRUM_MODE:
             SpectrumMode::stop();
@@ -265,6 +272,16 @@ void Porkchop::setMode(PorkchopMode mode) {
             PiggyBluesMode::start();
             // If user aborted warning dialog, return to menu
             if (!PiggyBluesMode::isRunning()) {
+                currentMode = PorkchopMode::MENU;
+                Menu::show();
+            }
+            break;
+        case PorkchopMode::HOGWASH_MODE:
+            Avatar::setState(AvatarState::HUNTING);  // TODO: Add DEVIOUS state
+            SDLog::log("PORK", "Mode: HOGWASH");
+            HogwashMode::start();
+            // If user aborted warning dialog, return to menu
+            if (!HogwashMode::isRunning()) {
                 currentMode = PorkchopMode::MENU;
                 Menu::show();
             }
@@ -401,6 +418,7 @@ void Porkchop::handleInput() {
             currentMode == PorkchopMode::DNH_MODE ||
             currentMode == PorkchopMode::WARHOG_MODE ||
             currentMode == PorkchopMode::PIGGYBLUES_MODE ||
+            currentMode == PorkchopMode::HOGWASH_MODE ||
             currentMode == PorkchopMode::SPECTRUM_MODE) {
             setMode(PorkchopMode::IDLE);
             return;
@@ -462,6 +480,10 @@ void Porkchop::handleInput() {
                 case 'd': // DO NO HAM mode
                 case 'D':
                     setMode(PorkchopMode::DNH_MODE);
+                    break;
+                case 'k': // HOGWASH (Karma AP)
+                case 'K':
+                    setMode(PorkchopMode::HOGWASH_MODE);
                     break;
                 case 'f': // File transfer (PORKCHOP COMMANDER)
                 case 'F':
@@ -551,6 +573,14 @@ void Porkchop::handleInput() {
     
     // PIGGYBLUES mode - Backspace to stop and return to idle
     if (currentMode == PorkchopMode::PIGGYBLUES_MODE) {
+        if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+            setMode(PorkchopMode::IDLE);
+            return;
+        }
+    }
+    
+    // HOGWASH mode - Backspace to stop and return to idle
+    if (currentMode == PorkchopMode::HOGWASH_MODE) {
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
             setMode(PorkchopMode::IDLE);
             return;
@@ -666,6 +696,9 @@ void Porkchop::updateMode() {
             break;
         case PorkchopMode::PIGGYBLUES_MODE:
             PiggyBluesMode::update();
+            break;
+        case PorkchopMode::HOGWASH_MODE:
+            HogwashMode::update();
             break;
         case PorkchopMode::SPECTRUM_MODE:
             SpectrumMode::update();

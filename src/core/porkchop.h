@@ -12,6 +12,7 @@ enum class PorkchopMode : uint8_t {
     DNH_MODE,       // DO NO HAM - passive recon (no attacks)
     WARHOG_MODE,    // Wardriving mode
     PIGGYBLUES_MODE,// BLE notification spam
+    HOGWASH_MODE,   // Karma AP - probe response honeypot
     SPECTRUM_MODE,  // WiFi spectrum analyzer
     MENU,           // Menu navigation
     SETTINGS,       // Settings screen
