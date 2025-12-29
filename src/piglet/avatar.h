@@ -10,7 +10,8 @@ enum class AvatarState {
     HUNTING,
     SLEEPY,
     SAD,
-    ANGRY
+    ANGRY,
+    DEVIOUS  // HOGWASH mode - sneaky/scheming pig
 };
 
 class Avatar {

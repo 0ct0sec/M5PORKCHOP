@@ -85,6 +85,13 @@ const char* AVATAR_ANGRY_R[] = {
     "(    )"
 };
 
+// DEVIOUS: sneaky/scheming expression for HOGWASH mode (narrowed eyes, sly look)
+const char* AVATAR_DEVIOUS_R[] = {
+    " >  > ",
+    "(~ 00)",
+    "(    )"
+};
+
 // Left-looking frames (snout 00 on left side of face, pig looks LEFT, z pigtail)
 const char* AVATAR_NEUTRAL_L[] = {
     " ?  ? ",
@@ -125,6 +132,12 @@ const char* AVATAR_SAD_L[] = {
 const char* AVATAR_ANGRY_L[] = {
     " \\  / ",
     "(00 #)",
+    "(    )z"
+};
+
+const char* AVATAR_DEVIOUS_L[] = {
+    " <  < ",
+    "(00 ~)",
     "(    )z"
 };
 
@@ -307,6 +320,8 @@ void Avatar::draw(M5Canvas& canvas) {
             frame = facingRight ? AVATAR_SAD_R : AVATAR_SAD_L; break;
         case AvatarState::ANGRY:    
             frame = facingRight ? AVATAR_ANGRY_R : AVATAR_ANGRY_L; break;
+        case AvatarState::DEVIOUS:    
+            frame = facingRight ? AVATAR_DEVIOUS_R : AVATAR_DEVIOUS_L; break;
         default:                    
             frame = facingRight ? AVATAR_NEUTRAL_R : AVATAR_NEUTRAL_L; break;
     }
