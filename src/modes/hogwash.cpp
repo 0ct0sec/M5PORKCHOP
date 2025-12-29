@@ -190,8 +190,9 @@ void HogwashMode::update() {
         Serial.printf("[HOGWASH] XP granted for new SSID: %s\n", pendingSSID);
     }
     
-    // Cycle SSID periodically
-    if (now - lastSSIDChange > ssidCycleIntervalMs) {
+    // Cycle SSID periodically (but NOT while clients are connected)
+    // Changing SSID disconnects all clients, so pause rotation to keep hooks alive
+    if (hookedCount == 0 && now - lastSSIDChange > ssidCycleIntervalMs) {
         cycleToNextSSID();
         lastSSIDChange = now;
     }
