@@ -54,18 +54,19 @@
             3.1.2 - Stationary Operation Tuning
         3.2 - WARHOG Mode
         3.3 - PIGGY BLUES Mode
-        3.4 - HOG ON SPECTRUM Mode
-            3.4.1 - CLIENT MONITOR
-        3.5 - PORKCHOP COMMANDER
-        3.6 - LOOT Menu & WPA-SEC Integration
-        3.7 - Machine Learning
-        3.8 - Enhanced ML Mode
-        3.9 - XP System
-            3.9.1 - IMMORTAL PIG
-        3.10 - Achievements
-        3.11 - SWINE STATS
-        3.12 - Session Challenges
-        3.13 - Unlockables
+        3.4 - HOGWASH Mode (Karma AP)
+        3.5 - HOG ON SPECTRUM Mode
+            3.5.1 - CLIENT MONITOR
+        3.6 - PORKCHOP COMMANDER
+        3.7 - LOOT Menu & WPA-SEC Integration
+        3.8 - Machine Learning
+        3.9 - Enhanced ML Mode
+        3.10 - XP System
+            3.10.1 - IMMORTAL PIG
+        3.11 - Achievements
+        3.12 - SWINE STATS
+        3.13 - Session Challenges
+        3.14 - Unlockables
     4 - Hardware
     5 - Building & Flashing
         5.1 - Flashing Methods & Progress Preservation
@@ -469,7 +470,66 @@
     WINDOWS_PANIC, BLE_BOMBER, OINKAGEDDON. you know what to do.
 
 
-----[ 3.4 - HOG ON SPECTRUM Mode
+----[ 3.4 - HOGWASH Mode (Karma AP)
+
+    press 'K' and become the WiFi everyone's looking for.
+
+    your phone constantly whispers the names of WiFi networks it remembers:
+    "Is Home_WiFi here? Is Starbucks_Free here?" probe requests. always.
+    HOGWASH listens to these whispers and lies back: "yes, I'm that network.
+    connect to me!" the phone believes it. auto-associates. hooked.
+
+    bottom bar shows: P:probes U:unique H:hooked [SSID]
+    the [SSID] updates every 5 seconds when a NEW unique probe is captured.
+    no new probes? no change. the pig waits. the pig is patient.
+
+    the attack surface:
+
+        * promiscuous mode probe request capture - hears everything
+        * 8-slot SSID ring buffer - stores recent unique network names
+        * karma AP cycles through captured SSIDs every 5 seconds
+        * devices auto-connect thinking it's their remembered network
+        * Apple OUI detection - bonus XP for hooking iPhones
+        * DHCP server built-in - they get an IP, nowhere to go
+
+    the piglet goes DEVIOUS in this mode. narrowed eyes. sly expression.
+    "come to papa..." and "trust me bro" and "free internet innit".
+    when someone connects: "GOTCHA!" or "yoink" or "GET OVER HERE".
+    the pig knows what it's doing. it's fishing. with WiFi.
+
+    how it works:
+
+        1. ESP32 enters promiscuous mode, listens for probe requests
+        2. extracts SSIDs from Management frames (type 0x40)
+        3. queues unique SSIDs in 8-slot ring buffer with timestamps
+        4. karma AP broadcasts as latest queued SSID
+        5. devices that probe for that SSID auto-associate
+        6. pig celebrates. XP awarded. achievement progress tracked.
+
+    XP events:
+        HOGWASH_PROBE_NEW:   +3 XP per unique SSID (capped at 200 XP/session)
+        HOGWASH_HOOK:       +25 XP per device connected
+        HOGWASH_APPLE_HOOK: +35 XP for Apple devices (harder targets)
+        HOGWASH_SESSION:    +10 XP every 5 minutes active
+
+    Karma Portal setting (Settings > Karma Portal: OFF by default):
+    enable for DNS captive portal redirect. stealth mode? leave it off.
+
+    why devices fall for this: most phones/laptops have "auto-join known
+    networks" enabled by default. they probe for remembered SSIDs constantly.
+    when they hear a beacon matching a probed SSID? they connect. no check.
+    no verification. just vibes. your $1200 iPhone trusts random radios.
+
+    DISCLAIMER: same rules as PIGGY BLUES. educational purposes only.
+    demonstrating Karma attacks on YOUR OWN devices is valid security
+    research. doing this in public spaces makes you a federal problem.
+    tools don't make choices. you do. don't be a tool.
+
+    achievement hunters: F1RST_H00K, K4RMA_K1NG, H0N3Y_P0T, TR4P_M4ST3R,
+    4PPL3_P1CK3R, TR4FF1C_W4RD3N. go fishing.
+
+
+----[ 3.5 - HOG ON SPECTRUM Mode
 
     press 'H' and watch the 2.4GHz band light up like a Christmas tree:
 
@@ -497,7 +557,7 @@
     a client to deauth them directly. Backspace or G0 to bail. simple as.
 
 
-------[ 3.4.1 - CLIENT MONITOR
+------[ 3.5.1 - CLIENT MONITOR
 
     the spectrum got fangs. press Enter on any network to enter the hunt.
 
@@ -548,7 +608,7 @@
     first 4 clients get beeps. after that, quiet. we're hunting, not DJing.
 
 
-----[ 3.5 - PORKCHOP COMMANDER
+----[ 3.6 - PORKCHOP COMMANDER
 
     time to exfil. your pig caught the goods, now get 'em off the device.
 
@@ -590,7 +650,7 @@
     and clicking download. wordlists, configs, whatever fits on the SD.
 
 
-----[ 3.6 - LOOT Menu & WPA-SEC Integration
+----[ 3.7 - LOOT Menu & WPA-SEC Integration
 
     your spoils of war. hit LOOT from the main menu to see what
     you've captured:
@@ -644,7 +704,7 @@
     if it passes and still fails upload, GitHub issues.
 
 
-----[ 3.7 - Machine Learning
+----[ 3.8 - Machine Learning
 
     STATUS: DATA COLLECTION PHASE. THE PIG IS LEARNING. SLOWLY.
     
@@ -701,7 +761,7 @@
     and drop it in. the scaffold is ready. the pig is waiting.
 
 
-----[ 3.8 - Enhanced ML Mode
+----[ 3.9 - Enhanced ML Mode
 
     two collection modes for different threat models:
 
@@ -737,7 +797,7 @@
         * WPS on open network    classic honeypot fingerprint.
 
 
-----[ 3.9 - XP System
+----[ 3.10 - XP System
 
     your piglet has ambitions. every network sniffed, every handshake
     grabbed, every deauth fired - it all counts. the XP system tracks
@@ -798,7 +858,7 @@
     ready to lose your progress.
 
 
-------[ 3.9.1 - IMMORTAL PIG (XP Persistence)
+------[ 3.10.1 - IMMORTAL PIG (XP Persistence)
 
     NVS lives at 0x9000. M5 Burner writes start at 0x0. you see the
     problem. your L38 DARK TANGENT grind? steamrolled. BACON N00B.
@@ -833,7 +893,7 @@
     device binding: ESP32 MAC address baked into signature.
 
 
-----[ 3.10 - Achievements
+----[ 3.11 - Achievements
 
     63 secret badges to prove you're not just grinding mindlessly.
     or maybe you are. either way, proof of pwn.
@@ -849,7 +909,7 @@
     hunt for handshakes.
 
 
-----[ 3.11 - SWINE STATS (Buff System)
+----[ 3.12 - SWINE STATS (Buff System)
 
     press 'S' or hit SWINE STATS in the menu to see your lifetime
     progress and check what buffs/debuffs are currently messing with
@@ -859,7 +919,7 @@
     what's actively buffing or debuffing your pig.
 
 
-----[ 3.11.1 - Class System
+----[ 3.12.1 - Class System
 
     every 5 levels your pig promotes to a new class tier. classes
     grant PERMANENT CUMULATIVE buffs - higher tier = more stacking:
@@ -882,7 +942,7 @@
     -1ms jitter, and +5% on everything. the grind pays off.
 
 
-----[ 3.11.2 - Mood Buffs/Debuffs
+----[ 3.12.2 - Mood Buffs/Debuffs
 
     the mood system ties happiness to mechanics. happy pig = aggressive.
     sad pig = sluggish. keep the meter up and feel the difference.
@@ -932,7 +992,7 @@
     keep the pig happy. happy pig = effective pig.
 
 
-----[ 3.12 - Session Challenges
+----[ 3.13 - Session Challenges
 
     three challenges spawn each boot. EASY, MEDIUM, HARD. difficulty
     scales with your level. complete all three for bonus XP.
@@ -957,7 +1017,7 @@
     bored, if you know what to ask. just one. pig persists.
 
 
-----[ 3.13 - Unlockables
+----[ 3.14 - Unlockables
 
     two secrets hide in the unlockables menu. SHA256 validated.
     type the phrase, press enter, watch the hash match or fail.
