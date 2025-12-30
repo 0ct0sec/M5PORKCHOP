@@ -56,6 +56,9 @@ struct WiFiConfig {
     String wpaSecKey = "";              // WPA-SEC.stanev.org user key (32 hex chars)
     String wigleApiName = "";           // WiGLE API Name (from wigle.net/account)
     String wigleApiToken = "";          // WiGLE API Token (from wigle.net/account)
+    bool hogwashCaptivePortal = false;  // Enable DNS captive portal in HOGWASH mode (v0.1.9)
+    uint16_t hogwashSSIDCycleMs = 5000; // SSID cycle interval in ms (1000-30000)
+    char hogwashFixedSSID[33] = "";     // Fixed SSID for Evil Twin mode (empty = karma mode)
 };
 
 // BLE settings for PIGGY BLUES mode

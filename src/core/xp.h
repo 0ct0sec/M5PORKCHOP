@@ -52,7 +52,12 @@ enum class XPEvent : uint8_t {
     DNH_NETWORK_PASSIVE,    // +2 XP - network found in passive mode
     DNH_PMKID_GHOST,        // +100 XP - PMKID captured passively (rare!)
     BOAR_BRO_ADDED,         // +5 XP - added network to BOAR BROS
-    BOAR_BRO_MERCY          // +15 XP - excluded mid-attack target
+    BOAR_BRO_MERCY,         // +15 XP - excluded mid-attack target
+    // HOGWASH (Karma AP) events (v0.1.9+)
+    HOGWASH_PROBE_NEW,      // +3 XP - new unique SSID probed
+    HOGWASH_HOOK,           // +25 XP - device connected to fake AP
+    HOGWASH_APPLE_HOOK,     // +35 XP - Apple device hooked (bonus)
+    HOGWASH_SESSION_5MIN    // +10 XP - 5 minutes of HOGWASH running
 };
 
 // Achievement bitflags (uint64_t for 60 achievements)
@@ -152,6 +157,17 @@ enum PorkAchievement : uint64_t {
     ACH_FULL_CLEAR      = 1ULL << 63,  // All other achievements unlocked (TH3_C0MPL3T10N1ST)
 };
 
+// HOGWASH achievements (achievements2 bitfield, bits 0-7) - v0.1.9
+enum HogwashAchievement : uint64_t {
+    HACH_NONE           = 0,
+    HACH_F1RST_H00K     = 1ULL << 0,   // First device connected via Karma AP
+    HACH_K4RMA_K1NG     = 1ULL << 1,   // 50 devices hooked lifetime
+    HACH_H0N3Y_P0T      = 1ULL << 2,   // 5 devices connected simultaneously
+    HACH_TR4P_M4ST3R    = 1ULL << 3,   // 100 unique SSIDs captured
+    HACH_4PPL3_P1CK3R   = 1ULL << 4,   // Hook 10 Apple devices
+    HACH_TR4FF1C_W4RD3N = 1ULL << 5,   // 30 minutes continuous HOGWASH
+};
+
 // Persistent XP data structure (stored in NVS)
 struct PorkXPData {
     uint32_t totalXP;           // Lifetime XP
@@ -180,6 +196,10 @@ struct PorkXPData {
     uint32_t mercyCount;        // Mid-attack exclusions (mercy kills)
     TitleOverride titleOverride; // Player-selected title override
     uint32_t unlockables;       // Unlockables bitfield (v0.1.8) - secret challenges
+    // HOGWASH persistent counters (v0.1.9+)
+    uint64_t achievements2;     // Second achievement bitfield for HOGWASH (bits 0-63)
+    uint32_t lifetimeHooks;     // Total devices hooked in HOGWASH
+    uint32_t lifetimeProbes;    // Total unique SSIDs seen
 };
 
 // Session-only stats (not persisted)
@@ -208,6 +228,10 @@ struct SessionStats {
     uint32_t boarBrosThisSession; // Bros added this session (for PACIFIST_RUN)
     uint32_t mercyCount;        // Mid-attack exclusions this session
     bool everDeauthed;          // Has player ever sent deauth? (for Silent Witness)
+    // HOGWASH session counters (v0.1.9+)
+    uint32_t hogwashProbes;     // Unique SSIDs seen this session
+    uint32_t hogwashHooks;      // Devices hooked this session
+    uint16_t hogwashProbeXP;    // XP from probes this session (capped at 200)
 };
 
 class XP {
@@ -250,6 +274,12 @@ public:
     static uint64_t getAchievements();
     static uint8_t getUnlockedCount();  // Count of unlocked achievements
     static const char* getAchievementName(PorkAchievement ach);
+    
+    // HOGWASH Achievements (achievements2, v0.1.9)
+    static void unlockAchievement2(HogwashAchievement ach);
+    static bool hasAchievement2(HogwashAchievement ach);
+    static uint64_t getAchievements2();
+    static const char* getAchievement2Name(HogwashAchievement ach);
     
     // Unlockables (v0.1.8) - secret challenges
     static void setUnlockable(uint8_t bitIndex);

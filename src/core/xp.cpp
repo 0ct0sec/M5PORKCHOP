@@ -59,7 +59,12 @@ static const uint16_t XP_VALUES[] = {
     2,      // DNH_NETWORK_PASSIVE - same as regular network
     150,    // DNH_PMKID_GHOST (buffed: very rare passive!)
     5,      // BOAR_BRO_ADDED
-    15      // BOAR_BRO_MERCY - mid-attack exclusion
+    15,     // BOAR_BRO_MERCY - mid-attack exclusion
+    // HOGWASH (Karma AP) events (v0.1.9+)
+    3,      // HOGWASH_PROBE_NEW - new unique SSID (capped at 200 XP/session)
+    25,     // HOGWASH_HOOK - device connected
+    35,     // HOGWASH_APPLE_HOOK - Apple device bonus
+    10      // HOGWASH_SESSION_5MIN - time investment
 };
 
 // 8 class names (every 5 levels)
@@ -737,6 +742,31 @@ void XP::addXP(XPEvent event) {
                 unlockAchievement(ACH_MERCY_MODE);
             }
             break;
+        // HOGWASH (Karma AP) events
+        case XPEvent::HOGWASH_PROBE_NEW:
+            // New unique SSID captured from probe request
+            data.lifetimeProbes++;
+            session.hogwashProbes++;
+            // Anti-farm cap: max 200 XP from probes per session
+            if (session.hogwashProbeXP < 200) {
+                session.hogwashProbeXP += 3;
+            } else {
+                amount = 0;  // Capped
+            }
+            break;
+        case XPEvent::HOGWASH_HOOK:
+            // Device connected to fake AP
+            data.lifetimeHooks++;
+            session.hogwashHooks++;
+            break;
+        case XPEvent::HOGWASH_APPLE_HOOK:
+            // Apple device hooked (bonus)
+            data.lifetimeHooks++;
+            session.hogwashHooks++;
+            break;
+        case XPEvent::HOGWASH_SESSION_5MIN:
+            // 5 minutes of HOGWASH running
+            break;
         default:
             break;
     }
@@ -1154,6 +1184,70 @@ const char* XP::getAchievementName(PorkAchievement ach) {
         idx++;
     }
     return ACHIEVEMENT_NAMES[idx];
+}
+
+// HOGWASH Achievements (achievements2) - v0.1.9
+static const uint8_t HOGWASH_ACHIEVEMENT_COUNT = 6;
+static const char* HOGWASH_ACHIEVEMENT_NAMES[] = {
+    "F1RST H00K",       // First device connected via Karma
+    "K4RMA K1NG",       // 50 devices hooked lifetime
+    "H0N3Y P0T",        // 5 devices connected simultaneously
+    "TR4P M4ST3R",      // 100 unique SSIDs captured
+    "4PPL3 P1CK3R",     // Hook 10 Apple devices
+    "TR4FF1C W4RD3N"    // 30 minutes continuous HOGWASH
+};
+
+void XP::unlockAchievement2(HogwashAchievement ach) {
+    if (hasAchievement2(ach)) return;
+    
+    data.achievements2 |= ach;
+    
+    // Find achievement index for name lookup
+    uint8_t idx = 0;
+    uint64_t mask = 1ULL;
+    while (mask < (uint64_t)ach && idx < HOGWASH_ACHIEVEMENT_COUNT - 1) {
+        mask <<= 1;
+        idx++;
+    }
+    
+    Serial.printf("[XP] HOGWASH Achievement unlocked: %s\n", HOGWASH_ACHIEVEMENT_NAMES[idx]);
+    SDLog::log("XP", "HOGWASH Achievement: %s", HOGWASH_ACHIEVEMENT_NAMES[idx]);
+    
+    if (initialized) {
+        char toastMsg[48];
+        snprintf(toastMsg, sizeof(toastMsg), "* %s *", HOGWASH_ACHIEVEMENT_NAMES[idx]);
+        Display::showToast(toastMsg);
+        
+        if (Config::personality().soundEnabled) {
+            M5.Speaker.tone(600, 80);
+            delay(100);
+            M5.Speaker.tone(900, 80);
+            delay(100);
+            M5.Speaker.tone(1200, 120);
+        }
+        
+        delay(500);
+    }
+    
+    pendingSaveFlag = true;
+}
+
+bool XP::hasAchievement2(HogwashAchievement ach) {
+    return (data.achievements2 & ach) != 0;
+}
+
+uint64_t XP::getAchievements2() {
+    return data.achievements2;
+}
+
+const char* XP::getAchievement2Name(HogwashAchievement ach) {
+    uint8_t idx = 0;
+    uint64_t mask = 1ULL;
+    while (mask < (uint64_t)ach && idx < HOGWASH_ACHIEVEMENT_COUNT - 1) {
+        mask <<= 1;
+        idx++;
+    }
+    return HOGWASH_ACHIEVEMENT_NAMES[idx];
 }
 
 void XP::checkAchievements() {

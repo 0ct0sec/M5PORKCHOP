@@ -13,6 +13,7 @@
 #include "../modes/donoham.h"
 #include "../modes/warhog.h"
 #include "../modes/piggyblues.h"
+#include "../modes/hogwash.h"
 #include "../modes/spectrum.h"
 #include "../modes/call_papa.h"
 #include "../gps/gps.h"
@@ -126,6 +127,7 @@ void Display::update() {
         case PorkchopMode::DNH_MODE:
         case PorkchopMode::WARHOG_MODE:
         case PorkchopMode::PIGGYBLUES_MODE:
+        case PorkchopMode::HOGWASH_MODE:
         case PorkchopMode::CALL_PAPA_MODE:
             // Draw piglet avatar and mood bubble (info embedded in bubble)
             Avatar::draw(mainCanvas);
@@ -255,6 +257,10 @@ void Display::drawTopBar() {
             break;
         case PorkchopMode::PIGGYBLUES_MODE:
             modeStr = "PIGGY BLUES";
+            modeColor = COLOR_ACCENT;
+            break;
+        case PorkchopMode::HOGWASH_MODE:
+            modeStr = "HOGWASH";
             modeColor = COLOR_ACCENT;
             break;
         case PorkchopMode::SPECTRUM_MODE:
@@ -506,6 +512,23 @@ void Display::drawBottomBar() {
         uint32_t windows = PiggyBluesMode::getWindowsCount();
         char buf[48];
         snprintf(buf, sizeof(buf), "TX:%lu A:%lu G:%lu S:%lu W:%lu", total, apple, android, samsung, windows);
+        stats = String(buf);
+    } else if (mode == PorkchopMode::HOGWASH_MODE) {
+        // HOGWASH: Probes seen, unique SSIDs, hooked stations
+        uint32_t probes = HogwashMode::getProbeCount();
+        uint32_t unique = HogwashMode::getUniqueSSIDCount();
+        uint8_t hooked = HogwashMode::getHookedCount();
+        const char* ssid = HogwashMode::getCurrentSSID();
+        char buf[64];
+        if (ssid && ssid[0] != '\0') {
+            // Truncate SSID for display
+            char ssidShort[13];
+            strncpy(ssidShort, ssid, 12);
+            ssidShort[12] = '\0';
+            snprintf(buf, sizeof(buf), "P:%lu U:%lu H:%d [%s]", probes, unique, hooked, ssidShort);
+        } else {
+            snprintf(buf, sizeof(buf), "P:%lu U:%lu H:%d", probes, unique, hooked);
+        }
         stats = String(buf);
     } else if (mode == PorkchopMode::SPECTRUM_MODE) {
         // SPECTRUM: show selected network info or scan status
