@@ -283,6 +283,7 @@ void OinkMode::start() {
     
     // Set grass animation speed for OINK mode
     Avatar::setGrassSpeed(120);  // ~8 FPS casual trot
+    Avatar::startWindupSlide(108, true);  // Slide to right position (same as sirloin hunt)
     
     // Initialize auto-attack state machine
     autoState = AutoState::SCANNING;

@@ -546,6 +546,7 @@ void PiggyBluesMode::start() {
     
     // Fast moving binary grass for chaos mode
     Avatar::setGrassSpeed(50);  // Fast chaos mode
+    Avatar::startWindupSlide(108, true);  // Slide to right position (same as sirloin hunt)
     Avatar::setGrassMoving(true);
     
     Serial.println("[PIGGYBLUES] Running - BLE spam active with continuous scan");

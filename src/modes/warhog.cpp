@@ -217,6 +217,7 @@ void WarhogMode::start() {
     
     // Set grass speed for wardriving - animation controlled by GPS lock in update()
     Avatar::setGrassSpeed(200);  // Slower than OINK (~5 FPS)
+    Avatar::startWindupSlide(108, true);  // Slide to right position (same as sirloin hunt)
     Avatar::setGrassMoving(GPS::hasFix());  // Start based on current GPS status
     
     Display::setWiFiStatus(true);
