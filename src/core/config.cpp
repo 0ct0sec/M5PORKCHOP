@@ -54,6 +54,7 @@ bool Config::init() {
         SDLog::log("CFG", "SD card mounted OK");
         
         // Create directories on SD if needed
+        if (!SD.exists("/M5PORKCHOP")) SD.mkdir("/M5PORKCHOP");
         if (!SD.exists("/M5PORKCHOP/handshakes")) SD.mkdir("/M5PORKCHOP/handshakes");
         if (!SD.exists("/M5PORKCHOP/mldata")) SD.mkdir("/M5PORKCHOP/mldata");
         if (!SD.exists("/M5PORKCHOP/models")) SD.mkdir("/M5PORKCHOP/models");
