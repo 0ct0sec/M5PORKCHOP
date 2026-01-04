@@ -54,11 +54,11 @@ bool Config::init() {
         SDLog::log("CFG", "SD card mounted OK");
         
         // Create directories on SD if needed
-        if (!SD.exists("/handshakes")) SD.mkdir("/handshakes");
-        if (!SD.exists("/mldata")) SD.mkdir("/mldata");
-        if (!SD.exists("/models")) SD.mkdir("/models");
-        if (!SD.exists("/logs")) SD.mkdir("/logs");
-        if (!SD.exists("/wardriving")) SD.mkdir("/wardriving");
+        if (!SD.exists("/M5PORKCHOP/handshakes")) SD.mkdir("/M5PORKCHOP/handshakes");
+        if (!SD.exists("/M5PORKCHOP/mldata")) SD.mkdir("/M5PORKCHOP/mldata");
+        if (!SD.exists("/M5PORKCHOP/models")) SD.mkdir("/M5PORKCHOP/models");
+        if (!SD.exists("/M5PORKCHOP/logs")) SD.mkdir("/M5PORKCHOP/logs");
+        if (!SD.exists("/M5PORKCHOP/wardriving")) SD.mkdir("/M5PORKCHOP/wardriving");
     }
 
     
@@ -121,11 +121,11 @@ bool Config::reinitSD() {
         SDLog::log("CFG", "SD card re-initialized OK");
         
         // Ensure directories exist
-        if (!SD.exists("/handshakes")) SD.mkdir("/handshakes");
-        if (!SD.exists("/mldata")) SD.mkdir("/mldata");
-        if (!SD.exists("/models")) SD.mkdir("/models");
-        if (!SD.exists("/logs")) SD.mkdir("/logs");
-        if (!SD.exists("/wardriving")) SD.mkdir("/wardriving");
+        if (!SD.exists("/M5PORKCHOP/handshakes")) SD.mkdir("/M5PORKCHOP/handshakes");
+        if (!SD.exists("/M5PORKCHOP/mldata")) SD.mkdir("/M5PORKCHOP/mldata");
+        if (!SD.exists("/M5PORKCHOP/models")) SD.mkdir("/M5PORKCHOP/models");
+        if (!SD.exists("/M5PORKCHOP/logs")) SD.mkdir("/M5PORKCHOP/logs");
+        if (!SD.exists("/M5PORKCHOP/wardriving")) SD.mkdir("/M5PORKCHOP/wardriving");
     } else {
         Serial.println("[CONFIG] SD card reinit failed");
     }
@@ -172,7 +172,7 @@ bool Config::load() {
     if (doc["ml"].is<JsonObject>()) {
         mlConfig.enabled = doc["ml"]["enabled"] | true;
         mlConfig.collectionMode = static_cast<MLCollectionMode>(doc["ml"]["collectionMode"] | 0);
-        mlConfig.modelPath = doc["ml"]["modelPath"] | "/models/porkchop_model.bin";
+        mlConfig.modelPath = doc["ml"]["modelPath"] | "/M5PORKCHOP/models/porkchop_model.bin";
         mlConfig.confidenceThreshold = doc["ml"]["confidenceThreshold"] | 0.7f;
         mlConfig.rogueApThreshold = doc["ml"]["rogueApThreshold"] | 0.8f;
         mlConfig.vulnScorerThreshold = doc["ml"]["vulnScorerThreshold"] | 0.6f;

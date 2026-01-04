@@ -51,10 +51,10 @@ void WigleMenu::scanFiles() {
         return;
     }
     
-    // Scan /wardriving/ directory for .wigle.csv files
-    File dir = SD.open("/wardriving");
+    // Scan /M5PORKCHOP/wardriving/ directory for .wigle.csv files
+    File dir = SD.open("/M5PORKCHOP/wardriving");
     if (!dir || !dir.isDirectory()) {
-        Serial.println("[WIGLE_MENU] /wardriving directory not found");
+        Serial.println("[WIGLE_MENU] /M5PORKCHOP/wardriving directory not found");
         return;
     }
     
@@ -65,7 +65,7 @@ void WigleMenu::scanFiles() {
             if (name.endsWith(".wigle.csv")) {
                 WigleFileInfo info;
                 info.filename = name;
-                info.fullPath = String("/wardriving/") + name;
+                info.fullPath = String("/M5PORKCHOP/wardriving/") + name;
                 info.fileSize = entry.size();
                 // Estimate network count: ~150 bytes per line after header
                 info.networkCount = info.fileSize > 300 ? (info.fileSize - 300) / 150 : 0;

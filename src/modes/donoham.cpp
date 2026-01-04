@@ -739,7 +739,7 @@ void DoNoHamMode::saveAllPMKIDs() {
         // Try to backfill SSID from companion txt file (cross-mode compatibility)
         if (p.ssid[0] == 0) {
             char txtPath[64];
-            snprintf(txtPath, sizeof(txtPath), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
+            snprintf(txtPath, sizeof(txtPath), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
                      p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5]);
             if (SD.exists(txtPath)) {
                 File txtFile = SD.open(txtPath, FILE_READ);
@@ -772,14 +772,14 @@ void DoNoHamMode::saveAllPMKIDs() {
         // Now we actually attempt to save - increment counter
         p.saveAttempts++;
         
-        // Build filename: /handshakes/BSSID.22000
+        // Build filename: /M5PORKCHOP/handshakes/BSSID.22000
         char filename[64];
-        snprintf(filename, sizeof(filename), "/handshakes/%02X%02X%02X%02X%02X%02X.22000",
+        snprintf(filename, sizeof(filename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.22000",
             p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5]);
         
         // Ensure directory exists
-        if (!SD.exists("/handshakes")) {
-            SD.mkdir("/handshakes");
+        if (!SD.exists("/M5PORKCHOP/handshakes")) {
+            SD.mkdir("/M5PORKCHOP/handshakes");
         }
         
         File f = SD.open(filename, FILE_WRITE);
@@ -821,7 +821,7 @@ void DoNoHamMode::saveAllPMKIDs() {
         
         // Save SSID to companion txt file (matches OINK pattern)
         char txtFilename[64];
-        snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
+        snprintf(txtFilename, sizeof(txtFilename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
                  p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5]);
         // Delete existing file first to ensure clean overwrite (FILE_WRITE appends on ESP32)
         if (SD.exists(txtFilename)) {
@@ -866,7 +866,7 @@ void DoNoHamMode::saveAllHandshakes() {
         // Try to backfill SSID from companion txt file (cross-mode compatibility)
         if (hs.ssid[0] == 0) {
             char txtPath[64];
-            snprintf(txtPath, sizeof(txtPath), "/handshakes/%02X%02X%02X%02X%02X%02X.txt",
+            snprintf(txtPath, sizeof(txtPath), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.txt",
                      hs.bssid[0], hs.bssid[1], hs.bssid[2], hs.bssid[3], hs.bssid[4], hs.bssid[5]);
             if (SD.exists(txtPath)) {
                 File txtFile = SD.open(txtPath, FILE_READ);
@@ -908,14 +908,14 @@ void DoNoHamMode::saveAllHandshakes() {
         // Now we actually attempt to save - increment counter
         hs.saveAttempts++;
         
-        // Build filename: /handshakes/BSSID_hs.22000
+        // Build filename: /M5PORKCHOP/handshakes/BSSID_hs.22000
         char filename[64];
-        snprintf(filename, sizeof(filename), "/handshakes/%02X%02X%02X%02X%02X%02X_hs.22000",
+        snprintf(filename, sizeof(filename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X_hs.22000",
             hs.bssid[0], hs.bssid[1], hs.bssid[2], hs.bssid[3], hs.bssid[4], hs.bssid[5]);
         
         // Ensure directory exists
-        if (!SD.exists("/handshakes")) {
-            SD.mkdir("/handshakes");
+        if (!SD.exists("/M5PORKCHOP/handshakes")) {
+            SD.mkdir("/M5PORKCHOP/handshakes");
         }
         
         File f = SD.open(filename, FILE_WRITE);
@@ -990,7 +990,7 @@ void DoNoHamMode::saveAllHandshakes() {
         
         // Save SSID to companion txt file (matches OINK pattern)
         char txtFilename[64];
-        snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X.txt",
+        snprintf(txtFilename, sizeof(txtFilename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.txt",
                  hs.bssid[0], hs.bssid[1], hs.bssid[2], hs.bssid[3], hs.bssid[4], hs.bssid[5]);
         File txtFile = SD.open(txtFilename, FILE_WRITE);
         if (txtFile) {
@@ -1000,7 +1000,7 @@ void DoNoHamMode::saveAllHandshakes() {
         
         // Also save PCAP (for WPA-SEC upload and wireshark analysis)
         char pcapFilename[64];
-        snprintf(pcapFilename, sizeof(pcapFilename), "/handshakes/%02X%02X%02X%02X%02X%02X.pcap",
+        snprintf(pcapFilename, sizeof(pcapFilename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.pcap",
             hs.bssid[0], hs.bssid[1], hs.bssid[2], hs.bssid[3], hs.bssid[4], hs.bssid[5]);
         
         File pcapFile = SD.open(pcapFilename, FILE_WRITE);

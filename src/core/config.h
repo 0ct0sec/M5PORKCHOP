@@ -4,8 +4,8 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-#define CONFIG_FILE "/porkchop.conf"
-#define PERSONALITY_FILE "/personality.json"
+#define CONFIG_FILE "/M5PORKCHOP/porkchop.conf"
+#define PERSONALITY_FILE "/M5PORKCHOP/personality.json"
 
 // GPS module source selection
 enum class GPSSource : uint8_t {
@@ -36,7 +36,7 @@ enum class MLCollectionMode : uint8_t {
 struct MLConfig {
     bool enabled = true;
     MLCollectionMode collectionMode = MLCollectionMode::BASIC;  // Data collection mode
-    String modelPath = "/models/porkchop_model.bin";
+    String modelPath = "/M5PORKCHOP/models/porkchop_model.bin";
     float confidenceThreshold = 0.7f;
     float rogueApThreshold = 0.8f;
     float vulnScorerThreshold = 0.6f;

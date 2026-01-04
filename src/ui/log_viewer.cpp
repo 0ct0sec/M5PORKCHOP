@@ -29,7 +29,7 @@ String LogViewer::findLatestLogFile() {
     }
     
     // Use fixed filename - always the same file
-    const char* logFile = "/logs/porkchop.log";
+    const char* logFile = "/M5PORKCHOP/logs/porkchop.log";
     
     if (SD.exists(logFile)) {
         Serial.printf("[LOGVIEW] Found: %s\n", logFile);

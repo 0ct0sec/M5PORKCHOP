@@ -38,12 +38,12 @@ void SDLog::ensureLogFile() {
     if (!Config::isSDAvailable()) return;
     
     // Create logs directory if needed
-    if (!SD.exists("/logs")) {
-        SD.mkdir("/logs");
+    if (!SD.exists("/M5PORKCHOP/logs")) {
+        SD.mkdir("/M5PORKCHOP/logs");
     }
     
     // Use fixed filename - easier to find and read
-    currentLogFile = "/logs/porkchop.log";
+    currentLogFile = "/M5PORKCHOP/logs/porkchop.log";
     
     // Create file with header
     File f = SD.open(currentLogFile.c_str(), FILE_WRITE);

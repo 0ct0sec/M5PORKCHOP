@@ -1221,7 +1221,7 @@ static const int SCREENSHOT_RETRY_DELAY_MS = 10;
 static uint16_t getNextScreenshotNumber() {
     uint16_t maxNum = 0;
     
-    File dir = SD.open("/screenshots");
+    File dir = SD.open("/M5PORKCHOP/screenshots");
     if (!dir || !dir.isDirectory()) {
         return 1;
     }
@@ -1256,14 +1256,14 @@ bool Display::takeScreenshot() {
     snapping = true;
     
     // Ensure screenshots directory exists
-    if (!SD.exists("/screenshots")) {
-        SD.mkdir("/screenshots");
+    if (!SD.exists("/M5PORKCHOP/screenshots")) {
+        SD.mkdir("/M5PORKCHOP/screenshots");
     }
     
     // Find next available number
     uint16_t num = getNextScreenshotNumber();
     char path[48];
-    snprintf(path, sizeof(path), "/screenshots/screenshot%03d.bmp", num);
+    snprintf(path, sizeof(path), "/M5PORKCHOP/screenshots/screenshot%03d.bmp", num);
     
     Serial.printf("[DISPLAY] Taking screenshot: %s\n", path);
     
