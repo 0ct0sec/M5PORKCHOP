@@ -15,7 +15,7 @@ char MLInference::modelVersion[16] = "none";
 size_t MLInference::modelSize = 0;
 uint32_t MLInference::inferenceCount = 0;
 uint32_t MLInference::avgInferenceTime = 0;
-const char* MLInference::MODEL_PATH = "/models/porkchop_model.bin";
+const char* MLInference::MODEL_PATH = "/M5PORKCHOP/models/porkchop_model.bin";
 
 // Edge Impulse will generate these - placeholder structure
 struct ei_impulse_result_t {

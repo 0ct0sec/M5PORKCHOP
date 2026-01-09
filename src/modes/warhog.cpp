@@ -484,9 +484,9 @@ bool WarhogMode::ensureCSVFileReady() {
     if (currentFilename.length() > 0) return true;
     
     // Ensure wardriving directory exists
-    if (!SD.exists("/wardriving")) {
-        if (!SD.mkdir("/wardriving")) {
-            Serial.println("[WARHOG] Failed to create /wardriving directory");
+    if (!SD.exists("/M5PORKCHOP/wardriving")) {
+        if (!SD.mkdir("/M5PORKCHOP/wardriving")) {
+            Serial.println("[WARHOG] Failed to create /M5PORKCHOP/wardriving directory");
             return false;
         }
     }
@@ -512,16 +512,16 @@ bool WarhogMode::ensureMLFileReady() {
     if (currentMLFilename.length() > 0) return true;
     
     // Ensure mldata directory exists
-    if (!SD.exists("/mldata")) {
-        if (!SD.mkdir("/mldata")) {
-            Serial.println("[WARHOG] Failed to create /mldata directory");
+    if (!SD.exists("/M5PORKCHOP/mldata")) {
+        if (!SD.mkdir("/M5PORKCHOP/mldata")) {
+            Serial.println("[WARHOG] Failed to create /M5PORKCHOP/mldata directory");
             return false;
         }
     }
     
     currentMLFilename = generateFilename("ml.csv");
-    // Put ML files in /mldata folder
-    currentMLFilename.replace("/wardriving/warhog_", "/mldata/ml_training_");
+    // Put ML files in /M5PORKCHOP/mldata folder
+    currentMLFilename.replace("/M5PORKCHOP/wardriving/warhog_", "/M5PORKCHOP/mldata/ml_training_");
     
     File f = openFileWithRetry(currentMLFilename.c_str(), FILE_WRITE);
     if (!f) {
@@ -618,9 +618,9 @@ bool WarhogMode::ensureWigleFileReady() {
     if (currentWigleFilename.length() > 0) return true;
     
     // Ensure wardriving directory exists
-    if (!SD.exists("/wardriving")) {
-        if (!SD.mkdir("/wardriving")) {
-            Serial.println("[WARHOG] Failed to create /wardriving directory");
+    if (!SD.exists("/M5PORKCHOP/wardriving")) {
+        if (!SD.mkdir("/M5PORKCHOP/wardriving")) {
+            Serial.println("[WARHOG] Failed to create /M5PORKCHOP/wardriving directory");
             return false;
         }
     }
@@ -937,11 +937,11 @@ String WarhogMode::generateFilename(const char* ext) {
         uint8_t minute = (gps.time / 10000) % 100;
         uint8_t second = (gps.time / 100) % 100;
         
-        snprintf(buf, sizeof(buf), "/wardriving/warhog_20%02d%02d%02d_%02d%02d%02d.%s",
+        snprintf(buf, sizeof(buf), "/M5PORKCHOP/wardriving/warhog_20%02d%02d%02d_%02d%02d%02d.%s",
                 year, month, day, hour, minute, second, ext);
     } else {
         // No GPS time - use millis with random suffix for uniqueness
-        snprintf(buf, sizeof(buf), "/wardriving/warhog_%lu_%04X.%s", 
+        snprintf(buf, sizeof(buf), "/M5PORKCHOP/wardriving/warhog_%lu_%04X.%s", 
                 millis(), (uint16_t)esp_random(), ext);
     }
     

@@ -49,12 +49,12 @@ void CapturesMenu::scanCaptures() {
         return;
     }
     
-    if (!SD.exists("/handshakes")) {
+    if (!SD.exists("/M5PORKCHOP/handshakes")) {
         Serial.println("[CAPTURES] No handshakes directory");
         return;
     }
     
-    File dir = SD.open("/handshakes");
+    File dir = SD.open("/M5PORKCHOP/handshakes");
     if (!dir || !dir.isDirectory()) {
         Serial.println("[CAPTURES] Failed to open handshakes directory");
         return;
@@ -71,7 +71,7 @@ void CapturesMenu::scanCaptures() {
         // We prefer showing _hs.22000 because it's hashcat-ready
         if (isPCAP) {
             String baseName = name.substring(0, name.indexOf('.'));
-            String hs22kPath = "/handshakes/" + baseName + "_hs.22000";
+            String hs22kPath = "/M5PORKCHOP/handshakes/" + baseName + "_hs.22000";
             if (SD.exists(hs22kPath)) {
                 file = dir.openNextFile();
                 continue;  // Skip this PCAP, _hs.22000 will be shown instead
@@ -105,8 +105,8 @@ void CapturesMenu::scanCaptures() {
             // Try to get SSID from companion .txt file if exists
             // PMKID uses _pmkid.txt suffix, handshake uses .txt
             String txtPath = isPMKID ? 
-                "/handshakes/" + baseName + "_pmkid.txt" :
-                "/handshakes/" + baseName + ".txt";
+                "/M5PORKCHOP/handshakes/" + baseName + "_pmkid.txt" :
+                "/M5PORKCHOP/handshakes/" + baseName + ".txt";
             if (SD.exists(txtPath)) {
                 File txtFile = SD.open(txtPath, FILE_READ);
                 if (txtFile) {
@@ -389,7 +389,7 @@ void CapturesMenu::drawNukeConfirm(M5Canvas& canvas) {
     
     // Hacker edgy message
     canvas.drawString("!! SCORCHED EARTH !!", centerX, boxY + 8);
-    canvas.drawString("rm -rf /handshakes/*", centerX, boxY + 22);
+    canvas.drawString("rm -rf /M5PORKCHOP/handshakes/*", centerX, boxY + 22);
     canvas.drawString("THIS KILLS THE LOOT.", centerX, boxY + 36);
     canvas.drawString("[Y] DO IT  [N] ABORT", centerX, boxY + 54);
 }
@@ -397,11 +397,11 @@ void CapturesMenu::drawNukeConfirm(M5Canvas& canvas) {
 void CapturesMenu::nukeLoot() {
     Serial.println("[CAPTURES] Nuking all loot...");
     
-    if (!SD.exists("/handshakes")) {
+    if (!SD.exists("/M5PORKCHOP/handshakes")) {
         return;
     }
     
-    File dir = SD.open("/handshakes");
+    File dir = SD.open("/M5PORKCHOP/handshakes");
     if (!dir || !dir.isDirectory()) {
         return;
     }
@@ -410,7 +410,7 @@ void CapturesMenu::nukeLoot() {
     std::vector<String> files;
     File file = dir.openNextFile();
     while (file) {
-        files.push_back(String("/handshakes/") + file.name());
+        files.push_back(String("/M5PORKCHOP/handshakes/") + file.name());
         file = dir.openNextFile();
     }
     dir.close();
@@ -551,7 +551,7 @@ void CapturesMenu::uploadSelected() {
     // Find the PCAP file for this capture
     String baseName = cap.bssid;
     baseName.replace(":", "");
-    String pcapPath = "/handshakes/" + baseName + ".pcap";
+    String pcapPath = "/M5PORKCHOP/handshakes/" + baseName + ".pcap";
     
     if (!SD.exists(pcapPath)) {
         Display::showToast("NO PCAP FILE FOUND");

@@ -14,7 +14,7 @@ bool BoarBrosMenu::active = false;
 bool BoarBrosMenu::keyWasPressed = false;
 bool BoarBrosMenu::deleteConfirmActive = false;
 
-static const char* BOAR_BROS_FILE = "/boar_bros.txt";
+static const char* BOAR_BROS_FILE = "/M5PORKCHOP/boar_bros.txt";
 
 void BoarBrosMenu::init() {
     bros.clear();

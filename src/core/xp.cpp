@@ -18,7 +18,7 @@
 //  Every veteran typed it. Every veteran lived forever.
 //  The slayer's first gift before the slaying began."
 //
-static const char* XP_BACKUP_FILE = "/xp_backup.bin";
+static const char* XP_BACKUP_FILE = "/M5PORKCHOP/xp_backup.bin";
 
 // Static member initialization
 PorkXPData XP::data = {0};

@@ -1461,14 +1461,14 @@ bool CallPapaMode::savePMKID(const uint8_t* data, uint16_t len) {
     const char* ssid = (const char*)(data + 13);
     const uint8_t* pmkid = data + 13 + 32;  // Fixed offset (32 bytes reserved for SSID)
     
-    // Ensure /handshakes directory exists
-    if (!SD.exists("/handshakes")) {
-        SD.mkdir("/handshakes");
+    // Ensure /M5PORKCHOP/handshakes directory exists
+    if (!SD.exists("/M5PORKCHOP/handshakes")) {
+        SD.mkdir("/M5PORKCHOP/handshakes");
     }
     
     // Build filename
     char filename[64];
-    snprintf(filename, sizeof(filename), "/handshakes/%02X%02X%02X%02X%02X%02X.22000",
+    snprintf(filename, sizeof(filename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.22000",
              bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
     
     // Check for duplicate
@@ -1509,7 +1509,7 @@ bool CallPapaMode::savePMKID(const uint8_t* data, uint16_t len) {
     
     // Save SSID to companion txt file
     char txtFilename[64];
-    snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
+    snprintf(txtFilename, sizeof(txtFilename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
              bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
     
     File txtFile = SD.open(txtFilename, FILE_WRITE);
@@ -1550,14 +1550,14 @@ bool CallPapaMode::saveHandshake(const uint8_t* data, uint16_t len) {
     uint8_t mask = data[45];  // 13 + 32 = 45
     uint16_t beaconLen = data[46] | (data[47] << 8);
     
-    // Ensure /handshakes directory exists
-    if (!SD.exists("/handshakes")) {
-        SD.mkdir("/handshakes");
+    // Ensure /M5PORKCHOP/handshakes directory exists
+    if (!SD.exists("/M5PORKCHOP/handshakes")) {
+        SD.mkdir("/M5PORKCHOP/handshakes");
     }
     
     // Build PCAP filename
     char pcapFilename[64];
-    snprintf(pcapFilename, sizeof(pcapFilename), "/handshakes/%02X%02X%02X%02X%02X%02X.pcap",
+    snprintf(pcapFilename, sizeof(pcapFilename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.pcap",
              bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
     
     // Check for duplicate
@@ -1724,7 +1724,7 @@ bool CallPapaMode::saveHandshake(const uint8_t* data, uint16_t len) {
     
     // Save SSID to companion txt file
     char txtFilename[64];
-    snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X.txt",
+    snprintf(txtFilename, sizeof(txtFilename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.txt",
              bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
     
     File txtFile = SD.open(txtFilename, FILE_WRITE);

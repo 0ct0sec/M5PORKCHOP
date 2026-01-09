@@ -20,7 +20,7 @@
 
 // Simple flag to avoid concurrent access between promiscuous callback and main thread
 // The promiscuous callback runs in WiFi task context (not true ISR), but still needs
-// synchronization to prevent race conditions on networks/handshakes vectors
+// synchronization to prevent race conditions on networks/M5PORKCHOP/handshakes vectors
 static volatile bool oinkBusy = false;
 
 // Minimum free heap to allow network additions (30KB safety margin)
@@ -126,7 +126,7 @@ bool OinkMode::beaconCaptured = false;
 
 // BOAR BROS - excluded networks
 std::map<uint64_t, String> OinkMode::boarBros;
-static const char* BOAR_BROS_FILE = "/boar_bros.txt";
+static const char* BOAR_BROS_FILE = "/M5PORKCHOP/boar_bros.txt";
 static const size_t MAX_BOAR_BROS = 50;  // Max excluded networks
 
 // Channel hop order (most common channels first)
@@ -385,7 +385,7 @@ void OinkMode::update() {
     
     uint32_t now = millis();
     
-    // Guard access to networks/handshakes vectors from promiscuous callback
+    // Guard access to networks/M5PORKCHOP/handshakes vectors from promiscuous callback
     oinkBusy = true;
     
     // ============ Process Deferred Events from Callback ============
@@ -1194,7 +1194,7 @@ void OinkMode::promiscuousCallback(void* buf, wifi_promiscuous_pkt_type_t type) 
     
     if (!running) return;
     
-    // Skip if main thread is accessing networks/handshakes vectors
+    // Skip if main thread is accessing networks/M5PORKCHOP/handshakes vectors
     // This prevents race conditions - we'll catch this packet on next beacon
     if (oinkBusy) return;
     
@@ -1976,13 +1976,13 @@ void OinkMode::autoSaveCheck() {
             
             // Generate filename
             char filename[64];
-            snprintf(filename, sizeof(filename), "/handshakes/%02X%02X%02X%02X%02X%02X.pcap",
+            snprintf(filename, sizeof(filename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.pcap",
                     hs.bssid[0], hs.bssid[1], hs.bssid[2],
                     hs.bssid[3], hs.bssid[4], hs.bssid[5]);
             
             // Ensure directory exists
-            if (!SD.exists("/handshakes")) {
-                SD.mkdir("/handshakes");
+            if (!SD.exists("/M5PORKCHOP/handshakes")) {
+                SD.mkdir("/M5PORKCHOP/handshakes");
             }
             
             // Save PCAP (for wireshark/manual analysis)
@@ -1990,7 +1990,7 @@ void OinkMode::autoSaveCheck() {
             
             // Save 22000 format (hashcat-ready, no conversion needed)
             char filename22000[64];
-            snprintf(filename22000, sizeof(filename22000), "/handshakes/%02X%02X%02X%02X%02X%02X_hs.22000",
+            snprintf(filename22000, sizeof(filename22000), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X_hs.22000",
                     hs.bssid[0], hs.bssid[1], hs.bssid[2],
                     hs.bssid[3], hs.bssid[4], hs.bssid[5]);
             bool hs22kOk = saveHandshake22000(hs, filename22000);
@@ -2004,7 +2004,7 @@ void OinkMode::autoSaveCheck() {
                 
                 // Save SSID to companion .txt file for later reference
                 char txtFilename[64];
-                snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X.txt",
+                snprintf(txtFilename, sizeof(txtFilename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.txt",
                         hs.bssid[0], hs.bssid[1], hs.bssid[2],
                         hs.bssid[3], hs.bssid[4], hs.bssid[5]);
                 File txtFile = SD.open(txtFilename, FILE_WRITE);
@@ -2365,8 +2365,8 @@ bool OinkMode::saveAllPMKIDs() {
     if (!Config::isSDAvailable()) return false;
     
     // Ensure directory exists
-    if (!SD.exists("/handshakes")) {
-        SD.mkdir("/handshakes");
+    if (!SD.exists("/M5PORKCHOP/handshakes")) {
+        SD.mkdir("/M5PORKCHOP/handshakes");
     }
     
     bool success = true;
@@ -2397,9 +2397,9 @@ bool OinkMode::saveAllPMKIDs() {
             
             p.saveAttempts++;  // Increment before attempt
             
-            // Use BSSID-based filename in /handshakes/ (same as handshakes, but .22000 extension)
+            // Use BSSID-based filename in /M5PORKCHOP/handshakes/ (same as handshakes, but .22000 extension)
             char filename[64];
-            snprintf(filename, sizeof(filename), "/handshakes/%02X%02X%02X%02X%02X%02X.22000",
+            snprintf(filename, sizeof(filename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X.22000",
                      p.bssid[0], p.bssid[1], p.bssid[2],
                      p.bssid[3], p.bssid[4], p.bssid[5]);
             
@@ -2410,7 +2410,7 @@ bool OinkMode::saveAllPMKIDs() {
                 
                 // Save SSID to companion .txt file (same pattern as handshakes)
                 char txtFilename[64];
-                snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
+                snprintf(txtFilename, sizeof(txtFilename), "/M5PORKCHOP/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
                          p.bssid[0], p.bssid[1], p.bssid[2],
                          p.bssid[3], p.bssid[4], p.bssid[5]);
                 // Delete existing file first to ensure clean overwrite (FILE_WRITE appends on ESP32)

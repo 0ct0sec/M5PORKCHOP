@@ -47,7 +47,7 @@ private:
     static bool listLoaded;  // Guard for lazy loading
     
     // File paths
-    static constexpr const char* UPLOADED_FILE = "/wigle_uploaded.txt";
+    static constexpr const char* UPLOADED_FILE = "/M5PORKCHOP/wigle/wigle_uploaded.txt";
     
     // API endpoints
     static constexpr const char* API_HOST = "api.wigle.net";

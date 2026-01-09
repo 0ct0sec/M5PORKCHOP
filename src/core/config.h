@@ -4,8 +4,8 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-#define CONFIG_FILE "/porkchop.conf"
-#define PERSONALITY_FILE "/personality.json"
+#define CONFIG_FILE "/M5PORKCHOP/porkchop.conf"
+#define PERSONALITY_FILE "/M5PORKCHOP/personality.json"
 
 // GPS module source selection
 enum class GPSSource : uint8_t {
@@ -36,7 +36,7 @@ enum class MLCollectionMode : uint8_t {
 struct MLConfig {
     bool enabled = true;
     MLCollectionMode collectionMode = MLCollectionMode::BASIC;  // Data collection mode
-    String modelPath = "/models/porkchop_model.bin";
+    String modelPath = "/M5PORKCHOP/models/porkchop_model.bin";
     float confidenceThreshold = 0.7f;
     float rogueApThreshold = 0.8f;
     float vulnScorerThreshold = 0.6f;
@@ -87,8 +87,8 @@ public:
     static bool loadPersonality();
     static bool isSDAvailable();
     static bool reinitSD();  // Try to (re)initialize SD card at runtime
-    static bool loadWpaSecKeyFromFile();  // Load key from /wpasec_key.txt and delete file
-    static bool loadWigleKeyFromFile();   // Load keys from /wigle_key.txt and delete file
+    static bool loadWpaSecKeyFromFile();  // Load key from /M5PORKCHOP/wpasec/wpasec_key.txt and delete file
+    static bool loadWigleKeyFromFile();   // Load keys from /M5PORKCHOP/wigle/wigle_key.txt and delete file
     
     // Getters
     static GPSConfig& gps() { return gpsConfig; }
