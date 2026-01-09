@@ -60,6 +60,8 @@ bool Config::init() {
         if (!SD.exists("/M5PORKCHOP/models")) SD.mkdir("/M5PORKCHOP/models");
         if (!SD.exists("/M5PORKCHOP/logs")) SD.mkdir("/M5PORKCHOP/logs");
         if (!SD.exists("/M5PORKCHOP/wardriving")) SD.mkdir("/M5PORKCHOP/wardriving");
+        if (!SD.exists("/M5PORKCHOP/wigle")) SD.mkdir("/M5PORKCHOP/wigle");
+        if (!SD.exists("/M5PORKCHOP/wpasec")) SD.mkdir("/M5PORKCHOP/wpasec");
     }
 
     
@@ -369,7 +371,7 @@ void Config::setPersonality(const PersonalityConfig& cfg) {
 }
 
 bool Config::loadWpaSecKeyFromFile() {
-    const char* keyFile = "/wpasec_key.txt";
+    const char* keyFile = "/M5PORKCHOP/wpasec/wpasec_key.txt";
     
     if (!sdAvailable || !SD.exists(keyFile)) {
         return false;
@@ -417,7 +419,7 @@ bool Config::loadWpaSecKeyFromFile() {
 }
 
 bool Config::loadWigleKeyFromFile() {
-    const char* keyFile = "/wigle_key.txt";
+    const char* keyFile = "/M5PORKCHOP/wigle/wigle_key.txt";
     
     if (!sdAvailable || !SD.exists(keyFile)) {
         return false;

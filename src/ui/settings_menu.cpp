@@ -60,12 +60,12 @@ void SettingsMenu::loadFromConfig() {
         "wpa-sec.stanev.org key"
     });
     
-    // Load Key File action - reads from /wpasec_key.txt
+    // Load Key File action - reads from /M5PORKCHOP/wpasec/wpasec_key.txt
     items.push_back({
         "< Load Key File >",
         SettingType::ACTION,
         0, 0, 0, 0, "", "",
-        "Read /wpasec_key.txt"
+        "Read /M5PORKCHOP/wpasec/wpasec_key.txt"
     });
     
     // WiGLE API Name display (masked)
@@ -99,12 +99,12 @@ void SettingsMenu::loadFromConfig() {
         "wigle.net API token"
     });
     
-    // Load WiGLE Key File action - reads from /wigle_key.txt
+    // Load WiGLE Key File action - reads from /M5PORKCHOP/wigle/wigle_key.txt
     items.push_back({
         "< Load WiGLE Key >",
         SettingType::ACTION,
         0, 0, 0, 0, "", "",
-        "Read /wigle_key.txt"
+        "Read /M5PORKCHOP/wigle/wigle_key.txt"
     });
     
     // Sound toggle
@@ -462,7 +462,7 @@ void SettingsMenu::handleInput() {
                 } else {
                     if (!Config::isSDAvailable()) {
                         Display::showToast("No SD card");
-                    } else if (!SD.exists("/wpasec_key.txt")) {
+                    } else if (!SD.exists("/M5PORKCHOP/wpasec/wpasec_key.txt")) {
                         Display::showToast("No key file");
                     } else {
                         Display::showToast("Invalid key");
@@ -477,7 +477,7 @@ void SettingsMenu::handleInput() {
                 } else {
                     if (!Config::isSDAvailable()) {
                         Display::showToast("No SD card");
-                    } else if (!SD.exists("/wigle_key.txt")) {
+                    } else if (!SD.exists("/M5PORKCHOP/wigle/wigle_key.txt")) {
                         Display::showToast("No key file");
                     } else {
                         Display::showToast("Invalid format");

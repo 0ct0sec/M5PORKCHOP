@@ -54,8 +54,8 @@ private:
     static std::map<String, bool> uploadedCache;
     
     // File paths
-    static constexpr const char* CACHE_FILE = "/wpasec_results.txt";
-    static constexpr const char* UPLOADED_FILE = "/wpasec_uploaded.txt";
+    static constexpr const char* CACHE_FILE = "/M5PORKCHOP/wpasec/wpasec_results.txt";
+    static constexpr const char* UPLOADED_FILE = "/M5PORKCHOP/wpasec/wpasec_uploaded.txt";
     
     // API endpoints
     static constexpr const char* API_HOST = "wpa-sec.stanev.org";

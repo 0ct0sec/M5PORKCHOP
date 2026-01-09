@@ -87,8 +87,8 @@ public:
     static bool loadPersonality();
     static bool isSDAvailable();
     static bool reinitSD();  // Try to (re)initialize SD card at runtime
-    static bool loadWpaSecKeyFromFile();  // Load key from /wpasec_key.txt and delete file
-    static bool loadWigleKeyFromFile();   // Load keys from /wigle_key.txt and delete file
+    static bool loadWpaSecKeyFromFile();  // Load key from /M5PORKCHOP/wpasec/wpasec_key.txt and delete file
+    static bool loadWigleKeyFromFile();   // Load keys from /M5PORKCHOP/wigle/wigle_key.txt and delete file
     
     // Getters
     static GPSConfig& gps() { return gpsConfig; }
