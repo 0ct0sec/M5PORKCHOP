@@ -539,7 +539,7 @@ void Porkchop::handleInput() {
                 case 'd': // DO NO HAM mode
                 case 'D':
                     setMode(PorkchopMode::DNH_MODE);
-                    break;
+                    return; // Prevent fall-through to DNH handler
                 case 'f': // File transfer (PORKCHOP COMMANDER)
                 case 'F':
                     setMode(PorkchopMode::FILE_TRANSFER);
