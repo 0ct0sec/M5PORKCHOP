@@ -19,7 +19,7 @@ namespace HeapPolicy {
     static constexpr size_t kHeapStableThreshold = 50000;
     static constexpr size_t kFileServerRecoveryThreshold = 50000;
     static constexpr size_t kFileServerMinHeap = 40000;
-    static constexpr size_t kFileServerMinLargest = 20000;
+    static constexpr size_t kFileServerMinLargest = 30000;
 
     // Mode-specific thresholds
     static constexpr size_t kWarhogHeapWarning = 40000;

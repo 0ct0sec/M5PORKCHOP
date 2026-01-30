@@ -13,6 +13,8 @@ static bool toastImproved = false;
 static bool toastActive = false;
 static size_t peakFree = 0;
 static size_t peakLargest = 0;
+static size_t minFree = 0;
+static size_t minLargest = 0;
 
 static const uint32_t SAMPLE_INTERVAL_MS = 1000;
 static const uint32_t TOAST_DURATION_MS = 5000;  // Match XP top bar duration
@@ -60,6 +62,12 @@ void update() {
 
     size_t freeHeap = ESP.getFreeHeap();
     size_t largestBlock = ESP.getMaxAllocHeap();
+    if (peakFree == 0 || peakLargest == 0) {
+        peakFree = freeHeap;
+        peakLargest = largestBlock;
+    }
+    if (minFree == 0 || freeHeap < minFree) minFree = freeHeap;
+    if (minLargest == 0 || largestBlock < minLargest) minLargest = largestBlock;
     uint8_t newPct = computePercent(freeHeap, largestBlock, true);
 
     int delta = (int)newPct - (int)heapHealthPct;
@@ -84,6 +92,8 @@ uint8_t getPercent() {
 void resetPeaks(bool suppressToast) {
     peakFree = ESP.getFreeHeap();
     peakLargest = ESP.getMaxAllocHeap();
+    minFree = peakFree;
+    minLargest = peakLargest;
     heapHealthPct = computePercent(peakFree, peakLargest, false);
 
     if (suppressToast) {
@@ -110,6 +120,14 @@ bool isToastImproved() {
 
 uint8_t getToastDelta() {
     return toastDelta;
+}
+
+uint32_t getMinFree() {
+    return (uint32_t)minFree;
+}
+
+uint32_t getMinLargest() {
+    return (uint32_t)minLargest;
 }
 
 }  // namespace HeapHealth

@@ -3334,6 +3334,17 @@ bool FileServer::start(const char* ssid, const char* password) {
         strcpy(statusMessage, "No WiFi SSID set");
         return false;
     }
+
+    // Pre-start heap conditioning if contiguous block is below TLS threshold.
+    size_t largestBefore = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    if (largestBefore < HeapPolicy::kMinContigForTls) {
+        Serial.printf("[FILESERVER] Pre-start conditioning: largest=%u < %u\n",
+                      (unsigned)largestBefore, (unsigned)HeapPolicy::kMinContigForTls);
+        size_t largestAfter = WiFiUtils::conditionHeapForTLS();
+        Serial.printf("[FILESERVER] Pre-start conditioning complete: %u -> %u (+%d)\n",
+                      (unsigned)largestBefore, (unsigned)largestAfter,
+                      (int)(largestAfter - largestBefore));
+    }
     
     strcpy(statusMessage, "jacking in.");
     logWiFiStatus("before connect");
@@ -3484,7 +3495,12 @@ void FileServer::stop() {
     if (largestBefore < HeapPolicy::kFileServerRecoveryThreshold) {
         // Short callback-enabled brew for reliable coalescing
         Serial.printf("[FILESERVER] Heap recovery starting: largest=%u\n", (unsigned)largestBefore);
-        size_t largestAfter = WiFiUtils::brewHeap(1000, false);
+        size_t largestAfter = WiFiUtils::brewHeap(2000, false);
+        if (largestAfter < HeapPolicy::kMinContigForTls) {
+            Serial.printf("[FILESERVER] Brew insufficient (largest=%u), running full conditioning\n",
+                          (unsigned)largestAfter);
+            largestAfter = WiFiUtils::conditionHeapForTLS();
+        }
         Serial.printf("[FILESERVER] Heap recovery complete: %u -> %u (+%d)\n",
                       (unsigned)largestBefore, (unsigned)largestAfter,
                       (int)(largestAfter - largestBefore));

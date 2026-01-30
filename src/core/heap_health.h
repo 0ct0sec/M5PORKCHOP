@@ -12,6 +12,10 @@ namespace HeapHealth {
     // Reset peak baseline to current heap values.
     void resetPeaks(bool suppressToast = true);
 
+    // Watermarks (min observed values)
+    uint32_t getMinFree();
+    uint32_t getMinLargest();
+
     // Toast helpers
     bool shouldShowToast();
     bool isToastImproved();

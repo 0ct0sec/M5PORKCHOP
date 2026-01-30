@@ -10,6 +10,7 @@
 #include "../web/wpasec.h"
 #include "../web/wigle.h"
 #include "../core/sd_layout.h"
+#include "../core/heap_health.h"
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 #include <esp_wifi.h>
@@ -189,7 +190,7 @@ void DiagnosticsMenu::logHeapSnapshot() {
     }
     time_t now = time(nullptr);
     struct tm* t = localtime(&now);
-    f.printf("%04d-%02d-%02d %02d:%02d:%02d free=%u largest=%u min=%u\n",
+    f.printf("%04d-%02d-%02d %02d:%02d:%02d free=%u largest=%u min=%u min_largest=%u hmin_free=%u\n",
              t ? t->tm_year + 1900 : 0,
              t ? t->tm_mon + 1 : 0,
              t ? t->tm_mday : 0,
@@ -198,7 +199,9 @@ void DiagnosticsMenu::logHeapSnapshot() {
              t ? t->tm_sec : 0,
              (unsigned int)ESP.getFreeHeap(),
              (unsigned int)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-             (unsigned int)ESP.getMinFreeHeap());
+             (unsigned int)ESP.getMinFreeHeap(),
+             (unsigned int)HeapHealth::getMinLargest(),
+             (unsigned int)HeapHealth::getMinFree());
     f.close();
 }
 
@@ -245,6 +248,10 @@ void DiagnosticsMenu::draw(M5Canvas& canvas) {
     y += lineH;
     canvas.drawString("MIN FREE:", 4, y);
     snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)ESP.getMinFreeHeap());
+    canvas.drawString(heapBuf, 80, y);
+    y += lineH;
+    canvas.drawString("MIN LRG:", 4, y);
+    snprintf(heapBuf, sizeof(heapBuf), "%u", (unsigned)HeapHealth::getMinLargest());
     canvas.drawString(heapBuf, 80, y);
     y += lineH + 4;
 
