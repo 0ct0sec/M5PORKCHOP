@@ -17,8 +17,11 @@
 #include "../core/sd_layout.h"
 #include "wigle.h"
 
+#ifndef PORKCHOP_LOG_ENABLED
+#define PORKCHOP_LOG_ENABLED 1
+#endif
 #ifndef FILESERVER_LOG_ENABLED
-#define FILESERVER_LOG_ENABLED 1
+#define FILESERVER_LOG_ENABLED PORKCHOP_LOG_ENABLED
 #endif
 
 #if FILESERVER_LOG_ENABLED
