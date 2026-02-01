@@ -85,9 +85,11 @@ static portMUX_TYPE pendingPMKIDMux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE pendingBeaconMux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE pendingIncompleteMux = portMUX_INITIALIZER_UNLOCKED;
 
-// Single-slot deferred PMKID create
-static volatile bool pendingPMKIDCreateReady = false;
-static volatile bool pendingPMKIDCreateBusy = false;
+// Ring-buffered deferred PMKID create (small, static)
+static const uint8_t PENDING_PMKID_SLOTS = 4;
+static uint8_t pendingPMKIDWrite = 0;
+static uint8_t pendingPMKIDRead = 0;
+static uint8_t pendingPMKIDCount = 0;
 struct PendingPMKIDCreate {
     uint8_t bssid[6];
     uint8_t station[6];
@@ -95,7 +97,7 @@ struct PendingPMKIDCreate {
     char ssid[33];
     uint8_t channel;
 };
-static PendingPMKIDCreate pendingPMKIDCreate;
+static PendingPMKIDCreate pendingPMKIDRing[PENDING_PMKID_SLOTS];
 
 static void onNewNetworkDiscovered(wifi_auth_mode_t authmode, bool isHidden,
                                    const char* ssid, int8_t rssi, uint8_t channel) {
@@ -107,9 +109,6 @@ static void onNewNetworkDiscovered(wifi_auth_mode_t authmode, bool isHidden,
     XP::addXP(XPEvent::DNH_NETWORK_PASSIVE);
 }
 
-// Single-slot deferred handshake frame add (now stores all 4 frames)
-static volatile bool pendingHandshakeAdd = false;
-static volatile bool pendingHandshakeBusy = false;
 struct PendingHandshakeFrame {
     uint8_t bssid[6];
     uint8_t station[6];
@@ -117,7 +116,14 @@ struct PendingHandshakeFrame {
     EAPOLFrame frames[4];  // Store all 4 EAPOL frames (M1-M4)
     uint8_t capturedMask;  // Bitmask: bit0=M1, bit1=M2, bit2=M3, bit3=M4
 };
-static PendingHandshakeFrame pendingHandshake;
+// Ring-buffered deferred handshake frame add (heap allocated on start)
+static const uint8_t PENDING_HS_SLOTS = 2;
+static PendingHandshakeFrame pendingHandshakeFallback;
+static PendingHandshakeFrame* pendingHandshakePool = &pendingHandshakeFallback;
+static bool pendingHandshakePoolAllocated = false;
+static uint8_t pendingHandshakeSlots = 1;
+static uint8_t pendingHandshakeWrite = 0;
+static bool pendingHandshakeUsed[PENDING_HS_SLOTS] = {false, false};
 
 // Handshake capture event for UI
 static volatile bool pendingHandshakeCapture = false;
@@ -134,9 +140,12 @@ static uint8_t pendingBeaconBSSID[6];
 static uint8_t pendingBeaconData[512];  // Static buffer, no malloc in callback
 static uint16_t pendingBeaconLen = 0;
 
-// Single-slot deferred incomplete handshake tracking
-static volatile bool pendingIncompleteAdd = false;
-static IncompleteHS pendingIncomplete;
+// Ring-buffered deferred incomplete handshake tracking (small, static)
+static const uint8_t PENDING_INCOMPLETE_SLOTS = 8;
+static uint8_t pendingIncompleteWrite = 0;
+static uint8_t pendingIncompleteRead = 0;
+static uint8_t pendingIncompleteCount = 0;
+static IncompleteHS pendingIncompleteRing[PENDING_INCOMPLETE_SLOTS];
 // Minimum free heap to allow new handshake allocations (handshake struct is large)
 static const size_t DNH_HANDSHAKE_ALLOC_MIN_BLOCK = sizeof(CapturedHandshake) + HeapPolicy::kHandshakeAllocSlack;
 static const size_t DNH_PMKID_ALLOC_MIN_BLOCK = sizeof(CapturedPMKID) + HeapPolicy::kPmkidAllocSlack;
@@ -223,13 +232,29 @@ void DoNoHamMode::start() {
     dwellResolved = false;
     
     // Reset deferred flags
-    pendingPMKIDCreateReady = false;
-    pendingPMKIDCreateBusy = false;
-    pendingHandshakeAdd = false;
-    pendingHandshakeBusy = false;
+    pendingPMKIDWrite = 0;
+    pendingPMKIDRead = 0;
+    pendingPMKIDCount = 0;
     pendingHandshakeCapture = false;
     pendingBeaconStore = false;
-    pendingIncompleteAdd = false;
+    pendingIncompleteWrite = 0;
+    pendingIncompleteRead = 0;
+    pendingIncompleteCount = 0;
+    pendingHandshakeWrite = 0;
+    for (uint8_t i = 0; i < PENDING_HS_SLOTS; i++) {
+        pendingHandshakeUsed[i] = false;
+    }
+
+    // Allocate handshake ring pool (fallback to single slot if allocation fails)
+    pendingHandshakePool = &pendingHandshakeFallback;
+    pendingHandshakeSlots = 1;
+    pendingHandshakePoolAllocated = false;
+    void* hsPool = heap_caps_malloc(sizeof(PendingHandshakeFrame) * PENDING_HS_SLOTS, MALLOC_CAP_8BIT);
+    if (hsPool) {
+        pendingHandshakePool = static_cast<PendingHandshakeFrame*>(hsPool);
+        pendingHandshakeSlots = PENDING_HS_SLOTS;
+        pendingHandshakePoolAllocated = true;
+    }
     
     // CRITICAL: Set running flag with memory barrier
     running = true;
@@ -299,13 +324,24 @@ void DoNoHamMode::stop() {
     dnhBusy = false;
     
     // Reset deferred flags
-    pendingPMKIDCreateReady = false;
-    pendingPMKIDCreateBusy = false;
-    pendingHandshakeAdd = false;
-    pendingHandshakeBusy = false;
+    pendingPMKIDWrite = 0;
+    pendingPMKIDRead = 0;
+    pendingPMKIDCount = 0;
     pendingHandshakeCapture = false;
     pendingBeaconStore = false;
-    pendingIncompleteAdd = false;
+    pendingIncompleteWrite = 0;
+    pendingIncompleteRead = 0;
+    pendingIncompleteCount = 0;
+    pendingHandshakeWrite = 0;
+    for (uint8_t i = 0; i < PENDING_HS_SLOTS; i++) {
+        pendingHandshakeUsed[i] = false;
+    }
+    if (pendingHandshakePoolAllocated && pendingHandshakePool) {
+        free(pendingHandshakePool);
+    }
+    pendingHandshakePool = &pendingHandshakeFallback;
+    pendingHandshakeSlots = 1;
+    pendingHandshakePoolAllocated = false;
     Mood::setDialogueLock(false);
 }
 
@@ -366,13 +402,17 @@ void DoNoHamMode::update() {
         }
     }
     
-    // Process deferred PMKID create
-    if (pendingPMKIDCreateReady && !pendingPMKIDCreateBusy) {
-        PendingPMKIDCreate pendingPMKIDLocal = {};
-        taskENTER_CRITICAL(&pendingPMKIDMux);
-        pendingPMKIDLocal = pendingPMKIDCreate;
-        taskEXIT_CRITICAL(&pendingPMKIDMux);
+    // Process deferred PMKID create (ring buffer, head-only)
+    PendingPMKIDCreate pendingPMKIDLocal = {};
+    bool hasPendingPMKID = false;
+    taskENTER_CRITICAL(&pendingPMKIDMux);
+    if (pendingPMKIDCount > 0) {
+        pendingPMKIDLocal = pendingPMKIDRing[pendingPMKIDRead];
+        hasPendingPMKID = true;
+    }
+    taskEXIT_CRITICAL(&pendingPMKIDMux);
 
+    if (hasPendingPMKID) {
         // Check if dwell is complete (if we needed one)
         bool canProcess = true;
         if (pendingPMKIDLocal.ssid[0] == 0 && state != DNHState::DWELLING) {
@@ -384,15 +424,21 @@ void DoNoHamMode::update() {
                 canProcess = false;
             }
         }
-        
+
         if (canProcess) {
+            // Pop the head entry now that we can process it
             taskENTER_CRITICAL(&pendingPMKIDMux);
-            if (pendingPMKIDCreateReady && !pendingPMKIDCreateBusy) {
-                pendingPMKIDCreateBusy = true;
-                pendingPMKIDLocal = pendingPMKIDCreate;
+            if (pendingPMKIDCount > 0) {
+                pendingPMKIDLocal = pendingPMKIDRing[pendingPMKIDRead];
+                pendingPMKIDRead = (pendingPMKIDRead + 1) % PENDING_PMKID_SLOTS;
+                pendingPMKIDCount--;
+            } else {
+                canProcess = false;
             }
             taskEXIT_CRITICAL(&pendingPMKIDMux);
-            
+        }
+
+        if (canProcess) {
             // Try to find SSID if we don't have it
             if (pendingPMKIDLocal.ssid[0] == 0) {
                 int netIdx = NetworkRecon::findNetworkIndex(pendingPMKIDLocal.bssid);
@@ -403,7 +449,7 @@ void DoNoHamMode::update() {
                 }
                 NetworkRecon::exitCritical();
             }
-            
+
             // Create or update PMKID entry
             if (pmkids.size() < DNH_MAX_PMKIDS) {
                 int idx = findOrCreatePMKID(pendingPMKIDLocal.bssid);
@@ -434,12 +480,7 @@ void DoNoHamMode::update() {
                     }
                 }
             }
-            
-            taskENTER_CRITICAL(&pendingPMKIDMux);
-            pendingPMKIDCreateReady = false;
-            pendingPMKIDCreateBusy = false;
-            taskEXIT_CRITICAL(&pendingPMKIDMux);
-            
+
             // Return to hopping if we were dwelling
             if (state == DNHState::DWELLING) {
                 state = DNHState::HOPPING;
@@ -449,37 +490,51 @@ void DoNoHamMode::update() {
         }
     }
 
-    // Process deferred incomplete handshake tracking
-    bool hasPendingIncomplete = false;
-    IncompleteHS pendingIncompleteLocal = {};
-    taskENTER_CRITICAL(&pendingIncompleteMux);
-    if (pendingIncompleteAdd) {
-        pendingIncompleteLocal = pendingIncomplete;
-        pendingIncompleteAdd = false;
-        hasPendingIncomplete = true;
-    }
-    taskEXIT_CRITICAL(&pendingIncompleteMux);
+    // Process deferred incomplete handshake tracking (ring buffer)
+    while (true) {
+        IncompleteHS pendingIncompleteLocal = {};
+        bool hasPendingIncomplete = false;
+        taskENTER_CRITICAL(&pendingIncompleteMux);
+        if (pendingIncompleteCount > 0) {
+            pendingIncompleteLocal = pendingIncompleteRing[pendingIncompleteRead];
+            pendingIncompleteRead = (pendingIncompleteRead + 1) % PENDING_INCOMPLETE_SLOTS;
+            pendingIncompleteCount--;
+            hasPendingIncomplete = true;
+        }
+        taskEXIT_CRITICAL(&pendingIncompleteMux);
 
-    if (hasPendingIncomplete) {
+        if (!hasPendingIncomplete) {
+            break;
+        }
         trackIncompleteHandshake(pendingIncompleteLocal.bssid,
                                  pendingIncompleteLocal.capturedMask,
                                  pendingIncompleteLocal.channel);
     }
     
-    // Process deferred handshake frame add (batch process all queued frames)
-    PendingHandshakeFrame pendingHandshakeLocal;
-    bool hasPendingHandshake = false;
-    taskENTER_CRITICAL(&pendingHandshakeMux);
-    if (pendingHandshakeAdd && !pendingHandshakeBusy) {
-        pendingHandshakeBusy = true;
-        pendingHandshakeLocal = pendingHandshake;
-        pendingHandshake.capturedMask = 0;
-        pendingHandshakeAdd = false;
-        hasPendingHandshake = true;
-    }
-    taskEXIT_CRITICAL(&pendingHandshakeMux);
+    // Process deferred handshake frame add (ring buffer)
+    while (true) {
+        PendingHandshakeFrame pendingHandshakeLocal = {};
+        bool hasPendingHandshake = false;
+        taskENTER_CRITICAL(&pendingHandshakeMux);
+        int slot = -1;
+        for (uint8_t i = 0; i < pendingHandshakeSlots; i++) {
+            if (pendingHandshakeUsed[i]) {
+                slot = (int)i;
+                break;
+            }
+        }
+        if (slot >= 0) {
+            pendingHandshakeLocal = pendingHandshakePool[slot];
+            pendingHandshakeUsed[slot] = false;
+            pendingHandshakePool[slot].capturedMask = 0;
+            hasPendingHandshake = true;
+        }
+        taskEXIT_CRITICAL(&pendingHandshakeMux);
 
-    if (hasPendingHandshake) {
+        if (!hasPendingHandshake) {
+            break;
+        }
+
         // Find or create handshake entry
         int hsIdx = findOrCreateHandshake(pendingHandshakeLocal.bssid, pendingHandshakeLocal.station);
         if (hsIdx >= 0) {
@@ -531,8 +586,6 @@ void DoNoHamMode::update() {
                 pendingHandshakeCapture = true;
             }
         }
-        
-        pendingHandshakeBusy = false;
     }
     
     // Process handshake capture event (UI update + immediate safe save)
@@ -1414,10 +1467,13 @@ void DoNoHamMode::handleBeacon(const uint8_t* frame, uint16_t len, int8_t rssi) 
     // Check if this resolves a pending PMKID dwell
     if (state == DNHState::DWELLING && ssid[0] != 0) {
         taskENTER_CRITICAL(&pendingPMKIDMux);
-        if (memcmp(bssid, pendingPMKIDCreate.bssid, 6) == 0) {
-            strncpy(pendingPMKIDCreate.ssid, ssid, 32);
-            pendingPMKIDCreate.ssid[32] = 0;
-            dwellResolved = true;
+        if (pendingPMKIDCount > 0) {
+            PendingPMKIDCreate& slot = pendingPMKIDRing[pendingPMKIDRead];
+            if (memcmp(bssid, slot.bssid, 6) == 0) {
+                strncpy(slot.ssid, ssid, 32);
+                slot.ssid[32] = 0;
+                dwellResolved = true;
+            }
         }
         taskEXIT_CRITICAL(&pendingPMKIDMux);
     }
@@ -1579,20 +1635,22 @@ void DoNoHamMode::handleEAPOL(const uint8_t* frame, uint16_t len, int8_t rssi) {
                             break;
                         }
                         
-                        // Queue PMKID for creation in main thread
+                        // Queue PMKID for creation in main thread (ring buffer)
                         taskENTER_CRITICAL(&pendingPMKIDMux);
-                        if (!pendingPMKIDCreateBusy && !pendingPMKIDCreateReady) {
-                            memcpy(pendingPMKIDCreate.bssid, apBssid, 6);
-                            memcpy(pendingPMKIDCreate.station, station, 6);
-                            memcpy(pendingPMKIDCreate.pmkid, pmkidData, 16);
-                            pendingPMKIDCreate.channel = currentChannel;
+                        if (pendingPMKIDCount < PENDING_PMKID_SLOTS) {
+                            PendingPMKIDCreate& slot = pendingPMKIDRing[pendingPMKIDWrite];
+                            memcpy(slot.bssid, apBssid, 6);
+                            memcpy(slot.station, station, 6);
+                            memcpy(slot.pmkid, pmkidData, 16);
+                            slot.channel = currentChannel;
                             
                             // BUG FIX: Don't call findNetwork() from callback - race condition!
                             // SSID lookup deferred to update() where it's safe
                             // Clear SSID to trigger dwell/lookup in update()
-                            pendingPMKIDCreate.ssid[0] = 0;
+                            slot.ssid[0] = 0;
                             
-                            pendingPMKIDCreateReady = true;
+                            pendingPMKIDWrite = (pendingPMKIDWrite + 1) % PENDING_PMKID_SLOTS;
+                            pendingPMKIDCount++;
                         }
                         taskEXIT_CRITICAL(&pendingPMKIDMux);
                         break;  // Found PMKID, stop searching
@@ -1606,42 +1664,56 @@ void DoNoHamMode::handleEAPOL(const uint8_t* frame, uint16_t len, int8_t rssi) {
     // Queue frame for deferred processing (natural client reconnects)
     // Batch accumulate if frames arrive in quick succession
     taskENTER_CRITICAL(&pendingHandshakeMux);
-    if (!pendingHandshakeBusy) {
-        // Check if slot already has a frame for this handshake
-        bool sameHandshake = pendingHandshakeAdd &&
-                             memcmp(pendingHandshake.bssid, apBssid, 6) == 0 &&
-                             memcmp(pendingHandshake.station, station, 6) == 0;
-        
-        if (!pendingHandshakeAdd || sameHandshake) {
-            // Either slot is free, or it's for the same handshake (update it)
-            if (!pendingHandshakeAdd) {
-                // First frame for this handshake - init the slot
-                memcpy(pendingHandshake.bssid, apBssid, 6);
-                memcpy(pendingHandshake.station, station, 6);
-                pendingHandshake.messageNum = messageNum;  // DEPRECATED
-                pendingHandshake.capturedMask = 0;
-            }
-            
-            // Store this frame in the appropriate slot (M1-M4 → index 0-3)
-            uint8_t frameIdx = messageNum - 1;
-            if (frameIdx < 4) {
-                // EAPOL payload for hashcat 22000
-                uint16_t copyLen = min((uint16_t)512, eapolLen);
-                memcpy(pendingHandshake.frames[frameIdx].data, eapol, copyLen);
-                pendingHandshake.frames[frameIdx].len = copyLen;
-                
-                // Full 802.11 frame for PCAP export (radiotap + WPA-SEC compatibility)
-                uint16_t fullCopyLen = min((uint16_t)300, len);
-                memcpy(pendingHandshake.frames[frameIdx].fullFrame, frame, fullCopyLen);
-                pendingHandshake.frames[frameIdx].fullFrameLen = fullCopyLen;
-                pendingHandshake.frames[frameIdx].rssi = rssi;
-                
-                pendingHandshake.capturedMask |= (1 << frameIdx);
-            }
-            
-            pendingHandshakeAdd = true;
+    int slot = -1;
+    // Prefer existing slot for same handshake
+    for (uint8_t i = 0; i < pendingHandshakeSlots; i++) {
+        if (pendingHandshakeUsed[i] &&
+            memcmp(pendingHandshakePool[i].bssid, apBssid, 6) == 0 &&
+            memcmp(pendingHandshakePool[i].station, station, 6) == 0) {
+            slot = (int)i;
+            break;
         }
-        // else: slot full with different handshake, drop this frame (rare race)
+    }
+    // Otherwise, pick a free slot
+    if (slot < 0) {
+        for (uint8_t i = 0; i < pendingHandshakeSlots; i++) {
+            uint8_t idx = (pendingHandshakeWrite + i) % pendingHandshakeSlots;
+            if (!pendingHandshakeUsed[idx]) {
+                slot = (int)idx;
+                pendingHandshakeWrite = (idx + 1) % pendingHandshakeSlots;
+                // Init the slot for this handshake
+                memcpy(pendingHandshakePool[idx].bssid, apBssid, 6);
+                memcpy(pendingHandshakePool[idx].station, station, 6);
+                pendingHandshakePool[idx].messageNum = messageNum;  // DEPRECATED
+                pendingHandshakePool[idx].capturedMask = 0;
+                for (int f = 0; f < 4; f++) {
+                    pendingHandshakePool[idx].frames[f].len = 0;
+                    pendingHandshakePool[idx].frames[f].fullFrameLen = 0;
+                }
+                break;
+            }
+        }
+    }
+
+    if (slot >= 0) {
+        // Store this frame in the appropriate slot (M1-M4 → index 0-3)
+        uint8_t frameIdx = messageNum - 1;
+        if (frameIdx < 4) {
+            PendingHandshakeFrame& slotRef = pendingHandshakePool[slot];
+            // EAPOL payload for hashcat 22000
+            uint16_t copyLen = min((uint16_t)512, eapolLen);
+            memcpy(slotRef.frames[frameIdx].data, eapol, copyLen);
+            slotRef.frames[frameIdx].len = copyLen;
+            
+            // Full 802.11 frame for PCAP export (radiotap + WPA-SEC compatibility)
+            uint16_t fullCopyLen = min((uint16_t)300, len);
+            memcpy(slotRef.frames[frameIdx].fullFrame, frame, fullCopyLen);
+            slotRef.frames[frameIdx].fullFrameLen = fullCopyLen;
+            slotRef.frames[frameIdx].rssi = rssi;
+            
+            slotRef.capturedMask |= (1 << frameIdx);
+            pendingHandshakeUsed[slot] = true;
+        }
     }
     taskEXIT_CRITICAL(&pendingHandshakeMux);
     
@@ -1655,12 +1727,14 @@ void DoNoHamMode::handleEAPOL(const uint8_t* frame, uint16_t len, int8_t rssi) {
     // Track incomplete handshakes for future hunting (defer to update)
     uint8_t captureMask = (1 << (messageNum - 1));
     taskENTER_CRITICAL(&pendingIncompleteMux);
-    if (!pendingIncompleteAdd) {
-        memcpy(pendingIncomplete.bssid, apBssid, 6);
-        pendingIncomplete.capturedMask = captureMask;
-        pendingIncomplete.channel = currentChannel;
-        pendingIncomplete.lastSeen = millis();
-        pendingIncompleteAdd = true;
+    if (pendingIncompleteCount < PENDING_INCOMPLETE_SLOTS) {
+        IncompleteHS& slot = pendingIncompleteRing[pendingIncompleteWrite];
+        memcpy(slot.bssid, apBssid, 6);
+        slot.capturedMask = captureMask;
+        slot.channel = currentChannel;
+        slot.lastSeen = millis();
+        pendingIncompleteWrite = (pendingIncompleteWrite + 1) % PENDING_INCOMPLETE_SLOTS;
+        pendingIncompleteCount++;
     }
     taskEXIT_CRITICAL(&pendingIncompleteMux);
 }

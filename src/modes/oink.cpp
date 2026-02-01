@@ -2134,7 +2134,11 @@ void OinkMode::autoSaveCheck() {
     
     // Pause promiscuous mode for safe SD access (avoids SPI bus contention)
     // Brief ~50-100ms gap is acceptable - we just captured what we needed
-    esp_wifi_set_promiscuous(false);
+    bool pausedByUs = false;
+    if (NetworkRecon::isRunning()) {
+        NetworkRecon::pause();
+        pausedByUs = true;
+    }
     delay(5);  // Let SPI bus settle
     
     // Save any unsaved complete handshakes
@@ -2216,8 +2220,10 @@ void OinkMode::autoSaveCheck() {
     // Also save any unsaved PMKIDs
     saveAllPMKIDs();
     
-    // Resume promiscuous mode
-    esp_wifi_set_promiscuous(true);
+    // Resume promiscuous mode if we paused it
+    if (pausedByUs) {
+        NetworkRecon::resume();
+    }
 }
 
 // PCAP file format structures
