@@ -84,6 +84,7 @@ public:
                            const String& line2 = "", bool blocking = true);
     static bool showConfirmBox(const String& title, const String& message);
     static void showProgress(const String& title, uint8_t percent);
+    static void showProgress(const char* title, uint8_t percent);
     static void showToast(const String& message, uint32_t durationMs = 2000);  // Quick non-blocking message
     static void showToast(const char* message, uint32_t durationMs = 2000);    // Literal-friendly overload
     static void notify(NoticeKind kind, const String& message,

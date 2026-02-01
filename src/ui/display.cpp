@@ -1246,29 +1246,33 @@ void Display::showBootSplash() {
 
 
 void Display::showProgress(const String& title, uint8_t percent) {
+    showProgress(title.c_str(), percent);
+}
+
+void Display::showProgress(const char* title, uint8_t percent) {
     mainCanvas.fillSprite(COLOR_BG);
     mainCanvas.setTextColor(COLOR_FG);
-    
+
     mainCanvas.setTextDatum(top_center);
     mainCanvas.setTextSize(2);
-    mainCanvas.drawString(title, DISPLAY_W / 2, 20);
-    
+    mainCanvas.drawString(title ? title : "", DISPLAY_W / 2, 20);
+
     // Progress bar
     int barW = DISPLAY_W - 40;
     int barH = 15;
     int barX = 20;
     int barY = MAIN_H / 2;
-    
+
     mainCanvas.drawRect(barX, barY, barW, barH, COLOR_FG);
     int fillW = (barW - 2) * percent / 100;
     mainCanvas.fillRect(barX + 1, barY + 1, fillW, barH - 2, COLOR_ACCENT);
-    
+
     // Percentage text
     mainCanvas.setTextSize(1);
     char percentBuf[8];
     snprintf(percentBuf, sizeof(percentBuf), "%u%%", percent);
     mainCanvas.drawString(percentBuf, DISPLAY_W / 2, barY + barH + 10);
-    
+
     pushAll();
 }
 
