@@ -61,7 +61,7 @@ void SdFormatMenu::show() {
     progressPercent = 0;
     progressStage[0] = '\0';
     hintIndex = esp_random() % HINT_COUNT;
-    barsHidden = false;
+    barsHidden = true;   // Hide bars immediately - full screen mode from start
     systemStopped = false;
     Display::clearBottomOverlay();
 }
@@ -212,7 +212,7 @@ void SdFormatMenu::handleInput() {
                 : SDFormat::FormatMode::QUICK;
             return;
         }
-        if (keys.enter) {
+        if (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
             // Check SD availability before confirming
             if (!Config::isSDAvailable()) {
                 Display::notify(NoticeKind::WARNING, "SD NOT MOUNTED");
@@ -375,17 +375,19 @@ void SdFormatMenu::drawSelect(M5Canvas& canvas) {
 
     // Reset colors and show hint
     canvas.setTextColor(fg);
-    canvas.setTextSize(1);
     canvas.setTextDatum(top_center);
     
-    const char* modeHint = fullSelected
-        ? "ZERO-FILLS CARD BEFORE FORMAT"
-        : "FORMAT ONLY (PRESERVES WEAR)";
-    canvas.drawString(modeHint, DISPLAY_W / 2, y);
-    y += 14;
-
+    // Mode description - larger text for important info
     canvas.setTextSize(2);
-    canvas.drawString(";/. NAV  ENTER=OK", DISPLAY_W / 2, y);
+    const char* modeHint = fullSelected
+        ? "ZERO-FILL + FORMAT"
+        : "FORMAT ONLY";
+    canvas.drawString(modeHint, DISPLAY_W / 2, y);
+    y += 20;
+
+    // Nav hints - smaller text
+    canvas.setTextSize(1);
+    canvas.drawString("^v NAV  ENTER=OK", DISPLAY_W / 2, y);
 }
 
 void SdFormatMenu::drawWorking(M5Canvas& canvas) {
