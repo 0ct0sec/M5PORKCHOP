@@ -8,6 +8,7 @@
 #include "../core/config.h"
 #include <M5Cardputer.h>
 #include <esp_wifi.h>
+#include <WiFi.h>
 #include <NimBLEDevice.h>
 
 // Static member initialization
@@ -31,6 +32,18 @@ uint32_t ChargingMode::unplugDetectMs = 0;
 float ChargingMode::lastEstimateVoltage = 0.0f;
 uint32_t ChargingMode::lastEstimateMs = 0;
 
+bool ChargingMode::reconWasActive = false;
+bool ChargingMode::gpsWasActive = false;
+uint8_t ChargingMode::wifiModeBefore = static_cast<uint8_t>(WIFI_MODE_NULL);
+bool ChargingMode::wifiWasOn = false;
+bool ChargingMode::powerPresent = false;
+bool ChargingMode::powerSeen = false;
+uint32_t ChargingMode::lastChargingMs = 0;
+
+static const uint32_t kChargeHoldMs = 10000;
+static const int16_t kVbusPresentMv = 4000;
+static const uint32_t kUnplugExitDelayMs = 3000;
+
 // Li-ion voltage curves (approximate)
 // Discharge curve is different from charge curve due to internal resistance
 static const float kDischargeVoltages[] = {3.00f, 3.30f, 3.50f, 3.60f, 3.70f, 3.75f, 3.80f, 3.90f, 4.00f, 4.10f, 4.20f};
@@ -50,6 +63,13 @@ void ChargingMode::init() {
     unplugDetectMs = 0;
     lastEstimateVoltage = 0.0f;
     lastEstimateMs = 0;
+    reconWasActive = false;
+    gpsWasActive = false;
+    wifiModeBefore = static_cast<uint8_t>(WIFI_MODE_NULL);
+    wifiWasOn = false;
+    powerPresent = false;
+    powerSeen = false;
+    lastChargingMs = 0;
     
     memset(voltageHistory, 0, sizeof(voltageHistory));
     voltageHistoryIdx = 0;
@@ -63,21 +83,28 @@ void ChargingMode::start() {
     Serial.println("[CHARGING] Starting charging mode - shutting down services");
     
     // Stop NetworkRecon if running
-    if (NetworkRecon::isRunning()) {
+    reconWasActive = NetworkRecon::isRunning() || NetworkRecon::isPaused();
+    if (reconWasActive) {
         NetworkRecon::stop();
         Serial.println("[CHARGING] NetworkRecon stopped");
     }
     
     // Stop GPS to save power
-    if (GPS::isActive()) {
+    gpsWasActive = GPS::isActive();
+    if (gpsWasActive) {
         GPS::sleep();
         Serial.println("[CHARGING] GPS sleeping");
     }
     
     // Shutdown WiFi completely
-    WiFiUtils::shutdown();
-    esp_wifi_stop();
-    Serial.println("[CHARGING] WiFi stopped");
+    wifiModeBefore = static_cast<uint8_t>(WiFi.getMode());
+    wifiWasOn = (wifiModeBefore != WIFI_MODE_NULL);
+    if (wifiWasOn) {
+        WiFiUtils::shutdown();
+        Serial.println("[CHARGING] WiFi stopped");
+    } else {
+        Serial.println("[CHARGING] WiFi already off");
+    }
     
     // Deinit BLE if initialized
     if (NimBLEDevice::isInitialized()) {
@@ -103,6 +130,9 @@ void ChargingMode::start() {
     unplugDetectMs = 0;
     lastEstimateVoltage = 0.0f;
     lastEstimateMs = 0;
+    powerPresent = false;
+    powerSeen = false;
+    lastChargingMs = 0;
     
     // Initialize voltage history
     memset(voltageHistory, 0, sizeof(voltageHistory));
@@ -134,13 +164,19 @@ void ChargingMode::stop() {
     uint8_t brightness = Config::personality().brightness;
     M5.Display.setBrightness(brightness * 255 / 100);
     
-    // Re-enable WiFi (STA mode ready)
-    esp_wifi_start();
-    WiFi.mode(WIFI_STA);
+    // Restore WiFi mode if it was active on entry
+    if (wifiWasOn) {
+        WiFi.mode(static_cast<wifi_mode_t>(wifiModeBefore));
+    }
     
     // Wake GPS if it was enabled
-    if (Config::gps().enabled) {
+    if (gpsWasActive) {
         GPS::wake();
+    }
+
+    // Restore NetworkRecon if it was active on entry
+    if (reconWasActive) {
+        NetworkRecon::start();
     }
     
     Serial.println("[CHARGING] Mode stopped, services restored");
@@ -165,11 +201,11 @@ void ChargingMode::update() {
     }
     
     // Auto-exit if unplugged and not charging
-    if (!charging && batteryPercent > 5) {
+    if (powerSeen && !powerPresent) {
         // Small delay to avoid false triggers
         if (unplugDetectMs == 0) {
             unplugDetectMs = now;
-        } else if (now - unplugDetectMs > 3000) {
+        } else if (now - unplugDetectMs > kUnplugExitDelayMs) {
             Serial.println("[CHARGING] Unplugged detected, exiting charging mode");
             exitRequested = true;
             unplugDetectMs = 0;
@@ -206,7 +242,24 @@ void ChargingMode::handleInput() {
 void ChargingMode::updateBattery() {
     // Read raw voltage (in mV)
     float voltage = M5.Power.getBatteryVoltage() / 1000.0f;
-    bool isCharging = M5.Power.isCharging();
+    auto chargeState = M5.Power.isCharging();
+    bool isCharging = (chargeState == m5::Power_Class::is_charging_t::is_charging);
+    uint32_t now = millis();
+
+    if (isCharging) {
+        lastChargingMs = now;
+    }
+    int16_t vbusMv = M5.Power.getVBUSVoltage();
+    bool vbusPresent = (vbusMv >= kVbusPresentMv);
+    if (vbusMv <= 0) {
+        vbusPresent = false;  // Not supported or invalid reading
+    }
+    powerPresent = vbusPresent ||
+                   isCharging ||
+                   (lastChargingMs != 0 && (now - lastChargingMs) < kChargeHoldMs);
+    if (powerPresent) {
+        powerSeen = true;
+    }
     
     // Average with previous readings for stability
     voltageHistory[voltageHistoryIdx] = voltage;
@@ -228,7 +281,7 @@ void ChargingMode::updateBattery() {
     
     batteryVoltage = avgVoltage;
     charging = isCharging;
-    batteryPercent = voltageToPercent(avgVoltage, isCharging);
+    batteryPercent = voltageToPercent(avgVoltage, powerPresent);
     
     // Estimate time to full if charging
     if (charging && batteryPercent < 100) {
@@ -322,7 +375,7 @@ void ChargingMode::draw(M5Canvas& canvas) {
     
     const char* animChars[] = {"~", "~~", "~~~", "~~"};
     char titleBuf[32];
-    if (charging) {
+    if (powerPresent) {
         snprintf(titleBuf, sizeof(titleBuf), "%s CHARGING %s", 
                  animChars[animFrame], animChars[(animFrame + 2) % 4]);
     } else {
@@ -351,7 +404,7 @@ void ChargingMode::draw(M5Canvas& canvas) {
             snprintf(timeBuf, sizeof(timeBuf), "~%dm", minutesToFull);
         }
         showTime = true;
-    } else if (charging && batteryPercent >= 100) {
+    } else if (powerPresent && batteryPercent >= 100) {
         snprintf(timeBuf, sizeof(timeBuf), "FULL");
         showTime = true;
     }

@@ -49,6 +49,17 @@ private:
     // Charge-rate estimate tracking
     static float lastEstimateVoltage;
     static uint32_t lastEstimateMs;
+
+    // Session state snapshots
+    static bool reconWasActive;
+    static bool gpsWasActive;
+    static uint8_t wifiModeBefore;
+    static bool wifiWasOn;
+
+    // External power tracking
+    static bool powerPresent;
+    static bool powerSeen;
+    static uint32_t lastChargingMs;
     
     // Calculate battery percentage from voltage (more accurate than AXP)
     static uint8_t voltageToPercent(float voltage, bool isCharging);

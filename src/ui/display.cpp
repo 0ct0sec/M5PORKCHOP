@@ -640,7 +640,7 @@ void Display::drawTopBar() {
     }
     
     // Append mood indicator
-    int happiness = Mood::getCurrentHappiness();
+    int happiness = Mood::getLastEffectiveHappiness();
     const char* moodLabel;
     if (happiness > 70) moodLabel = "HYP3";
     else if (happiness > 30) moodLabel = "GUD";

@@ -39,6 +39,7 @@ public:
     static const String& getCurrentPhrase();
     static int getCurrentHappiness();
     static int getEffectiveHappiness();  // Happiness with momentum applied
+    static int getLastEffectiveHappiness();  // Cached effective happiness (no decay)
     static uint32_t getLastActivityTime();  // For buff/debuff idle detection
     static void adjustHappiness(int delta);  // Direct happiness adjustment
     

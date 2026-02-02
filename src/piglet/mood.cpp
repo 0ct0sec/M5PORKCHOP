@@ -30,6 +30,7 @@ static uint32_t lastStatusMessageTime = 0;
 // Mood momentum system
 int Mood::momentumBoost = 0;
 uint32_t Mood::lastBoostTime = 0;
+static int lastEffectiveHappiness = 50;
 
 // Phrase queue for chaining (4 slots for 5-line riddles)
 String Mood::phraseQueue[4] = {"", "", "", ""};
@@ -58,6 +59,148 @@ static char bubblePhraseUpper[128] = "";
 static char bubbleLines[5][33] = {};
 static uint8_t bubbleLineCount = 1;
 static uint8_t bubbleLongestLine = 1;
+
+// Battery-influenced mood bias (gentle, stateful)
+static int batteryBias = 0;
+static uint8_t batteryTier = 2;  // 0..4 (low -> high), start neutral
+static bool batteryTierInitialized = false;
+static uint32_t lastBatteryCheckMs = 0;
+static const uint32_t BATTERY_CHECK_MS = 5000;
+static const int BATTERY_TIER_HYST = 3;
+
+// Mood tier improvement notifications
+static uint8_t lastMoodTier = 0xFF;  // Invalid until first update
+static uint32_t lastMoodTierToastMs = 0;
+static const uint32_t MOOD_TIER_TOAST_COOLDOWN_MS = 20000;
+static const uint32_t MOOD_TIER_TOAST_DURATION_MS = 2500;
+
+static uint8_t getMoodTier(int mood) {
+    if (mood > 70) return 4;     // HYP3
+    if (mood > 30) return 3;     // GUD
+    if (mood > -10) return 2;    // 0K
+    if (mood > -50) return 1;    // M3H
+    return 0;                    // S4D
+}
+
+static uint8_t getBatteryTierNoHyst(int percent) {
+    if (percent <= 10) return 0;
+    if (percent <= 25) return 1;
+    if (percent <= 60) return 2;
+    if (percent <= 85) return 3;
+    return 4;
+}
+
+static uint8_t updateBatteryTierHyst(int percent, uint8_t currentTier) {
+    switch (currentTier) {
+        case 0:
+            if (percent >= 10 + BATTERY_TIER_HYST) return 1;
+            break;
+        case 1:
+            if (percent <= 10 - BATTERY_TIER_HYST) return 0;
+            if (percent >= 25 + BATTERY_TIER_HYST) return 2;
+            break;
+        case 2:
+            if (percent <= 25 - BATTERY_TIER_HYST) return 1;
+            if (percent >= 60 + BATTERY_TIER_HYST) return 3;
+            break;
+        case 3:
+            if (percent <= 60 - BATTERY_TIER_HYST) return 2;
+            if (percent >= 85 + BATTERY_TIER_HYST) return 4;
+            break;
+        case 4:
+            if (percent <= 85 - BATTERY_TIER_HYST) return 3;
+            break;
+        default:
+            break;
+    }
+    return currentTier;
+}
+
+static int getBatteryBiasForTier(uint8_t tier) {
+    switch (tier) {
+        case 0: return -15;
+        case 1: return -8;
+        case 2: return 0;
+        case 3: return 8;
+        case 4: return 15;
+        default: return 0;
+    }
+}
+
+static void updateBatteryBias(uint32_t now) {
+    if (lastBatteryCheckMs != 0 && (now - lastBatteryCheckMs) < BATTERY_CHECK_MS) {
+        return;
+    }
+    lastBatteryCheckMs = now;
+
+    int percent = M5.Power.getBatteryLevel();
+    if (percent < 0 || percent > 100) {
+        return;
+    }
+
+    uint8_t newTier;
+    if (!batteryTierInitialized) {
+        newTier = getBatteryTierNoHyst(percent);
+        batteryTierInitialized = true;
+    } else {
+        newTier = updateBatteryTierHyst(percent, batteryTier);
+    }
+
+    batteryTier = newTier;
+    batteryBias = getBatteryBiasForTier(batteryTier);
+}
+
+static const char* pickMoodTierUpMessage(uint8_t tier) {
+    switch (tier) {
+        case 1: {
+            static const char* const msgs[] = {
+                "S4D LIFTS: M3H",
+                "SNOUT UP: M3H",
+                "CLOUDS THIN: M3H"
+            };
+            return msgs[random(0, 3)];
+        }
+        case 2: {
+            static const char* const msgs[] = {
+                "STABLE VIBES: 0K",
+                "LEVEL 0K: LOCKED",
+                "NEUTRAL GROUND: 0K"
+            };
+            return msgs[random(0, 3)];
+        }
+        case 3: {
+            static const char* const msgs[] = {
+                "VIBES UP: GUD",
+                "PIG FEELS GUD",
+                "GUD M0DE: ON"
+            };
+            return msgs[random(0, 3)];
+        }
+        case 4: {
+            static const char* const msgs[] = {
+                "HYP3 MODE: ENGAGED",
+                "PEAK P0RK: HYP3",
+                "HYP3 VIBES: MAX"
+            };
+            return msgs[random(0, 3)];
+        }
+        default:
+            return "MOOD UP";
+    }
+}
+
+static void maybeNotifyMoodTierUp(int effectiveMood, uint32_t now) {
+    uint8_t newTier = getMoodTier(effectiveMood);
+    if (lastMoodTier == 0xFF) {
+        lastMoodTier = newTier;
+        return;
+    }
+    if (newTier > lastMoodTier && (now - lastMoodTierToastMs) > MOOD_TIER_TOAST_COOLDOWN_MS) {
+        Display::setTopBarMessage(pickMoodTierUpMessage(newTier), MOOD_TIER_TOAST_DURATION_MS);
+        lastMoodTierToastMs = now;
+    }
+    lastMoodTier = newTier;
+}
 
 // Force trigger a mood peek (for significant events like handshake capture)
 static void forceMoodPeek() {
@@ -181,7 +324,12 @@ void Mood::decayMomentum() {
 
 int Mood::getEffectiveHappiness() {
     decayMomentum();  // Update momentum before calculating
-    return constrain(happiness + momentumBoost, -100, 100);
+    lastEffectiveHappiness = constrain(happiness + momentumBoost + batteryBias, -100, 100);
+    return lastEffectiveHappiness;
+}
+
+int Mood::getLastEffectiveHappiness() {
+    return lastEffectiveHappiness;
 }
 
 uint32_t Mood::getLastActivityTime() {
@@ -801,6 +949,14 @@ void Mood::init() {
     
     // Reset milestone tracking for new session
     milestonesShown = 0;
+
+    // Reset battery bias + tier notifications
+    batteryBias = 0;
+    batteryTier = 2;
+    batteryTierInitialized = false;
+    lastBatteryCheckMs = 0;
+    lastMoodTier = 0xFF;
+    lastMoodTierToastMs = 0;
     
     // Phase 10: Load saved mood from NVS
     moodPrefs.begin(MOOD_NVS_NAMESPACE, true);  // Read-only
@@ -825,6 +981,7 @@ void Mood::init() {
     } else {
         happiness = 50;
     }
+    lastEffectiveHappiness = happiness;
 }
 
 // Phase 10: Save mood to NVS (call on mode exit or periodically)
@@ -837,11 +994,14 @@ void Mood::saveMood() {
 
 void Mood::update() {
     uint32_t now = millis();
+
+    updateBatteryBias(now);
     
     // Phase 6: Process phrase queue first
     if (phraseQueueCount > 0) {
         processQueue();
         updateAvatarState();
+        maybeNotifyMoodTierUp(getLastEffectiveHappiness(), now);
         return;  // Don't do normal phrase cycling while queue active
     }
     
@@ -941,6 +1101,7 @@ void Mood::update() {
     }
     
     updateAvatarState();
+    maybeNotifyMoodTierUp(getLastEffectiveHappiness(), now);
 }
 
 void Mood::onHandshakeCaptured(const char* apName) {
