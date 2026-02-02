@@ -11,6 +11,7 @@ public:
     static void update();
     static bool isActive() { return active; }
     static void draw(M5Canvas& canvas);
+    static const char* getSelectedDescription();
 
 private:
     enum class State : uint8_t {
@@ -27,6 +28,13 @@ private:
     static SDFormat::Result lastResult;
     static bool hasResult;
     static SDFormat::FormatMode formatMode;
+    static uint8_t progressPercent;
+    static char progressStage[16];
+
+    // Hint system
+    static const char* const HINTS[];
+    static const uint8_t HINT_COUNT;
+    static uint8_t hintIndex;
 
     static void handleInput();
     static void startFormat();
