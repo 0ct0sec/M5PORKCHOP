@@ -14,9 +14,12 @@
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-static const uint16_t DIALOG_WIDTH = 220;
-static const uint16_t DIALOG_HEIGHT = 90;
 static const uint32_t REBOOT_DELAY_MS = 2000;  // Show "REBOOTING" for 2s
+static const uint8_t SD_FORMAT_BRIGHTNESS = 13;  // 5% brightness (13/255) during format
+
+// Modal dialog dimensions (matching menu.cpp style)
+static const int DIALOG_W = 220;
+static const int DIALOG_H = 90;
 
 // ============================================================================
 // HINT POOL (flash-resident, project style)
@@ -40,7 +43,6 @@ bool SdFormatMenu::active = false;
 bool SdFormatMenu::keyWasPressed = false;
 SdFormatMenu::State SdFormatMenu::state = SdFormatMenu::State::CONFIRM_ENTRY;
 SDFormat::Result SdFormatMenu::lastResult = {};
-bool SdFormatMenu::hasResult = false;
 SDFormat::FormatMode SdFormatMenu::formatMode = SDFormat::FormatMode::QUICK;
 uint8_t SdFormatMenu::progressPercent = 0;
 char SdFormatMenu::progressStage[32] = "";
@@ -56,7 +58,6 @@ void SdFormatMenu::show() {
     active = true;
     keyWasPressed = true;  // Ignore the Enter that brought us here
     state = State::CONFIRM_ENTRY;  // Start with entry warning
-    hasResult = false;
     formatMode = SDFormat::FormatMode::QUICK;
     progressPercent = 0;
     progressStage[0] = '\0';
@@ -64,6 +65,9 @@ void SdFormatMenu::show() {
     barsHidden = true;   // Hide bars immediately - full screen mode from start
     systemStopped = false;
     Display::clearBottomOverlay();
+    
+    // Dim screen to 5% to save power during critical operation
+    M5.Display.setBrightness(SD_FORMAT_BRIGHTNESS);
 }
 
 void SdFormatMenu::hide() {
@@ -163,7 +167,6 @@ void SdFormatMenu::handleInput() {
     bool up = M5Cardputer.Keyboard.isKeyPressed(';');
     bool down = M5Cardputer.Keyboard.isKeyPressed('.');
     bool back = M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE);
-    auto keys = M5Cardputer.Keyboard.keysState();
 
     // ---- CONFIRM_ENTRY STATE ----
     // Entry warning dialog: Y to enter, N to bail
@@ -187,6 +190,11 @@ void SdFormatMenu::handleInput() {
     // ---- CONFIRM STATE (format confirmation) ----
     if (state == State::CONFIRM) {
         if (M5Cardputer.Keyboard.isKeyPressed('y') || M5Cardputer.Keyboard.isKeyPressed('Y')) {
+            // SAFETY: Require external power to prevent data corruption from power loss
+            if (!M5.Power.isCharging()) {
+                Display::notify(NoticeKind::WARNING, "PLUG IN POWER!", 2000);
+                return;
+            }
             state = State::WORKING;
         } else if (M5Cardputer.Keyboard.isKeyPressed('n') || M5Cardputer.Keyboard.isKeyPressed('N') || back) {
             state = State::SELECT;
@@ -196,11 +204,8 @@ void SdFormatMenu::handleInput() {
 
     // ---- RESULT STATE ----
     if (state == State::RESULT) {
-        // Any key triggers reboot
-        if (keys.enter || back || anyPressed) {
-            doReboot();  // Never returns
-        }
-        return;
+        // Any key triggers reboot (anyPressed already true at this point)
+        doReboot();  // Never returns
     }
 
     // ---- SELECT STATE ----
@@ -213,17 +218,14 @@ void SdFormatMenu::handleInput() {
             return;
         }
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
-            // Check SD availability before confirming
-            if (!Config::isSDAvailable()) {
-                Display::notify(NoticeKind::WARNING, "SD NOT MOUNTED");
-                return;
-            }
+            // SD was already validated when entering the menu - proceed to confirm
             state = State::CONFIRM;
             return;
         }
         // Backspace in SELECT means exit - but we must reboot since system is stopped
         if (back) {
-            // Show warning before reboot - user may have pressed by accident
+            // Increase brightness briefly for warning visibility
+            M5.Display.setBrightness(128);
             Display::notify(NoticeKind::WARNING, "REBOOT REQUIRED", 1500);
             delay(1500);
             doReboot();  // Never returns
@@ -233,8 +235,9 @@ void SdFormatMenu::handleInput() {
 }
 
 void SdFormatMenu::startFormat() {
+    // Reset WDT before long-running format operation
+    esp_task_wdt_reset();
     lastResult = SDFormat::formatCard(formatMode, true, onFormatProgress);
-    hasResult = true;
     state = State::RESULT;
 }
 
@@ -301,39 +304,38 @@ void SdFormatMenu::draw(M5Canvas& canvas) {
 
 void SdFormatMenu::drawConfirmEntry(M5Canvas& canvas) {
     uint16_t fg = getColorFG();
-    uint16_t bg = getColorBG();
 
     canvas.setTextDatum(top_center);
     int centerX = DISPLAY_W / 2;
-    int y = 26;
+    int y = 24;
 
-    // Warning message
+    // Warning message - tighter spacing to fit within MAIN_H
     canvas.setTextSize(1);
     canvas.drawString("THIS WILL STOP ALL", centerX, y);
-    y += 12;
+    y += 10;
     canvas.drawString("SYSTEM OPERATIONS:", centerX, y);
-    y += 14;
+    y += 12;
     
     canvas.drawString("- WIFI SHUTDOWN", centerX, y);
-    y += 10;
+    y += 9;
     canvas.drawString("- NETWORK SCAN STOP", centerX, y);
-    y += 10;
+    y += 9;
     canvas.drawString("- FILESERVER STOP", centerX, y);
-    y += 14;
+    y += 12;
     
-    canvas.setTextSize(2);
-    canvas.setTextColor(fg);
-    canvas.drawString("REBOOT REQUIRED", centerX, y);
-    y += 20;
-    
-    // Controls
+    // Smaller text to save vertical space
     canvas.setTextSize(1);
+    canvas.setTextColor(fg);
+    canvas.drawString("** REBOOT REQUIRED **", centerX, y);
+    y += 12;
+    
+    // Controls - must fit within MAIN_H (107px), y should be <= 95
     canvas.drawString("[Y] ENTER  [N] CANCEL", centerX, y);
 }
 
 void SdFormatMenu::drawSelect(M5Canvas& canvas) {
     uint16_t fg = getColorFG();
-    uint16_t bg = getColorBG();
+    uint16_t bg = getColorBG();  // Used for inverted selection highlight
 
     canvas.setTextDatum(top_left);
     canvas.setTextSize(2);
@@ -392,7 +394,6 @@ void SdFormatMenu::drawSelect(M5Canvas& canvas) {
 
 void SdFormatMenu::drawWorking(M5Canvas& canvas) {
     uint16_t fg = getColorFG();
-    uint16_t bg = getColorBG();
 
     canvas.setTextDatum(top_center);
     canvas.setTextSize(2);
@@ -432,36 +433,34 @@ void SdFormatMenu::drawWorking(M5Canvas& canvas) {
 }
 
 void SdFormatMenu::drawResult(M5Canvas& canvas) {
-    uint16_t fg = getColorFG();
-    uint16_t bg = getColorBG();
+    // fg/bg already set by parent draw() - no local color vars needed
 
     canvas.setTextDatum(top_center);
     canvas.setTextSize(2);
 
-    int y = 28;
+    int y = 26;
 
     // Result status
     canvas.drawString(lastResult.success ? "SUCCESS" : "FAILED", DISPLAY_W / 2, y);
-    y += 22;
+    y += 18;
 
-    // Message
+    // Message - tighter spacing to fit within MAIN_H
     canvas.setTextSize(1);
     if (lastResult.message[0] != '\0') {
         canvas.drawString(lastResult.message, DISPLAY_W / 2, y);
-        y += 14;
+        y += 11;
     }
     if (lastResult.usedFallback) {
         canvas.drawString("(FALLBACK WIPE USED)", DISPLAY_W / 2, y);
-        y += 14;
+        y += 11;
     }
 
-    y += 8;
+    y += 6;
     
-    // Reboot notice
-    canvas.setTextSize(2);
-    canvas.drawString("PRESS ANY KEY", DISPLAY_W / 2, y);
-    y += 18;
+    // Reboot notice - use smaller text to fit
     canvas.setTextSize(1);
+    canvas.drawString("** PRESS ANY KEY **", DISPLAY_W / 2, y);
+    y += 12;
     canvas.drawString("TO REBOOT DEVICE", DISPLAY_W / 2, y);
 }
 
@@ -469,16 +468,14 @@ void SdFormatMenu::drawConfirm(M5Canvas& canvas) {
     uint16_t fg = getColorFG();
     uint16_t bg = getColorBG();
 
-    // Modal dimensions (matching menu.cpp modal style: 220x90)
-    const int boxW = 220;
-    const int boxH = 90;
-    const int boxX = (DISPLAY_W - boxW) / 2;
-    const int boxY = (MAIN_H - boxH) / 2 - 5;
+    // Modal dimensions (use constants)
+    const int boxX = (DISPLAY_W - DIALOG_W) / 2;
+    const int boxY = (MAIN_H - DIALOG_H) / 2 - 5;
     const int radius = 6;
 
     // Background with border (inverted colors like menu modal)
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, radius, fg);
-    canvas.drawRoundRect(boxX, boxY, boxW, boxH, radius, bg);
+    canvas.fillRoundRect(boxX, boxY, DIALOG_W, DIALOG_H, radius, fg);
+    canvas.drawRoundRect(boxX, boxY, DIALOG_W, DIALOG_H, radius, bg);
 
     canvas.setTextColor(bg);
     canvas.setTextDatum(top_center);
@@ -487,7 +484,7 @@ void SdFormatMenu::drawConfirm(M5Canvas& canvas) {
     // Title
     canvas.setTextSize(2);
     canvas.drawString("!! FORMAT SD !!", centerX, boxY + 6);
-    canvas.drawLine(boxX + 10, boxY + 24, boxX + boxW - 10, boxY + 24, bg);
+    canvas.drawLine(boxX + 10, boxY + 24, boxX + DIALOG_W - 10, boxY + 24, bg);
 
     // Mode info
     canvas.setTextSize(1);

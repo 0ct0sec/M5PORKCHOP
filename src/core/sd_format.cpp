@@ -236,8 +236,6 @@ bool fullErase(uint8_t pdrv, const DiskGeometry& geo, SDFormat::ProgressCallback
 
     const uint32_t sectorsPerChunk = static_cast<uint32_t>(sizeof(zeroBuf) / geo.sectorSize);
     if (sectorsPerChunk == 0) return false;
-    
-    const uint32_t bytesPerChunk = sectorsPerChunk * geo.sectorSize;
 
     uint64_t written = 0;
     uint8_t lastPercent = 255;
@@ -347,11 +345,17 @@ bool fatfsFormat(uint8_t pdrv, uint64_t cardBytes, DWORD sectorSize) {
     }
 #endif
 
+    // Reset WDT before blocking f_mkfs call (can take several seconds)
+    esp_task_wdt_reset();
+
 #if defined(MKFS_PARM)
     FRESULT fr = f_mkfs(drive, &opt, workbuf, sizeof(workbuf));
 #else
     FRESULT fr = f_mkfs(drive, opt, auSize, workbuf, sizeof(workbuf));
 #endif
+
+    // Reset WDT after mkfs completes
+    esp_task_wdt_reset();
 
     return fr == FR_OK;
 }

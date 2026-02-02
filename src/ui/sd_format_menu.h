@@ -29,7 +29,6 @@ private:
     static bool keyWasPressed;
     static State state;
     static SDFormat::Result lastResult;
-    static bool hasResult;
     static SDFormat::FormatMode formatMode;
     static uint8_t progressPercent;
     static char progressStage[32];  // Increased from 16 for ETA strings like "ERASE ~1h23m"
@@ -45,7 +44,6 @@ private:
 
     static void handleInput();
     static void startFormat();
-    static bool showEntryWarning();   // Entry warning dialog (like PIGGYBLUES)
     static void stopEverything();     // Stop NetworkRecon, FileServer, WiFi
     static void doReboot();           // Reboot with countdown
     static void drawConfirmEntry(M5Canvas& canvas);
