@@ -15,6 +15,7 @@ public:
     static bool isRunning() { return running; }
     static bool shouldExit() { return exitRequested; }
     static void clearExit() { exitRequested = false; }
+    static bool areBarsHidden() { return barsHidden; }
     
     // Battery info getters for display
     static uint8_t getBatteryPercent() { return batteryPercent; }
@@ -42,6 +43,16 @@ private:
     // Animation
     static uint8_t animFrame;
     static uint32_t lastAnimMs;
+
+    // Bar-less mode state (like SD format)
+    static bool barsHidden;
+
+    // Exit/unplug detection
+    static uint32_t unplugDetectMs;
+
+    // Charge-rate estimate tracking
+    static float lastEstimateVoltage;
+    static uint32_t lastEstimateMs;
     
     // Calculate battery percentage from voltage (more accurate than AXP)
     static uint8_t voltageToPercent(float voltage, bool isCharging);

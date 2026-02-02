@@ -27,6 +27,10 @@ uint32_t ChargingMode::lastUpdateMs = 0;
 
 uint8_t ChargingMode::animFrame = 0;
 uint32_t ChargingMode::lastAnimMs = 0;
+bool ChargingMode::barsHidden = false;
+uint32_t ChargingMode::unplugDetectMs = 0;
+float ChargingMode::lastEstimateVoltage = 0.0f;
+uint32_t ChargingMode::lastEstimateMs = 0;
 
 // Li-ion voltage curves (approximate)
 // Discharge curve is different from charge curve due to internal resistance
@@ -44,6 +48,10 @@ void ChargingMode::init() {
     batteryVoltage = 0.0f;
     charging = false;
     minutesToFull = -1;
+    barsHidden = false;
+    unplugDetectMs = 0;
+    lastEstimateVoltage = 0.0f;
+    lastEstimateMs = 0;
     
     memset(voltageHistory, 0, sizeof(voltageHistory));
     voltageHistoryIdx = 0;
@@ -94,6 +102,10 @@ void ChargingMode::start() {
     running = true;
     exitRequested = false;
     keyWasPressed = true;  // Prevent immediate key detection
+    barsHidden = true;
+    unplugDetectMs = 0;
+    lastEstimateVoltage = 0.0f;
+    lastEstimateMs = 0;
     
     // Initialize voltage history
     memset(voltageHistory, 0, sizeof(voltageHistory));
@@ -117,6 +129,10 @@ void ChargingMode::stop() {
     
     running = false;
     exitRequested = false;
+    barsHidden = false;
+    unplugDetectMs = 0;
+    lastEstimateVoltage = 0.0f;
+    lastEstimateMs = 0;
     
     // Restore display brightness
     uint8_t brightness = Config::personality().brightness;
@@ -155,7 +171,6 @@ void ChargingMode::update() {
     // Auto-exit if unplugged and not charging
     if (!charging && batteryPercent > 5) {
         // Small delay to avoid false triggers
-        static uint32_t unplugDetectMs = 0;
         if (unplugDetectMs == 0) {
             unplugDetectMs = now;
         } else if (now - unplugDetectMs > 3000) {
@@ -163,6 +178,13 @@ void ChargingMode::update() {
             exitRequested = true;
             unplugDetectMs = 0;
         }
+    } else {
+        unplugDetectMs = 0;
+    }
+
+    if (exitRequested) {
+        stop();
+        return;
     }
 }
 
@@ -246,13 +268,10 @@ uint8_t ChargingMode::voltageToPercent(float voltage, bool isCharging) {
 
 int ChargingMode::estimateMinutesToFull() {
     // Need at least 5 samples spanning 30+ seconds to estimate
-    static float lastAvgVoltage = 0;
-    static uint32_t lastEstimateMs = 0;
-    
     uint32_t now = millis();
     
-    if (lastAvgVoltage == 0 || lastEstimateMs == 0) {
-        lastAvgVoltage = batteryVoltage;
+    if (lastEstimateVoltage == 0.0f || lastEstimateMs == 0) {
+        lastEstimateVoltage = batteryVoltage;
         lastEstimateMs = now;
         return -1;  // Not enough data yet
     }
@@ -262,11 +281,11 @@ int ChargingMode::estimateMinutesToFull() {
         return minutesToFull;  // Return previous estimate
     }
     
-    float deltaV = batteryVoltage - lastAvgVoltage;
+    float deltaV = batteryVoltage - lastEstimateVoltage;
     float deltaMinutes = (now - lastEstimateMs) / 60000.0f;
     
     if (deltaV <= 0 || deltaMinutes <= 0) {
-        lastAvgVoltage = batteryVoltage;
+        lastEstimateVoltage = batteryVoltage;
         lastEstimateMs = now;
         return -1;  // Not charging or invalid
     }
@@ -288,7 +307,7 @@ int ChargingMode::estimateMinutesToFull() {
     if (estimate > 300) estimate = 300;
     if (estimate < 0) estimate = -1;
     
-    lastAvgVoltage = batteryVoltage;
+    lastEstimateVoltage = batteryVoltage;
     lastEstimateMs = now;
     
     return estimate;
@@ -305,7 +324,7 @@ void ChargingMode::draw(M5Canvas& canvas) {
     canvas.setTextDatum(top_center);
     canvas.setTextSize(2);
     
-    const char* animChars[] = {"⚡", "⚡⚡", "⚡⚡⚡", "⚡⚡"};
+    const char* animChars[] = {"~", "~~", "~~~", "~~"};
     char titleBuf[32];
     if (charging) {
         snprintf(titleBuf, sizeof(titleBuf), "%s CHARGING %s", 
