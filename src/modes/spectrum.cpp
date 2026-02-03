@@ -1491,7 +1491,8 @@ void SpectrumMode::drawSpectrum(M5Canvas& canvas) {
         if (net.channel >= 1 && net.channel <= 13) {
             activity = channelActivityRate[net.channel];
         }
-        drawGaussianLobe(canvas, freq, net.rssi, isSelected, activity);
+        uint8_t seed = (uint8_t)(net.bssid[0] ^ net.bssid[2] ^ net.bssid[5]);
+        drawGaussianLobe(canvas, freq, net.rssi, isSelected, activity, seed);
     }
 }
 
@@ -1517,7 +1518,7 @@ static float getGaussianAmplitude(float dist) {
 }
 
 void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz, 
-                                     int8_t rssi, bool filled, uint16_t activityPps) {
+                                     int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed) {
     // Sinc-based carrier wave rendering with visible side lobes
     // Real RF signals have sinc shape: main lobe + decaying side lobes
     // Extended range to ±22MHz to show side lobes like a real spectrum analyzer
@@ -1548,12 +1549,37 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
     // === SINC CARRIER WAVE: Draw as connected line segments ===
     // Activity-based animation (subtle vertical jitter)
     int8_t jitterOffset = 0;
+    float activityRatio = 0.0f;
     if (activityPps > 0) {
         uint16_t capped = min(activityPps, (uint16_t)400);
-        float jitterAmp = 2.0f * ((float)capped / 400.0f);
-        uint32_t phaseMs = (uint32_t)(millis() * 8) % 1000u;
+        activityRatio = (float)capped / 400.0f;
+        float jitterAmp = 2.0f * activityRatio;
+        uint32_t phaseMs = (uint32_t)((millis() + seed * 31u) * 8u) % 1000u;
         float phase = (float)phaseMs / 1000.0f;
         jitterOffset = (int8_t)(jitterAmp * sinf(phase * TWO_PI_F));
+    }
+
+    // Micro amplitude flutter (keeps center frequency stable)
+    float flutterAmp = 0.02f + 0.03f * activityRatio;  // 2%..5%
+    uint32_t periodMs = 1800u - (uint32_t)(activityRatio * 1000.0f);  // 1800..800ms
+    uint32_t flutterPhaseMs = (millis() + seed * 53u) % periodMs;
+    float flutterPhase = (float)flutterPhaseMs / (float)periodMs;
+    float flutter = 1.0f + flutterAmp * sinf(flutterPhase * TWO_PI_F);
+    int lobeHeightMod = (int)(lobeHeight * flutter);
+    int maxHeight = baseY - SPECTRUM_TOP;
+    if (lobeHeightMod < 1) lobeHeightMod = 1;
+    if (lobeHeightMod > maxHeight) lobeHeightMod = maxHeight;
+
+    // Activity-weighted fill shimmer (selected network only)
+    uint8_t shimmerMod = 1;
+    uint8_t shimmerPhase = 0;
+    if (filled) {
+        // Lower activity = sparser fill, higher activity = solid
+        shimmerMod = 1 + (uint8_t)((1.0f - activityRatio) * 2.0f);  // 1..3
+        if (shimmerMod < 1) shimmerMod = 1;
+        if (shimmerMod > 3) shimmerMod = 3;
+        uint32_t shimmerTick = (millis() / 60u) + seed;
+        shimmerPhase = (uint8_t)(shimmerTick % shimmerMod);
     }
     
     // Draw carrier wave as connected line segments (1 pixel step)
@@ -1571,13 +1597,15 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
         float amp = getSincAmplitude(dist);
         
         // Calculate Y with activity jitter
-        int y = baseY - (int)(lobeHeight * amp) + jitterOffset;
+        int y = baseY - (int)(lobeHeightMod * amp) + jitterOffset;
         y = constrain(y, SPECTRUM_TOP, baseY);
         
         if (filled) {
             // Filled: draw vertical line from baseline to curve
             if (y < baseY) {
-                canvas.drawFastVLine(x, y, baseY - y, COLOR_FG);
+                if (shimmerMod == 1 || ((uint8_t)(x + shimmerPhase) % shimmerMod) == 0) {
+                    canvas.drawFastVLine(x, y, baseY - y, COLOR_FG);
+                }
             }
         } else {
             // Outline: connect to previous point
@@ -1594,12 +1622,12 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
     // For outline mode: connect to baseline at edges
     if (!filled) {
         // Left edge
-        int leftEdgeY = baseY - (int)(lobeHeight * getSincAmplitude(startFreq - center));
+        int leftEdgeY = baseY - (int)(lobeHeightMod * getSincAmplitude(startFreq - center));
         if (leftEdgeY < baseY) {
             canvas.drawLine(leftX, baseY, leftX, leftEdgeY, COLOR_FG);
         }
         // Right edge
-        int rightEdgeY = baseY - (int)(lobeHeight * getSincAmplitude(endFreq - center));
+        int rightEdgeY = baseY - (int)(lobeHeightMod * getSincAmplitude(endFreq - center));
         if (rightEdgeY < baseY) {
             canvas.drawLine(rightX, rightEdgeY, rightX, baseY, COLOR_FG);
         }

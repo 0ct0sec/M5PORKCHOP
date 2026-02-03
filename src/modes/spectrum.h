@@ -177,7 +177,7 @@ private:
     static void drawSpectrum(M5Canvas& canvas);
     static void drawClientOverlay(M5Canvas& canvas);  // Client list overlay
     static void drawClientDetail(M5Canvas& canvas);   // Client detail popup
-    static void drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz, int8_t rssi, bool filled, uint16_t activityPps);
+    static void drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz, int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed);
     static void drawAxis(M5Canvas& canvas);
     static void drawChannelMarkers(M5Canvas& canvas);
     static void drawFilterBar(M5Canvas& canvas);     // Filter indicator bar
