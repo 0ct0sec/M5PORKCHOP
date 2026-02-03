@@ -206,6 +206,12 @@ void setRaining(bool active) {
             // Fast rain (5-8 pixels per update)
             rainDrops[i].speed = random(5, 9);
         }
+    } else if (!active && rainActive) {
+        // Stop any in-flight thunder to avoid stuck flash on clear skies
+        thunderFlashing = false;
+        thunderFlashState = 0;
+        thunderFlashesRemaining = 0;
+        lastThunderStorm = millis();
     }
     rainActive = active;
 } 
@@ -269,9 +275,15 @@ static void updateRain(uint32_t now) {
     // Calculate horizontal drift based on grass movement (parallax effect)
     float horizontalDrift = 0.0f;
     if (Avatar::isGrassMoving()) {
-        float grassPixelsPerUpdate = 1.0f;
+        uint16_t grassSpeedMs = Avatar::getGrassSpeed();
+        if (grassSpeedMs == 0) grassSpeedMs = 1;
+        const float grassShiftPixels = 240.0f / 26.0f;  // screen width / grass pattern chars
+        float grassPixelsPerMs = grassShiftPixels / (float)grassSpeedMs;
+        float grassPixelsPerUpdate = grassPixelsPerMs * (float)RAIN_SPEED_MS;
         horizontalDrift = grassPixelsPerUpdate * 0.4f;  // 40% of grass speed
-        // Rain drifts opposite to grass direction
+        if (Avatar::isGrassDirectionRight()) {
+            horizontalDrift *= -1.0f;
+        }
     }
     
     for (int i = 0; i < RAIN_DROP_COUNT; i++) {
