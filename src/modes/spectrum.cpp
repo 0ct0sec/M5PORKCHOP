@@ -29,12 +29,12 @@ const int SPECTRUM_LEFT = 20;       // Space for dB labels
 const int SPECTRUM_RIGHT = 238;     // Right edge
 const int SPECTRUM_WIDTH = 218;     // SPECTRUM_RIGHT - SPECTRUM_LEFT
 const int SPECTRUM_TOP = 2;         // Top margin
-const int SPECTRUM_BOTTOM = 48;     // Reduced to make room for waterfall
-const int WATERFALL_TOP = 50;       // Waterfall starts here
+const int SPECTRUM_BOTTOM = 56;     // Lowered to give more vertical range
+const int WATERFALL_TOP = 58;       // Waterfall starts here
 const int WATERFALL_ROWS = 22;      // Number of history rows
-const int WATERFALL_BOTTOM = 72;    // WATERFALL_TOP + WATERFALL_ROWS
-const int CHANNEL_LABEL_Y = 74;     // Channel number row
-const int XP_BAR_Y = 86;            // Filter/status bar
+const int WATERFALL_BOTTOM = 80;    // WATERFALL_TOP + WATERFALL_ROWS
+const int CHANNEL_LABEL_Y = 82;     // Channel number row
+const int XP_BAR_Y = 94;            // Filter/status bar
 
 // RSSI scale
 const int8_t RSSI_MIN = -95;        // Bottom of scale (weak signals)
