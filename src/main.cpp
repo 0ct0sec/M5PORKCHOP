@@ -283,6 +283,14 @@ void setup() {
     delay(100);
     Serial.println("\n=== PORKCHOP STARTING ===");
 
+    // Deassert CapLoRa SX1262 CS BEFORE SD init. The SX1262 shares
+    // MOSI(G14)/MISO(G39)/SCK(G40) with the SD card. If its CS floats low
+    // the SX1262 responds on the bus and SD.begin() fails with f_mount(3).
+    // MUST happen before M5Cardputer.begin() — GPIO5 is a keyboard matrix
+    // input on v1.1 and begin() needs to reconfigure it as INPUT_PULLUP.
+    pinMode(5, OUTPUT);
+    digitalWrite(5, HIGH);
+
     // Init M5Cardputer hardware
     auto cfg = M5.config();
     M5Cardputer.begin(cfg, true);   // enableKeyboard = true
@@ -293,13 +301,6 @@ void setup() {
     // --- PATCH: Initialize WiFi driver BEFORE config/display allocate big chunks
     // This dramatically reduces "esp_wifi_init 257" failures on reconnect later.
     preInitWiFiDriverEarly();
-
-    // Deassert CapLoRa SX1262 CS BEFORE SD init. The SX1262 shares
-    // MOSI(G14)/MISO(G39)/SCK(G40) with the SD card. If its CS floats low
-    // the SX1262 responds on the bus and SD.begin() fails with f_mount(3).
-    // Safe on non-ADV hardware (GPIO5 is unused).
-    pinMode(5, OUTPUT);
-    digitalWrite(5, HIGH);
 
     // Load configuration from SD
     if (!Config::init()) {
@@ -394,7 +395,6 @@ void loop() {
     }
     // #endregion
 
-    // B4K3D_P1G: 4:20 lockout -- pig stops working
     {
         static bool bakedActive = false;
         static uint32_t bakedStartMs = 0;

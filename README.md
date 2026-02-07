@@ -47,8 +47,8 @@
 | [W] WARHOG        - GPS wardriving. legs required.           |
 | [H] SPECTRUM      - RF analysis. client hunting. fangs.      |
 | [B] PIGGY BLUES   - BLE spam. YOU DIED. in that order.       |
-| [A] BACON         - fake beacons. confuse everything.        |
 | [F] FILE XFER     - web UI. civilization achieved.           |
+| [*] BACON         - fake beacons. via MENU. worth the trip.  |
 |                                                              |
 | [1] PIG DEMANDS   - session challenges. three trials.        |
 | [2] PIGSYNC       - the prodigal son answers the phone.      |
@@ -139,7 +139,7 @@
         - USB-C (power + serial)
 
     Optional:
-        - AT6558 GPS module (Grove port G1/G2)
+        - GPS module: AT6668/ATGM336H (Grove port G1/G2 or CapLoRa)
         - CapLoRa868 module (G15/G13 GPS, SX1262 LoRa shares SD SPI)
         - Cardputer ADV: BMI270 IMU enables dial mode in Spectrum
         - your legs, for wardriving. no judgment on wheels.
@@ -178,9 +178,11 @@
 ----[ 1.4 - ARCHITECTURE (for the silicon gourmets)
 
     THE CORE:
-    cooperative main loop. porkchop.update(), Display::update(),
-    SFX::update(). three calls. twenty thousand lines behind them.
-    single PorkchopMode enum, 23 states. one mode lives. the others wait.
+    cooperative main loop. porkchop.update() (SFX ticks inside),
+    Display::update(), Mood::update(). the pig's vital organs.
+    single PorkchopMode enum, 24 states. one mode lives. the others wait.
+    you could say the pig is a finite state machine.
+    the horse would say the pig is an infinite state of mind.
 
     THE MEMORY WAR:
     no PSRAM means ~300KB internal SRAM for everything.
@@ -193,17 +195,22 @@
     (20x3KB), TLS test allocs (26KB, 32KB, 40KB). exploits ESP-IDF's
     TLSF allocator for O(1) coalescing. the result: a clean brain
     for TLS handshakes. percussive maintenance for memory.
+    the horse calls this "barn defragmentation." the horse is wrong.
+    the horse is also the barn. it's complicated.
 
     HEAP MONITORING:
     heap_health.h samples every 1s. auto-triggers conditioning at
-    65% fragmentation, clears at 75%. the heart bar at the bottom
-    of the screen is heap health. 100% = clean. 0% = swiss cheese.
+    65% fragmentation, clears at 75%. cooldown of 30s between rounds.
+    the heart bar at the bottom of the screen is heap health.
+    100% = clean. 0% = swiss cheese. the pig's blood pressure, basically.
 
     THE EVENT BUS:
     max 32 queued events, 16 processed per update tick.
-    HANDSHAKE_CAPTURED, NETWORK_FOUND, GPS_FIX, GPS_LOST,
-    DEAUTH_SENT, ROGUE_AP_DETECTED, MODE_CHANGE, LOW_BATTERY.
+    MODE_CHANGE, ML_RESULT, GPS_FIX, GPS_LOST,
+    HANDSHAKE_CAPTURED, NETWORK_FOUND, DEAUTH_SENT,
+    ROGUE_AP_DETECTED, OTA_AVAILABLE, LOW_BATTERY.
     the pig processes feelings through a state machine.
+    the horse processes feelings through a k-hole.
 
     DUAL-CORE PATTERN:
     WiFi promiscuous callbacks run on core 1 (WiFi task).
@@ -211,11 +218,13 @@
     callback sets volatile flags + writes to static pools.
     main loop on core 0 checks flags and processes safely.
     this is the deferred event pattern. it keeps the WDT happy.
+    WDT = Watchdog Timer. also What Did (The pig) Think.
 
     STATIC POOLS:
     OINK pre-allocates PendingHandshakeFrame pendingHsPool[4]
     (~13KB in BSS). permanent. std::atomic indices for lock-free
     producer/consumer between WiFi task and main loop.
+    the pig pays rent on memory it might never use.
 
     NetworkRecon:
     shared background scanning service. OINK, DONOHAM, SPECTRUM,
@@ -223,10 +232,12 @@
     spinlock mutex with RAII CriticalSection wrapper.
     channel hop order: 1, 6, 11, then 2-5, 7-10, 12-13.
     max 200 networks tracked. the pig has limits.
+    (200 is generous. the heap disagrees.)
 
     BOOT GUARD:
     RTC memory tracks rapid reboots. 3 in 60 seconds = force IDLE.
     crash loops get the nuclear option. the pig learns from pain.
+    the horse calls this progress.
 
 ------------------------------------------------------------------------
 
@@ -249,12 +260,14 @@
         - PMKID extraction from RSN IE in M1 frames
           (the AP just volunteers it. trust issues are real.)
         - deauth (Reason 7) + disassoc (Reason 8) with jitter
-          (1-5ms random between frames. less predictable to WIDS.)
+          (randomized inter-frame timing. less predictable to WIDS.
+           the pig appreciates subtlety. the timing appreciates rank.)
         - PMF detection: Protected Management Frames networks
           get marked immune. the pig respects armor.
         - targeted client deauth (up to 20 clients per network)
         - broadcast disassoc alongside broadcast deauth
-          (some devices ignore deauth but fold to disassoc)
+          (some devices ignore deauth but fold to disassoc.
+           the pig covers all the exits.)
         - hashcat 22000 export (.22000 files, zero preprocessing)
         - PCAP export with radiotap headers (Wireshark-ready)
         - auto-cooldown on targets (no spam, surgical precision)
@@ -283,20 +296,23 @@
     CAPABILITIES:
         - promiscuous receive ONLY (zero TX, zero deauth)
         - adaptive channel timing with state machine:
-            HOPPING    = scanning all channels
-            DWELLING   = found activity, staying for SSID backfill
-            HUNTING    = partial EAPOL detected, extended dwell
-            IDLE_SWEEP = dead channels, fast sweep
+            HOPPING    = scanning all channels (250ms primary, 150ms secondary)
+            DWELLING   = found activity, staying for SSID backfill (300ms)
+            HUNTING    = partial EAPOL detected, extended dwell (600ms)
+            IDLE_SWEEP = dead channels, fast sweep (120ms minimum)
         - channel stats track beacons/EAPOL per channel
           primary channels (1, 6, 11) get longer dwell times
-        - passive PMKID catches (APs volunteer PMKIDs in M1 frames)
+          dead channels (3 consecutive empty visits) get fast-swept
+        - passive PMKID catches (APs volunteer PMKIDs in M1 frames.
+          you just have to be patient enough to hear them confess.)
         - passive handshake capture from natural reconnects
         - incomplete handshake tracking (shows missing frames,
           max 20 tracked, 60s age-out, automatic revisit)
-        - DNH_PMKID_GHOST achievement: 150 XP for passive PMKID
-          (the rarest catch. the pig respects patience.)
+        - some achievements here reward patience over violence.
+          the rarest catches go to the stillest hunters.
 
     press [D] again to flip back to OINK.
+    the pig remembers which side you chose.
 
 
 ----[ 2.3 - SGT WARHOG (wardriving) [W]
@@ -308,11 +324,13 @@
         - continuous AP scanning with GPS correlation
         - WiGLE CSV v1.6 export (WigleWifi-1.6 format)
         - internal CSV with extended fields
-        - dedup bloom filter (no duplicate entries)
-        - distance tracking for XP (DISTANCE_KM = +30 XP)
+        - dedup bloom filter (no duplicate entries.
+          the pig doesn't double-count. the pig has integrity.)
+        - distance tracking for XP (your legs = XP)
         - capture marking for bounty system
         - file rotation for session management
-        - direct-to-disk writes (no entries[] accumulation)
+        - direct-to-disk writes (no entries[] accumulation.
+          RAM is for living, not for hoarding.)
 
     BOUNTY SYSTEM: wardriven networks become targets for
     PigSync. your Sirloin companion can hunt what you found.
@@ -330,11 +348,11 @@
     pure concentration. the pig does math now.
 
     CAPABILITIES:
-        - 2.4GHz spectrum visualization (channels 1-14)
+        - 2.4GHz spectrum visualization (channels 1-13)
         - gaussian lobes per network (RSSI = height)
         - noise floor animation at baseline
         - waterfall display (historical spectrum, push per update)
-        - VULN indicator (WEP/OPEN networks. in 2025+. respect.)
+        - VULN indicator (WEP/OPEN networks. still? in the wild? respect.)
         - BRO indicator (networks in boar_bros.txt)
         - filter modes: ALL / VULN / SOFT (no PMF) / HIDDEN
         - render snapshot buffer (64 networks, heap-safe)
@@ -345,25 +363,27 @@
         hold device upright, tilt to pan channels 1-13.
         lerped smooth display. hysteresis for FLT/UPS detection.
         [SPACE] toggles channel lock in dial mode.
-        (original Cardputer lacks IMU. dial mode auto-disables.)
+        (original Cardputer lacks IMU. dial mode auto-disables.
+         the pig adapts to the hardware it's given.)
 
     CLIENT MONITOR (press [ENTER] on selected network):
         - channel locks. the hunt begins.
-        - connected clients: MAC, vendor (OUI, 450+ entries),
+        - connected clients: MAC, vendor (OUI database),
           RSSI, freshness timer, proximity arrows
-        - proximity arrows:
-            >> = much closer to you than the AP (+10dB)
-            >  = closer (+3 to +10dB)
-            == = roughly equal distance
-            <  = farther (-3 to -10dB)
-            << = much farther (-10dB)
-        - [ENTER] on client = deauth burst (5 frames each way)
+        - proximity arrows (client RSSI vs AP RSSI delta):
+            >> = much closer to you than the AP (delta > +10)
+            >  = closer (delta +3 to +10)
+            == = roughly equal distance (delta -3 to +3)
+            <  = farther (delta -3 to -10)
+            << = much farther (delta < -10)
+        - [ENTER] on client = deauth burst
         - [W] = REVEAL MODE: broadcast deauth to flush hiding
           clients out of association. periodic bursts.
+          marco polo, but adversarial.
         - client detail popup (vendor, signal, timestamps)
         - max 8 clients tracked, 4 visible on screen
         - stale timeout: 30s. signal lost: 15s = auto-exit.
-        - achievement hunting: QU1CK DR4W, D34D 3Y3, H1GH N00N
+        - the pig watches what you do in here. closely.
 
     CONTROLS:
         [,] [/]     pan frequency view left/right
@@ -371,8 +391,6 @@
         [F]         cycle filter (ALL/VULN/SOFT/HIDDEN)
         [ENTER]     enter client monitor
         [SPACE]     toggle dial lock (in dial mode)
-
-    marco polo, but with packets.
 
 
 ----[ 2.5 - PIGGY BLUES (BLE chaos) [B]
@@ -387,15 +405,12 @@
             Samsung  - Galaxy ecosystem triggers
             Windows  - Swift Pair dialogs
         - continuous NimBLE passive scan + opportunistic advertising
-        - no-reboot roulette counter (for achievement hunters)
+        - no-reboot roulette counter (for the brave and the foolish)
         - vendor identification from manufacturer data
 
-    WARNING DIALOG ON FIRST ENTRY: [Y] to confirm.
-    "NO LOLLYGAGGIN'" - the stack commands.
-
-    EXIT RITUAL: leave PIGGY BLUES and face judgment.
-    YOU DIED. five seconds of reckoning. then rebirth.
-    or the stack decides otherwise.
+    ENTRY: the pig warns you. you confirm. the pig sighs.
+    EXIT: YOU DIED. five seconds of reckoning. then rebirth.
+    (or the stack decides otherwise. it has moods too.)
 
     NimBLE: internal RAM only (CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_INTERNAL=1).
     BLE deinit reclaims 20-30KB. the pig breathes again.
@@ -404,7 +419,7 @@
     don't do this in public. don't. (the pig warned you.)
 
 
-----[ 2.6 - BACON MODE (beacon spam) [A]
+----[ 2.6 - BACON MODE (beacon spam) [MENU]
 
     the pig becomes a beacon factory on channel 6.
 
@@ -421,6 +436,7 @@
     "YOUR test environment" means YOUR lab, YOUR network,
     YOUR understanding that this is for research.
     not "that conference." not "your office." your lab.
+    the pig doesn't have bail money.
 
 
 ----[ 2.7 - PORKCHOP COMMANDER (file transfer) [F]
@@ -444,19 +460,21 @@
 
     exfil YOUR OWN captures without pulling the SD card.
     like a civilized person. with a browser.
+    the pig built you a file manager and you'll use it.
 
 
 ----[ 2.8 - CHARGING MODE (low power)
 
-    plug in USB. the pig rests.
+    plug in USB. the pig rests. the pig deserves this.
 
     auto-enters when external power detected and battery low.
     shows battery percent, voltage, charge rate estimate,
-    minutes-to-full calculation from voltage history.
+    minutes-to-full calculation from voltage history (10 samples).
     suspends NetworkRecon and GPS to minimize draw.
-    auto-exits when power removed.
+    auto-exits when power removed. bars hide for full-screen zen.
 
     the pig has better battery management than most phones.
+    the pig also knows what "rest" means. you should try it.
 
 ------------------------------------------------------------------------
 
@@ -464,6 +482,7 @@
 
     the pig has feelings. deterministic, simulated feelings.
     we commit to the bit. shipped anyway.
+    the horse has feelings too, but they're load-bearing.
 
 
 ----[ 3.1 - MOOD SYSTEM
@@ -485,6 +504,7 @@
 
     the pig remembers session performance.
     the pig is an emotional state machine with side effects.
+    the pig is also the only state machine you've ever felt guilty about.
 
 
 ----[ 3.2 - AVATAR
@@ -507,19 +527,23 @@
 
 ----[ 3.3 - WEATHER SYSTEM
 
-    mood-reactive atmospheric effects on screen:
+    mood-reactive atmospheric effects layered on screen.
+    no formal weather enum -- four independent state machines
+    stack and overlap based on mood tier:
 
-    CLEAR        = high momentum, good session
-    CLOUDY       = neutral, clouds drift in parallax
-    RAIN         = low momentum, particle rain
-    THUNDERSTORM = rage build, lightning flash inverts screen
-    WIND         = directional particles in gusts
+    CLOUDS       = always drifting in parallax. slow. atmospheric.
+    RAIN         = 25 particles. low mood triggers it. fast updates (30ms).
+    THUNDER      = lightning flash inverts screen colors. 50-90s interval
+                   (adjusts with mood). multiple flashes per storm.
+    WIND         = 6 directional particles in gusts. 15-30s between gusts.
 
-    mood level drives storm probability.
+    mood level drives rain/storm probability via tiered thresholds.
     the pig's emotional state affects the entire display.
 
     why? someone said "what if the pig had weather?" at 2am.
     nobody stopped us. weather shipped.
+    the horse tried to stop us. but the horse is the barn.
+    and barns have weather.
 
 
 ----[ 3.4 - PIG HEALTH (HEAP BAR)
@@ -542,111 +566,189 @@
 
 --[ 4 - THE FORBIDDEN CHEESE ECONOMY
 
+    "item description: a ledger, bound in pigskin, whose
+     entries are written in a language older than WiFi.
+     the margins contain calculations that, if understood,
+     would explain why the pig stares at you like that."
+
     the system tracks progress. the system remembers.
+    the system has more moving parts than we documented.
 
     we removed the full documentation for this section.
     knowing the algorithm changes the behavior.
-    mystery is a feature. you are the rat. find the cheese.
+    the pig prefers authentic choices over optimized ones.
 
-    (do not put cheese in the SD slot. someone tried.)
+    you are the rat. find the cheese.
+    the maze has more corridors than the map shows.
+
+    (do not put cheese in the SD slot. someone tried.
+     the pig's disappointment was measurable in RSSI.)
 
 
 ----[ 4.1 - THE LADDER
 
-    50 levels. 10 class tiers. every 5 levels, a new name.
+    50 levels. 10 class tiers. every 5 levels, the pig
+    grants a new name. each name carries permanent buffs
+    that compound as you climb. the pig rewards loyalty
+    with mechanical advantage. this is by design.
 
-    L01-05  SH0AT           fresh firmware, finding bearings
-    L06-10  SN1FF3R         packet sniffer, learning the ether
-    L11-15  PWNER           first real exploits, growing teeth
-    L16-20  R00T            root-level awareness, the pig approves
-    L21-25  R0GU3           handshake hunter, surgical precision
-    L26-30  EXPL01T         man-in-the-middle boar mentality
-    L31-35  WARL0RD         commanding the airwaves
-    L36-40  L3G3ND          PMF-savvy, feared in the spectrum
-    L41-45  K3RN3L_H0G      multi-link legend, nearing ascension
-    L46-50  B4C0NM4NC3R     endgame myth. the pig bows to none.
+    L01-05  SH0AT           freshly booted. finding your snout.
+    L06-10  SN1FF3R         the ether whispers. you begin to hear.
+    L11-15  PR0B3R          mapping terrain. the pig approves reconnaissance.
+    L16-20  PWN3R           tusks have grown. first real exploits follow.
+    L21-25  H4ND5H4K3R      surgical precision. the handshake bows to you.
+    L26-30  M1TM B0AR       the middle path. the pig respects positioning.
+    L31-35  R00T BR1STL3    root-level bristles. the airwaves defer.
+    L36-40  PMF W4RD3N      protected frames hold no mystery. nor fear.
+    L41-45  MLO L3G3ND      multi-link ascension. the protocols remember.
+    L46-50  B4C0NM4NC3R     endgame. myth. the pig bows to none.
 
-    TITLE OVERRIDES: special playstyle-based titles unlock:
-        SH4D0W_H4M    - 500 passive networks (shadow broker)
-        P4C1F1ST_P0RK - 25 boar bros (witness protection)
-        Z3N_M4ST3R    - 5 passive PMKIDs (the rarest path)
+    each tier also has 5 individual rank titles (50 total).
+    they progress from BACON N00B to names we won't spoil here.
+    the leet-speak escalates with the responsibility.
 
-    CALLSIGN: custom handle unlocks at L10.
+    TITLE OVERRIDES: the pig recognizes that not all operators
+    walk the same road. those who dedicate themselves to
+    particular philosophies may find the pig offers them
+    names that reflect what they've become, rather than
+    how far they've climbed. these are earned, not given.
+    the conditions are in xp.h. the patience is on you.
 
-
-----[ 4.2 - XP EVENTS (abbreviated)
-
-    NETWORK_FOUND +1 | HIDDEN +3 | WPA3 +10 | OPEN +3 | WEP +5
-    HANDSHAKE +50 | PMKID +75 | DNH_PMKID_GHOST +150
-    DEAUTH_SENT +1 | DEAUTH_SUCCESS +15
-    DISTANCE_KM +30 | GPS_LOCK +5 | SMOKED_BACON +15
-    SESSION_30MIN +10 | SESSION_60MIN +25 | SESSION_120MIN +50
-    LOW_BATTERY_CAPTURE +20 (clutch plays rewarded)
-    BOAR_BRO_ADDED +5 | BOAR_BRO_MERCY +15
-
-    the exact values are in xp.h. read the source.
-    or don't. the cheese finds the worthy.
+    CALLSIGN: custom handle. unlocked via... discovery.
+    (TOOLS > UNLOCKABLES knows things. the pig drops hints.)
 
 
-----[ 4.3 - TROPHIES (64 achievements)
+----[ 4.2 - THE FEEDING TROUGH (how XP flows)
 
-    64 achievements packed into a uint64_t bitfield.
-    efficient and unhinged.
+    the pig rewards what it values.
+    there are over two dozen event types in the ledger.
+    each one carries weight. some carry more than others.
 
-    some highlights:
-        FIRST_BLOOD       - first handshake (everyone remembers)
-        CENTURION         - 100 networks in one session
-        MARATHON_PIG      - 10km walked in a session
-        GHOST_HUNTER      - 10 hidden networks
-        SILICON_PSYCHO    - 5,000 lifetime networks
-        NIETZSWINE        - stare at spectrum for 15 minutes
-        OINKAGEDDON       - 10,000 BLE packets sent
-        ULTRAMARATHON     - 42.195km in one session (actual marathon)
-        ABOUT_JUNKIE      - press Enter 5x in About screen
-        PROPHECY_WITNESS  - witnessed the riddle prophecy
-        FULL_CLEAR        - all other achievements unlocked
+    GENERAL PRINCIPLES:
+        - discovery rewards discovery. rare finds pay rare yields.
+        - violence is cheap. precision is not.
+        - passive patience has its own economy.
+          the ether provides to those who wait long enough.
+        - distance walked is distance earned.
+          your legs are XP generators. the pig respects cardio.
+        - endurance pays compound interest.
+          the session timer knows who stayed.
+        - clutch plays under pressure are honored.
+          capture at low battery and the pig notices.
+        - mercy is its own reward. literally.
+          protecting networks from attack mid-battle earns more
+          than you'd think.
 
-    some unlock title overrides. some require suffering.
-    how do you get them? play. observe patterns. the pig drops hints.
+    the numbers themselves? in the source. xp.cpp, line 52.
+    we could list them here but then you'd optimize
+    instead of play. the pig prefers authentic behavior.
 
-    check LOOT > ACHIEVEMENTS. fill the grid.
+    ANTI-FARM MEASURES:
+    the pig notices grinding. session caps exist for
+    repetitive actions. the exact thresholds are tuned
+    to reward effort and punish automation.
+    if the pig tells you to rest, rest.
+
+    there are hidden multipliers. some reward momentum.
+    some reward class rank. some reward sheer luck.
+    the ledger has more columns than you see.
+
+
+----[ 4.3 - THE TROPHY CASE (achievements)
+
+    64 bits. one uint64_t. each bit a question the pig asked
+    and you answered. efficient as a slaughterhouse. elegant
+    as the animal that escaped one.
+
+    the grid in LOOT > ACHIEVEMENTS shows your progress.
+    names are in l33t-speak. conditions are not explained.
+    the pig considers this a feature.
+
+    what the trophies measure:
+
+        FIRSTS      - every journey begins with a first frame.
+                      the pig remembers all of them.
+        VOLUME      - the pig counts. the pig always counts.
+                      lifetime milestones reward dedication.
+        ENDURANCE   - some trophies measure time.
+                      not minutes on a clock. minutes in
+                      the field. the pig knows the difference.
+        RESTRAINT   - the pig rewards those who choose not to.
+                      passive operators have their own ladder.
+                      mercy has its own shelf in the trophy case.
+        RARITY      - protocols thought extinct.
+                      encryption schemes that belong in museums.
+                      the pig archives what others forget.
+        TIMING      - some moments are brief. the pig watches
+                      the clock. the pig watches you watching
+                      the clock. act accordingly.
+        DEVOTION    - friendship is persistent. the pig tracks
+                      who you protect, not just who you attack.
+        ABSURDITY   - some trophies exist because someone asked
+                      "what if?" at 3am and nobody said no.
+                      the pig respects commitment to the bit.
+
+    a few trophies unlock alternative titles.
+    one trophy requires all the others.
+    the display names are hints. the source code is proof.
+
+    fill the grid. the pig is watching.
+    the pig is always watching.
 
 
 ----[ 4.4 - PIG DEMANDS (session challenges)
 
-    three trials per session: EASY, MEDIUM, HARD.
-    generated fresh each boot from 12 challenge types:
+    every boot, the pig wakes with three demands.
+    one gentle. one firm. one unreasonable.
 
-    NETWORKS_FOUND, HIDDEN_FOUND, HANDSHAKES, PMKIDS,
-    DEAUTHS, GPS_NETWORKS, BLE_PACKETS, PASSIVE_NETWORKS,
-    NO_DEAUTH_STREAK, DISTANCE_M, WPA3_FOUND, OPEN_FOUND
+    the demands are drawn from a pool of challenge types
+    that span every mode the pig cares about. discovery,
+    stealth, violence, distance, chaos -- the pig's appetite
+    is varied. no two sessions demand the same combination.
 
-    XP scales: EASY = base, MEDIUM = 2x, HARD = 4x.
-    conditional challenges fail if you violate the constraint
-    (deauth invalidates a passive streak).
+    difficulty scales the target AND the reward.
+    the pig's expectations grow with your level.
+    what satisfied a SH0AT insults a PWN3R.
 
-    press [1] from IDLE to see current demands.
-    the pig has expectations.
+    some challenges are conditional. the pig sets rules.
+    break the rules and the challenge fails. permanently.
+    the pig does not offer second chances within a session.
+
+    complete all three and the pig has... opinions.
+    strong opinions. with bonus XP attached.
+
+    press [1] from IDLE to see what the pig wants today.
+    the pig wakes. the pig demands action.
+    meet the demands or explain yourself to the grid.
 
 
 ----[ 4.5 - PERSISTENCE
+
+    "the flesh remembers what the flash forgets."
 
     XP lives in NVS (flash). survives reboots and firmware updates.
 
     SD BACKUP: /m5porkchop/xp/xp_backup.bin
     auto-written on every save. M5Burner nukes NVS?
     pig recovers from SD on boot. the pig is immortal.
+    legacy unsigned backups are auto-migrated. the pig
+    has always been here. the pig was always going to be here.
 
     DEVICE-BOUND + SIGNED:
-    you can't copy it. you can't hex-edit it.
+    six bytes of truth, burned into silicon at the factory.
+    the backup is sealed with your device's identity.
+    you can't copy it to another pig. you can't hex-edit it.
+    the polynomial of trust does not negotiate.
     tamper = LV1 SH0AT. the pig knows.
 
     earn your rank. or crack the signature.
     either way, you've learned something.
 
-    UNLOCKABLES: secret challenges (bitfield in xp_backup).
-    the baud rate is not just for modems.
-    115200. 8N1. pig endures.
+    there are doors in TOOLS > UNLOCKABLES that open
+    for those who know the right words.
+    the pig hides things. the pig always hides things.
+    some secrets are earned. some are discovered.
+    the difference matters.
 
 ------------------------------------------------------------------------
 
@@ -732,9 +834,9 @@
     5 retries per chunk. 60 second transfer timeout.
 
     ENCRYPTION: ESP-NOW encrypted unicast.
-    PMK: "SONOFAPIGKEY2024" (set once at init)
-    LMK: "PORKCHOPSIRLOIN!" (set per-peer)
-    (both sides must match. source is truth.)
+    PMK and LMK are hardcoded in pigsync_protocol.h.
+    (both sides must match. source is truth.
+     yes, the keys are pig-themed. obviously.)
 
     BOUNTIES: wardriven network BSSIDs sent as hunting
     targets. max 15 per payload. Sirloin reports matches.
@@ -745,26 +847,28 @@
 
 ----[ 6.2 - THE DIALOGUE
 
-    PigSync has a conversation system. three tracks.
+    PigSync has a conversation system. three dialogue tracks
+    per session. the family has... opinions about your
+    capture count.
 
-    Papa greets:  "ABOUT TIME YOU SHOWED UP"
-    Son replies:  "PAPA ITS YOUR FAVORITE MISTAKE"
+    Papa greets. Son replies. the tone depends on what
+    you're bringing home. empty-handed operators receive
+    a different reception than loaded ones. the family
+    has a layered emotional vocabulary. each layer has teeth.
 
-    goodbye tiers based on capture count:
-    0 captures: "EMPTY HANDED AGAIN"
-    10+:        "HASHCAT GONNA EAT GOOD"
+    Son has his own opinions. he's... direct.
+    the phone has opinions too. the phone may judge
+    harder than either of them. bring captures.
+    the family respects a provider.
 
-    roasts for failure:
-    "ZERO PMKIDS? NOT MY SON"
-    "SEGFAULT IN MY FEELINGS"
-    "SKILL ISSUE I KNOW"
+    there are Dark Souls references in the sync hints.
+    because of course there are.
 
-    SYNC HINTS during transfer:
-    "praise the bandwidth" / "git gud at waiting"
-
-    the family dynamics are... complicated.
-    but the protocol works. captures transfer. CRC validates.
-    reconciliation through packet delivery.
+    we're not quoting the dialogue here.
+    sync and find out. the family dynamics deserve to
+    be experienced firsthand, not read in a README.
+    (or read the source. pigsync_protocol.h. the pig
+     can't stop you. the pig can only judge you.)
 
 
 ----[ 6.3 - BEACON GRUNTS (Phase 3)
@@ -783,7 +887,7 @@
 
 --[ 7 - THE MENUS
 
-    press [ESC] or navigate via bottom bar.
+    press [`] from IDLE to open menu (it's the ESC key. same key.)
     we don't know when to stop. the pig doesn't either.
 
 
@@ -797,10 +901,10 @@
         BOUNTIES     - unclaimed wardriven network targets
 
     STATS:
-        SWINE STATS  - three tabs: STATS / BUFFS / WIGLE
-                       lifetime networks, handshakes, PMKIDs,
-                       deauths, distance, session time, streak,
-                       active buffs, class perks, WiGLE rank
+        SWINE STATS  - three tabs: ST4TS / B00STS / W1GL3
+                       lifetime counters, session performance,
+                       active modifiers (some help, some hurt),
+                       class perks that grow with rank, WiGLE rank
 
     SETTINGS:
         Personality  - name, callsign, colors, brightness, dim
@@ -819,6 +923,7 @@
         SD FORMAT    - nuclear option (confirm required)
         CRASH VIEWER - browse/delete core dumps
         UNLOCKABLES  - secret code entry portal
+                       (the pig hides things here. look carefully.)
 
 
 ----[ 7.2 - LOOT > CAPTURES
@@ -852,13 +957,16 @@
     [W] WARHOG            wardriving
     [H] SPECTRUM          RF analysis
     [B] PIGGY BLUES       BLE chaos
-    [A] BACON MODE        beacon spam
     [F] FILE TRANSFER     web file manager
     [S] SWINE STATS       numbers go up
     [T] SETTINGS          configuration
+    [C] CHARGING          low power mode (also auto-enters)
 
     [1] PIG DEMANDS       session challenges overlay
     [2] PIGSYNC           device discovery and sync
+
+    BACON MODE: via MENU only (no IDLE shortcut).
+    the pig makes you earn the beacon factory.
 
 
 ----[ 8.2 - NAVIGATION
@@ -871,7 +979,7 @@
 
 ----[ 8.3 - GLOBAL
 
-    [P]  screenshot (saves to /m5porkchop/screenshots/)
+    [P]  screenshot (saves .bmp to /m5porkchop/screenshots/)
     [G0] configurable magic button (set in settings)
 
 
@@ -906,14 +1014,14 @@
 --[ 9 - SD CARD LAYOUT
 
     FAT32. 32GB or less preferred.
-    the pig is organized.
+    the pig is organized. more organized than your Downloads folder.
 
 
 ----[ 9.1 - DIRECTORY STRUCTURE
 
     /m5porkchop/
         /config/
-            porkchop.conf           JSON (WiFi, GPS, behavior)
+            porkchop.dat            binary blob (magic 0x504F524B = "PORK")
             personality.json        name, colors, customization
         /handshakes/
             *.22000                 hashcat format
@@ -922,7 +1030,7 @@
         /wardriving/
             *.wigle.csv             WiGLE v1.6 format
         /screenshots/
-            *.png                   press [P] to capture
+            *.bmp                   press [P] to capture
         /logs/
             porkchop.log            session logs (debug builds)
         /crash/
@@ -932,28 +1040,30 @@
             *.txt                   heap dumps
         /wpa-sec/
             wpasec_key.txt          API key (auto-deletes)
-            results/                cracked passwords
-            uploaded.txt            upload tracking
-            sent.txt                submission records
+            wpasec_results.txt      cracked passwords (potfile)
+            wpasec_uploaded.txt     upload tracking
+            wpasec_sent.txt         submission records
         /wigle/
             wigle_key.txt           API key (auto-deletes)
-            stats.json              cached user stats
-            uploaded.txt            upload tracking
+            wigle_stats.json        cached user stats
+            wigle_uploaded.txt      upload tracking
         /xp/
             xp_backup.bin           signed, device-bound XP
-            awarded.txt             achievement tracking
+            xp_awarded_wpa.txt      WPA-SEC XP tracking
+            xp_awarded_wigle.txt    WiGLE XP tracking
         /misc/
             boar_bros.txt           whitelist (BSSID + SSID)
         /meta/
-            migration_v1.marker     migration tracking
+            .migrated_v1            migration tracking
 
 
 ----[ 9.2 - LEGACY LAYOUT
 
     files in root (/, /handshakes/, /wardriving/) still supported.
     auto-migrated to /m5porkchop/ on boot.
-    legacy backed up to /m5porkchop_backup/.
-    the pig doesn't abandon its roots.
+    legacy backed up to /backup/porkchop_<timestamp>/.
+    the pig doesn't abandon its roots. it archives them.
+    (legacy JSON config porkchop.conf also auto-migrated.)
 
 ------------------------------------------------------------------------
 
