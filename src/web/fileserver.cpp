@@ -4237,9 +4237,10 @@ void FileServer::handleUploadProcess() {
             }
         }  // dirArg String freed here before SD operations
         
-        // Security: prevent directory traversal
+        // Security: prevent directory traversal and absolute-path escape
         const char* filename = upload.filename.c_str();
-        if (strstr(filename, "..") != nullptr || strstr(uploadDirBuf, "..") != nullptr) {
+        if (strstr(filename, "..") != nullptr || strstr(uploadDirBuf, "..") != nullptr ||
+            filename[0] == '/') {
             uploadRejected.store(true);
             uploadActive.store(false);
             return;

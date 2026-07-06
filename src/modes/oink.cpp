@@ -637,7 +637,7 @@ void OinkMode::update() {
         // Get slot from circular buffer
         uint8_t slot = pendingHsRead;
         if (pendingHsBusy[slot] || !pendingHandshakes[slot]) {
-            break;  // Slot still being written by callback or not allocated, wait for next cycle
+            return;  // Slot still being written by callback, try next cycle
         }
         
         // Create or find handshake entry in main thread context
@@ -1791,7 +1791,7 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
             
             // Look for PMKID KDE: dd 14 00 0f ac 04 (vendor IE, IEEE OUI, PMKID type)
             // Can appear at start or within Key Data
-            for (uint16_t i = 0; i + 22 < keyDataLen; i++) {  // Strict < ensures 22 bytes remain
+            for (uint16_t i = 0; i + 22 <= keyDataLen; i++) {  // <= so exact-fit KDEs aren't missed
                 if (keyData[i] == 0xdd && keyData[i+1] == 0x14 &&
                     keyData[i+2] == 0x00 && keyData[i+3] == 0x0f &&
                     keyData[i+4] == 0xac && keyData[i+5] == 0x04) {

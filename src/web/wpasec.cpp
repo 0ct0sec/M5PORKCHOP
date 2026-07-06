@@ -730,10 +730,11 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
             file.close();
             file = dir.openNextFile();
         }
+        if (file) file.close();  // close leftover when loop exited on pendingCount limit
         dir.close();
     }
-    
-    Serial.printf("[WPASEC] Found %u files to upload, %u skipped\n", 
+
+    Serial.printf("[WPASEC] Found %u files to upload, %u skipped\n",
                   (unsigned int)pendingCount, (unsigned int)result.skipped);
     
     // Free cache before TLS operations - keeps heap clear for WiFiClientSecure

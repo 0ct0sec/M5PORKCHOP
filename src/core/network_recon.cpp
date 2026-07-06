@@ -21,8 +21,8 @@ namespace NetworkRecon {
 // ============================================================================
 
 static bool initialized = false;
-static bool running = false;
-static bool paused = false;
+static std::atomic<bool> running{false};
+static std::atomic<bool> paused{false};
 static std::atomic<bool> channelLocked{false};
 static bool channelLockedBeforePause = false;  // [BUG4 FIX] Save state for pause/resume
 static uint8_t lockedChannel = 0;
@@ -99,7 +99,7 @@ static std::atomic<uint8_t> pendingSsidWrite{0};
 // ============================================================================
 
 static std::atomic<PacketCallback> modeCallback{nullptr};
-static NewNetworkCallback newNetworkCallback = nullptr;
+static std::atomic<NewNetworkCallback> newNetworkCallback{nullptr};
 
 // ============================================================================
 // Internal Functions
@@ -677,8 +677,9 @@ static void processDeferredEvents() {
         if (inserted || replaced) {
             // Notify mode of new network discovery (for XP events)
             // Called OUTSIDE critical section - safe for Mood/XP calls
-            if (newNetworkCallback) {
-                newNetworkCallback(
+            NewNetworkCallback nnCb = newNetworkCallback.load(std::memory_order_acquire);
+            if (nnCb) {
+                nnCb(
                     pending.authmode,
                     pending.isHidden,
                     pending.ssid,
@@ -1099,7 +1100,7 @@ void setPacketCallback(PacketCallback callback) {
 }
 
 void setNewNetworkCallback(NewNetworkCallback callback) {
-    newNetworkCallback = callback;
+    newNetworkCallback.store(callback, std::memory_order_release);
 }
 
 void enterCritical() {

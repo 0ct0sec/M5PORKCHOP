@@ -280,10 +280,7 @@ void GPS::getTimeString(char* out, size_t len) {
             // Apply timezone offset from config
             int8_t tzOffset = Config::gps().timezoneOffset;
             int hour = gps.time.hour() + tzOffset;
-            
-            // Handle day wrap
-            if (hour >= 24) hour -= 24;
-            if (hour < 0) hour += 24;
+            hour = ((hour % 24) + 24) % 24;  // handles any offset range, not just ±1 day
             
             snprintf(out, len, "%02d:%02d", hour, gps.time.minute());
         } else {

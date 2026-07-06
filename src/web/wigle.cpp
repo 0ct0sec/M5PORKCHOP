@@ -724,10 +724,11 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
             file.close();
             file = dir.openNextFile();
         }
+        if (file) file.close();  // close leftover when loop exited on pendingCount limit
         dir.close();
     }
-    
-    Serial.printf("[WIGLE] Found %u files to upload, %u skipped\n", 
+
+    Serial.printf("[WIGLE] Found %u files to upload, %u skipped\n",
                   (unsigned int)pendingCount, (unsigned int)result.skipped);
     
     // Free memory before TLS operations - keeps heap clear for WiFiClientSecure
