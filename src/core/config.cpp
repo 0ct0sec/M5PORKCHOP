@@ -6,7 +6,7 @@
 #include "sd_layout.h"
 #include <M5Cardputer.h>
 #include <SD.h>
-#include <SPIFFS.h>
+#include <LittleFS.h>
 #include <SPI.h>
 #include <driver/gpio.h>
 
@@ -274,13 +274,13 @@ static void ensureSdSpiReady() {
 }
 
 bool Config::init() {
-    // Initialize SPIFFS first (always available)
-    if (!SPIFFS.begin(false)) {
-        Serial.println("[CONFIG] SPIFFS mount failed, attempting format...");
-        if (!SPIFFS.begin(true)) {
-            Serial.println("[CONFIG] SPIFFS format failed! Personality settings will not persist.");
+    // Initialize LittleFS first (always available)
+    if (!LittleFS.begin(false)) {
+        Serial.println("[CONFIG] LittleFS mount failed, attempting format...");
+        if (!LittleFS.begin(true)) {
+            Serial.println("[CONFIG] LittleFS format failed! Personality settings will not persist.");
         } else {
-            Serial.println("[CONFIG] SPIFFS formatted and mounted OK");
+            Serial.println("[CONFIG] LittleFS formatted and mounted OK");
         }
     }
 
@@ -322,21 +322,21 @@ bool Config::init() {
 
     if (!sdAvailable) {
         SDLayout::setUseNewLayout(false);
-        Serial.println("[CONFIG] SD card init failed after retries, using SPIFFS");
+        Serial.println("[CONFIG] SD card init failed after retries, using LittleFS");
     } else {
         SDLayout::migrateIfNeeded();
         SDLayout::ensureDirs();
         SDLog::log("CFG", "SD card mounted OK");
     }
 
-    // Load personality from SPIFFS (always available)
+    // Load personality from LittleFS (always available)
     if (!loadPersonality()) {
         Serial.println("[CONFIG] Creating default personality");
         createDefaultPersonality();
-        savePersonalityToSPIFFS();
+        savePersonalityToLittleFS();
     }
 
-    // Load main config: SD primary, SPIFFS fallback
+    // Load main config: SD primary, LittleFS fallback
     Serial.printf("[CONFIG] Pre-load state: sdAvailable=%d, newLayout=%d\n",
                   sdAvailable, SDLayout::usingNewLayout());
     if (!load()) {
@@ -614,8 +614,8 @@ bool Config::load() {
         extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
         sanitizeWiFiConfig(wifiConfig);
         Serial.println("[CONFIG] Loaded binary from SD");
-        // Mirror to SPIFFS
-        writeBlobTo((fs::FS&)SPIFFS, CONFIG_BIN_FILE, blob);
+        // Mirror to LittleFS
+        writeBlobTo((fs::FS&)LittleFS, CONFIG_BIN_FILE, blob);
         return true;
     }
 
@@ -625,20 +625,20 @@ bool Config::load() {
             extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
             sanitizeWiFiConfig(wifiConfig);
             Serial.println("[CONFIG] Loaded binary from legacy SD path, migrating...");
-            // Move to new location and mirror to SPIFFS
+            // Move to new location and mirror to LittleFS
             writeBlobTo((fs::FS&)SD, configBinPathSD(), blob);
-            writeBlobTo((fs::FS&)SPIFFS, CONFIG_BIN_FILE, blob);
+            writeBlobTo((fs::FS&)LittleFS, CONFIG_BIN_FILE, blob);
             SD.remove("/porkchop.dat");
             Serial.println("[CONFIG] Migrated porkchop.dat to new layout path");
             return true;
         }
     }
 
-    // 2. Try binary from SPIFFS
-    if (readBlobFrom((fs::FS&)SPIFFS, CONFIG_BIN_FILE, blob)) {
+    // 2. Try binary from LittleFS
+    if (readBlobFrom((fs::FS&)LittleFS, CONFIG_BIN_FILE, blob)) {
         extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
         sanitizeWiFiConfig(wifiConfig);
-        Serial.println("[CONFIG] Loaded binary from SPIFFS");
+        Serial.println("[CONFIG] Loaded binary from LittleFS");
         return true;
     }
 
@@ -647,7 +647,7 @@ bool Config::load() {
         const char* sdPath = SDLayout::configPathSD();
         if (loadFrom((fs::FS&)SD, sdPath)) {
             Serial.printf("[CONFIG] Migrated JSON from SD: '%s'\n", sdPath);
-            save();           // write binary to both SD + SPIFFS
+            save();           // write binary to both SD + LittleFS
             SD.remove(sdPath);  // delete old JSON
             Serial.printf("[CONFIG] Deleted old JSON: '%s'\n", sdPath);
             return true;
@@ -663,11 +663,11 @@ bool Config::load() {
         }
     }
 
-    // 4. JSON migration: try SPIFFS
-    if (loadFrom((fs::FS&)SPIFFS, CONFIG_FILE)) {
-        Serial.println("[CONFIG] Migrated JSON from SPIFFS");
+    // 4. JSON migration: try LittleFS
+    if (loadFrom((fs::FS&)LittleFS, CONFIG_FILE)) {
+        Serial.println("[CONFIG] Migrated JSON from LittleFS");
         save();                      // write binary
-        SPIFFS.remove(CONFIG_FILE);  // delete old JSON
+        LittleFS.remove(CONFIG_FILE);  // delete old JSON
         return true;
     }
 
@@ -676,10 +676,10 @@ bool Config::load() {
 }
 
 bool Config::loadPersonality() {
-    // Load from SPIFFS (always available)
-    File file = SPIFFS.open(PERSONALITY_FILE, FILE_READ);
+    // Load from LittleFS (always available)
+    File file = LittleFS.open(PERSONALITY_FILE, FILE_READ);
     if (!file) {
-        Serial.println("[CONFIG] Personality file not found in SPIFFS");
+        Serial.println("[CONFIG] Personality file not found in LittleFS");
         return false;
     }
 
@@ -731,7 +731,7 @@ bool Config::loadPersonality() {
     return true;
 }
 
-void Config::savePersonalityToSPIFFS() {
+void Config::savePersonalityToLittleFS() {
     JsonDocument doc;
     doc["name"] = personalityConfig.name;
     doc["callsign"] = personalityConfig.callsign;
@@ -748,14 +748,14 @@ void Config::savePersonalityToSPIFFS() {
     doc["g0Action"] = static_cast<uint8_t>(personalityConfig.g0Action);
     doc["bootMode"] = static_cast<uint8_t>(personalityConfig.bootMode);
 
-    File file = SPIFFS.open(PERSONALITY_FILE, FILE_WRITE);
+    File file = LittleFS.open(PERSONALITY_FILE, FILE_WRITE);
     if (file) {
         serializeJsonPretty(doc, file);
         file.close();
-        Serial.printf("[CONFIG] Saved personality to SPIFFS (sound: %s)\n",
+        Serial.printf("[CONFIG] Saved personality to LittleFS (sound: %s)\n",
                       personalityConfig.soundEnabled ? "ON" : "OFF");
     } else {
-        Serial.println("[CONFIG] Failed to save personality to SPIFFS");
+        Serial.println("[CONFIG] Failed to save personality to LittleFS");
     }
 }
 
@@ -773,9 +773,9 @@ bool Config::save() {
         ok = writeBlobTo((fs::FS&)SD, configBinPathSD(), blob);
     }
 
-    // Always mirror to SPIFFS
-    bool spiffsOk = writeBlobTo((fs::FS&)SPIFFS, CONFIG_BIN_FILE, blob);
-    if (!sdAvailable) ok = spiffsOk;
+    // Always mirror to LittleFS
+    bool LittleFSOk = writeBlobTo((fs::FS&)LittleFS, CONFIG_BIN_FILE, blob);
+    if (!sdAvailable) ok = LittleFSOk;
 
     return ok;
 }
@@ -826,7 +826,7 @@ void Config::setBLE(const BLEConfig& cfg) {
 
 void Config::setPersonality(const PersonalityConfig& cfg) {
     personalityConfig = cfg;
-    savePersonalityToSPIFFS();
+    savePersonalityToLittleFS();
 }
 
 bool Config::loadWpaSecKeyFromFile() {
