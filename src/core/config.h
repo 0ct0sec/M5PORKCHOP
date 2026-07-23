@@ -166,7 +166,7 @@ private:
     
     static bool createDefaultConfig();
     static bool createDefaultPersonality();
-    static void savePersonalityToSPIFFS();
+    static void savePersonalityToLittleFS();
     static bool loadFrom(fs::FS& fs, const char* path);   // JSON migration only
     static bool applyJson(const JsonDocument& doc);        // JSON migration only
     static bool importCredsFromJsonConf();                 // Merge creds from porkchop.conf if present
