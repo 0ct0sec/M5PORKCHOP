@@ -67,6 +67,11 @@ static const char* const H_SPCTRM[] = {
     "SPECTRUM BUSY. LIKE MY ANXIETY.",
     "LOGS DON'T HELP. WAVES DON'T CARE."
 };
+static const char* const H_GRDHOG[] = {
+    "PIG WATCHES YOUR BACK. ALL PASSIVE.",
+    "TICKS, TAILS, SQUEALS, FAKE BACON.",
+    "SPOOKED ONLY WHEN TWO RADIOS AGREE."
+};
 static const char* const H_HASHES[] = {
     "FEED YO HASHCAT.",
     "COLLECTED PAIN. COMPRESSED.",
@@ -170,7 +175,8 @@ const uint8_t Menu::GROUP_ATTACK_SIZE = sizeof(GROUP_ATTACK) / sizeof(GROUP_ATTA
 const MenuItem Menu::GROUP_RECON[] = {
     {"o~", "DNOHAM",  14, H_DNOHAM, (uint8_t)(sizeof(H_DNOHAM)/sizeof(H_DNOHAM[0]))},
     {"<>", "WARHOG",  2,  H_WARHOG, (uint8_t)(sizeof(H_WARHOG)/sizeof(H_WARHOG[0]))},
-    {"~~", "SPCTRM", 10,  H_SPCTRM, (uint8_t)(sizeof(H_SPCTRM)/sizeof(H_SPCTRM[0]))}
+    {"~~", "SPCTRM", 10,  H_SPCTRM, (uint8_t)(sizeof(H_SPCTRM)/sizeof(H_SPCTRM[0]))},
+    {"@@", "GRDHOG", 22,  H_GRDHOG, (uint8_t)(sizeof(H_GRDHOG)/sizeof(H_GRDHOG[0]))}
 };
 const uint8_t Menu::GROUP_RECON_SIZE = sizeof(GROUP_RECON) / sizeof(GROUP_RECON[0]);
 

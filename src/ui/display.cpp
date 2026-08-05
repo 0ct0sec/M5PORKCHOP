@@ -26,6 +26,7 @@
 #include "../modes/pigsync_protocol.h"
 #include "../modes/bacon.h"
 #include "../modes/charging.h"
+#include "../modes/guardhog.h"
 #include "../gps/gps.h"
 #include "../web/fileserver.h"
 #include "menu.h"
@@ -400,6 +401,9 @@ void Display::update() {
             break;
         case PorkchopMode::CHARGING:
             ChargingMode::draw(mainCanvas);
+            break;
+        case PorkchopMode::GUARDHOG_MODE:
+            GuardHogMode::draw(mainCanvas);
             break;
     }
     

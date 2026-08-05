@@ -469,6 +469,50 @@
     the pig recharges. the pig recovers. the pig is patient.
     you should try all three. the pig recommends starting with sleep.
 
+
+----[ 2.9 - THE DEFENSIVE SUITE (the pig watches YOUR back now) [G]
+
+the pig used to only hunt. now it guards. all passive. zero TX. the pig
+does not touch the air. it just listens, and it judges what it hears.
+
+  GUARD HOG        the big one. leave it on the dash. the pig watches
+                   everything at once and keeps a mood: CALM / SNIFFY /
+                   SPOOKED. it only gets SPOOKED when TWO different radios
+                   agree something's wrong. no crying wolf. a spooked pig
+                   is a real threat.
+
+  TICK CHECK       finds BLE trackers stuck to you. AirTag, Tile, SmartTag,
+                   Google Find My. a tick is a parasite that follows the
+                   animal. so's an AirTag in your bag you didn't put there.
+
+  TAIL WAGGER      the pig notices when the SAME unknown thing follows you
+                   from stop to stop (needs GPS). curly tail wags = you've
+                   got a tail. flags it !FOLLOWING.
+
+  SQUEAL ALERT     someone's throwing deauth floods / beacon spam nearby?
+                   the pig hears it and squeals. early warning, the air
+                   just turned hostile.
+
+  FAKE BACON       an SSID you trust showing up on a NEW radio = imposter.
+                   fake bacon. don't connect to the fake coffee shop.
+
+  SKY HOGS         drones announce themselves by law (Remote ID). the pig
+                   listens for hogs in the sky.
+
+  FLIPPER FINDER   counts the Flipper Zeros around you. the pig sees the
+                   other critters at the con.
+
+WHAT THE PIG CANNOT DO (don't be a fool):
+  - IMSI catchers / Stingrays: NO. that's cellular. the pig has no cell
+    radio. anyone who says an ESP32 catches a Stingray is lying to you.
+  - hidden ANALOG cameras: NO. only WiFi-broadcasting cameras leave a
+    trace the pig can smell. a wired pinhole cam is invisible.
+  - 5GHz / everything else: the pig smells 2.4GHz WiFi, Bluetooth, and
+    868 LoRa. that's the whole nose. it is not a magic bug-sweeper.
+
+the pig is an ambient watchdog, not a TSCM sweep. use it as one layer.
+stay paranoid. the pig believes in you.
+
 ------------------------------------------------------------------------
 
 --[ 3 - THE PIGLET (mood, avatar, weather)

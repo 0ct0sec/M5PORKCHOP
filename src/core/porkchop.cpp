@@ -26,6 +26,7 @@
 #include "../modes/pigsync_client.h"
 #include "../modes/bacon.h"
 #include "../modes/charging.h"
+#include "../modes/guardhog.h"
 #include "../web/fileserver.h"
 #include "../audio/sfx.h"
 #include "config.h"
@@ -66,6 +67,7 @@ static const char* modeToString(PorkchopMode mode) {
         case PorkchopMode::BACON_MODE: return "BACON";
         case PorkchopMode::SD_FORMAT: return "SD_FORMAT";
         case PorkchopMode::CHARGING: return "CHARGING";
+        case PorkchopMode::GUARDHOG_MODE: return "GUARD_HOG";
         case PorkchopMode::ABOUT: return "ABOUT";
         default: return "UNKNOWN";
     }
@@ -226,6 +228,7 @@ void Porkchop::init() {
             case 19: setMode(PorkchopMode::DIAGNOSTICS); break;
             case 20: setMode(PorkchopMode::SD_FORMAT); break;
             case 21: setMode(PorkchopMode::CHARGING); break;
+            case 22: setMode(PorkchopMode::GUARDHOG_MODE); break;
         }
     });
 
@@ -416,10 +419,13 @@ void Porkchop::setMode(PorkchopMode mode) {
         case PorkchopMode::CHARGING:
             ChargingMode::stop();
             break;
+        case PorkchopMode::GUARDHOG_MODE:
+            GuardHogMode::stop();
+            break;
         default:
             break;
     }
-    
+
     // Init new mode
     switch (currentMode) {
         case PorkchopMode::IDLE:
@@ -529,10 +535,14 @@ void Porkchop::setMode(PorkchopMode mode) {
             SDLog::log("PORK", "Mode: CHARGING");
             ChargingMode::start();
             break;
+        case PorkchopMode::GUARDHOG_MODE:
+            SDLog::log("PORK", "Mode: GUARD HOG");
+            GuardHogMode::start();
+            break;
         default:
             break;
     }
-    
+
     postEvent(PorkchopEvent::MODE_CHANGE, nullptr);
 }
 
@@ -786,6 +796,10 @@ void Porkchop::handleInput() {
                 case 'C':
                     setMode(PorkchopMode::CHARGING);
                     break;
+                case 'g': // GUARD HOG - defensive suite
+                case 'G':
+                    setMode(PorkchopMode::GUARDHOG_MODE);
+                    break;
             }
         }
         yield(); // Allow other tasks to run after processing all keys
@@ -890,6 +904,9 @@ void Porkchop::updateMode() {
             break;
         case PorkchopMode::SPECTRUM_MODE:
             SpectrumMode::update();
+            break;
+        case PorkchopMode::GUARDHOG_MODE:
+            GuardHogMode::update();
             break;
         case PorkchopMode::BACON_MODE:
             BaconMode::update();

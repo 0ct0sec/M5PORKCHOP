@@ -30,7 +30,8 @@ enum class PorkchopMode : uint8_t {
     PIGSYNC_CALL, // PigSync active call
     BACON_MODE,     // Hide and seek beacon broadcaster
     SD_FORMAT,      // SD card format utility
-    CHARGING        // Low power charging mode
+    CHARGING,       // Low power charging mode
+    GUARDHOG_MODE   // DEFENSIVE SUITE - passive counter-surveillance watch
 };
 
 // Events for async callbacks

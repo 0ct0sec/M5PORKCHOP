@@ -17,6 +17,10 @@
 #include "../core/wsl_bypasser.h"
 #include "../core/sdlog.h"
 #include "../core/sd_layout.h"
+#include "../core/flock_detect.h"
+#include "../core/flock_log.h"
+#include "../core/flock_proximity.h"
+#include "../audio/sfx.h"
 #include "../core/xp.h"
 #include "../ui/display.h"
 #include "../piglet/mood.h"
@@ -60,6 +64,19 @@ static const int SD_RETRY_DELAY_MS = 10;
 // WiGLE file size limit for upload compatibility (400KB - leave room for headers)
 // Files larger than this will be rotated to a new file
 static const size_t WIGLE_FILE_MAX_SIZE = 400000;
+
+// Radio time-slicing between WARHOG's active scan and NetworkRecon's
+// promiscuous listening. The two are mutually exclusive on the ESP32, and an
+// active scan only ever sees a camera that is currently beaconing — a sleeping
+// one is only visible as a receiver address in someone else's frame, which
+// needs promiscuous mode. So WARHOG takes turns: mostly scanning, with a short
+// listening window folded in. Tunable.
+static const uint32_t SCAN_SLICE_MS    = 8000;
+static const uint32_t PROMISC_SLICE_MS = 4000;
+
+enum class RadioSlice : uint8_t { ActiveScan, Promiscuous };
+static RadioSlice radioSlice = RadioSlice::ActiveScan;
+static uint32_t   sliceStartTime = 0;
 
 // Graceful stop request flag for background scan task
 static volatile bool stopRequested = false;
@@ -189,6 +206,69 @@ static void writeCSVField(File& f, const char* ssid) {
     f.print("\"");
 }
 
+// === FLOCK DETECTION (passive counter-surveillance) =========================
+// WARHOG uses active scanning, so we match each scanned AP against the Flock
+// signature table. Hits are logged to a separate flock.csv (deflock.me-ready);
+// the AP is already captured in the WiGLE export via the normal path, so both
+// sinks get populated. Default alert threshold is Medium (see FlockDetect).
+static flockdet::FlockDetect g_flock;
+static char currentFlockFilename[128] = {0};
+
+static bool ensureFlockFileReady() {
+    if (currentFlockFilename[0] != '\0') return true;
+
+    const char* dir = SDLayout::wardrivingDir();
+    if (!SD.exists(dir)) {
+        if (!SD.mkdir(dir)) return false;
+    }
+
+    GPSData g = GPS::getData();
+    if (g.date > 0 && g.time > 0) {
+        uint8_t day = g.date / 10000, month = (g.date / 100) % 100, year = g.date % 100;
+        uint8_t hour = g.time / 1000000, minute = (g.time / 10000) % 100, second = (g.time / 100) % 100;
+        snprintf(currentFlockFilename, sizeof(currentFlockFilename),
+                 "%s/flock_20%02d%02d%02d_%02d%02d%02d.csv",
+                 dir, year, month, day, hour, minute, second);
+    } else {
+        snprintf(currentFlockFilename, sizeof(currentFlockFilename),
+                 "%s/flock_%lu_%04X.csv", dir, millis(), (uint16_t)esp_random());
+    }
+
+    File f = openFileWithRetry(currentFlockFilename, FILE_WRITE);
+    if (!f) { currentFlockFilename[0] = '\0'; return false; }
+    f.print(flockdet::flockCsvHeader());
+    f.close();
+    return true;
+}
+
+static void appendFlockEntry(const flockdet::Detection& det, const GPSData& gps, bool hasGPS) {
+    if (!ensureFlockFileReady()) return;
+
+    flockdet::GpsFix fix;
+    if (hasGPS) {
+        fix.lat  = gps.latitude;
+        fix.lon  = gps.longitude;
+        fix.altM = (float)gps.altitude;
+        fix.accM = (float)(gps.hdop > 0 ? gps.hdop * 5.0 : 10.0);
+        if (gps.date > 0 && gps.time > 0) {
+            uint8_t day = gps.date / 10000, month = (gps.date / 100) % 100, year = gps.date % 100;
+            uint8_t hour = gps.time / 1000000, minute = (gps.time / 10000) % 100, second = (gps.time / 100) % 100;
+            snprintf(fix.utc, sizeof(fix.utc), "20%02d-%02d-%02dT%02d:%02d:%02dZ",
+                     year, month, day, hour, minute, second);
+            fix.valid = true;
+        }
+    }
+
+    char line[192];
+    int n = flockdet::flockCsvRow(line, sizeof(line), det, fix);
+    if (n <= 0) return;
+
+    File f = openFileWithRetry(currentFlockFilename, FILE_APPEND);
+    if (!f) return;
+    f.print(line);
+    f.close();
+}
+
 void WarhogMode::init() {
     totalNetworks = 0;
     openNetworks = 0;
@@ -214,6 +294,9 @@ void WarhogMode::start() {
     savedCount = 0;
     currentFilename[0] = '\0';
     currentWigleFilename[0] = '\0';
+    currentFlockFilename[0] = '\0';
+    g_flock.setAlertThreshold(flockdet::Confidence::Medium);
+    flockprox::init();
 
     resetSeenTracking();
     seedCapturedFromOink();
@@ -229,9 +312,16 @@ void WarhogMode::start() {
     // Reset stop flag for clean start
     stopRequested = false;
 
-    // Stop NetworkRecon before WiFi manipulation (uses promiscuous mode, incompatible with STA scanning)
-    NetworkRecon::stop();
-    
+    // Park NetworkRecon rather than tearing it down: pause() drops promiscuous
+    // mode (which STA scanning cannot coexist with) but leaves the driver up,
+    // so the promiscuous slice in update() can resume() in ~50ms instead of
+    // paying a full start() — BLE deinit, WiFi re-init and all — every 12s.
+    NetworkRecon::start();
+    NetworkRecon::pause();
+
+    radioSlice = RadioSlice::ActiveScan;
+    sliceStartTime = millis();
+
     // Soft WiFi reset — keep driver alive to avoid esp_wifi_init() RX buffer failures
     WiFi.disconnect(false, true);  // Keep driver, erase AP credentials
     delay(200);             // Let it settle
@@ -268,6 +358,11 @@ void WarhogMode::start() {
 void WarhogMode::stop() {
     if (!running) return;
     
+    // Drop promiscuous before any WiFi teardown below; the NetworkRecon::start()
+    // at the end of this function resumes it for the next mode.
+    NetworkRecon::pause();
+    radioSlice = RadioSlice::ActiveScan;
+
     // Signal task to stop gracefully
     stopRequested = true;
     scanTaskExited = false;
@@ -384,6 +479,14 @@ void WarhogMode::update() {
         lastGPSState = hasGPSFix;
     }
     
+    // Proximity ramp against the known-ALPR map. Deliberately ahead of the
+    // scan-in-progress early return below so it keeps warning while the radio
+    // is busy — it is GPS-only and never touches WiFi.
+    {
+        GPSData gps = GPS::getData();
+        flockprox::update(gps.latitude, gps.longitude, hasGPSFix);
+    }
+
     // Distance tracking for XP (every 5 seconds when GPS is available)
     if (hasGPSFix && now - lastDistanceCheck >= 5000) {
         GPSData gps = GPS::getData();
@@ -429,6 +532,24 @@ void WarhogMode::update() {
         return;
     }
     
+    // Radio time-slice. Only reached with no scan in flight, so the handover
+    // never happens mid-scan.
+    if (radioSlice == RadioSlice::Promiscuous) {
+        if (now - sliceStartTime >= PROMISC_SLICE_MS) {
+            NetworkRecon::pause();          // promiscuous off, STA stays up
+            radioSlice = RadioSlice::ActiveScan;
+            sliceStartTime = now;
+        }
+        return;   // the radio belongs to NetworkRecon for this window
+    }
+
+    if (now - sliceStartTime >= SCAN_SLICE_MS) {
+        radioSlice = RadioSlice::Promiscuous;
+        sliceStartTime = now;
+        NetworkRecon::resume();             // live Flock detection + siren
+        return;
+    }
+
     // Start new scan if interval elapsed and not already scanning
     if (now - lastScanTime >= scanInterval) {
         performScan();
@@ -749,7 +870,25 @@ void WarhogMode::processScanResults() {
                 XP::addXP(XPEvent::NETWORK_FOUND);
                 break;
         }
-        
+
+        // --- Passive Flock/Raven detection (counter-surveillance) --------
+        // Runs once per unique AP this session (dedup handled by the bloom
+        // filter above). Hits go to flock.csv; the AP itself is already in the
+        // WiGLE export via the normal path below.
+        {
+            flockdet::Detection fdet = g_flock.inspectScanResult(bssidPtr, ssid, rssi, channel);
+            if (fdet.hit()) {
+                if (Config::isSDAvailable()) appendFlockEntry(fdet, gpsData, hasGPS);
+                if (fdet.kind == flockdet::DeviceKind::RavenDetector) {
+                    Display::showToast("RAVEN NEARBY");
+                    SFX::play(SFX::PIG_RAVEN);  // low angry squeal: gunshot detector
+                } else {
+                    Display::showToast("FLOCK CAM NEAR");
+                    SFX::play(SFX::PIG_ALARM);  // pig panic squeal x2: camera found
+                }
+            }
+        }
+
         // Write to files based on GPS status
         if (Config::isSDAvailable()) {
             if (hasGPS) {

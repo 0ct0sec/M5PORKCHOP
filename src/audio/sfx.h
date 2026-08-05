@@ -52,7 +52,13 @@ enum Event {
     
     // === SPECIAL ===
     SIREN,              // police siren effect (replaces flashSiren audio)
-    YOU_DIED            // Dark Souls style death sound
+    YOU_DIED,           // Dark Souls style death sound
+
+    // === FLOCK / COUNTER-SURVEILLANCE (pig-themed) ===
+    PIG_SQUEAL,         // single rising panic squeal (~0.7s) - proximity close loop
+    PIG_ALARM,          // squeal x2 - Flock camera DETECTED alarm (priority)
+    PIG_GRUNT,          // low double-grunt - proximity ramp tick (gentle zone)
+    PIG_RAVEN           // low angry double-squeal x2 - Raven detector (priority)
 };
 
 // Initialize audio system (call once at startup)

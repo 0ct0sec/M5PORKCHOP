@@ -267,6 +267,46 @@ static const Note SND_YOU_DIED[] = {
     {0, 0, 0}
 };
 
+// ==[ FLOCK / COUNTER-SURVEILLANCE PIG SOUNDS ]==
+// Thematic replacements for the siren/beeps. Tones stay short so the queue
+// keeps ticking non-blocking. Sequences authored for PORKCHOP (Jeb's spec).
+
+// PIG_SQUEAL: piercing rising panic squeal (~0.7s). The 2300-2900 up/down
+// wobble is the harsh quaver; the descending tail is the breath-out.
+static const Note SND_PIG_SQUEAL[] = {
+    {600, 30, 0}, {900, 30, 0}, {1300, 35, 0}, {1800, 40, 0}, {2300, 45, 0},
+    {2600, 50, 0}, {2300, 30, 0}, {2700, 45, 0}, {2400, 30, 0}, {2800, 55, 0},
+    {2500, 35, 0}, {2900, 70, 0}, {2400, 40, 0}, {1900, 45, 0}, {1400, 55, 0},
+    {0, 0, 0}
+};
+
+// PIG_ALARM: the squeal twice with a breath-gap between - the "camera found"
+// alarm. ~1.5s total.
+static const Note SND_PIG_ALARM[] = {
+    {600, 30, 0}, {900, 30, 0}, {1300, 35, 0}, {1800, 40, 0}, {2300, 45, 0},
+    {2600, 50, 0}, {2300, 30, 0}, {2700, 45, 0}, {2400, 30, 0}, {2800, 55, 0},
+    {2500, 35, 0}, {2900, 70, 0}, {2400, 40, 0}, {1900, 45, 0}, {1400, 55, 60},
+    {600, 30, 0}, {900, 30, 0}, {1300, 35, 0}, {1800, 40, 0}, {2300, 45, 0},
+    {2600, 50, 0}, {2300, 30, 0}, {2700, 45, 0}, {2400, 30, 0}, {2800, 55, 0},
+    {2500, 35, 0}, {2900, 70, 0}, {2400, 40, 0}, {1900, 45, 0}, {1400, 55, 0},
+    {0, 0, 0}
+};
+
+// PIG_GRUNT: low double-grunt, the proximity beep replacement (gentle zone).
+static const Note SND_PIG_GRUNT[] = {
+    {210, 70, 40}, {150, 95, 0},
+    {0, 0, 0}
+};
+
+// PIG_RAVEN: low angry double-squeal (no top end) x2 - distinct from Flock.
+static const Note SND_PIG_RAVEN[] = {
+    {500, 40, 0}, {800, 40, 0}, {1200, 50, 0}, {1600, 60, 0},
+    {1300, 40, 0}, {1700, 55, 0}, {1200, 50, 0}, {700, 60, 60},
+    {500, 40, 0}, {800, 40, 0}, {1200, 50, 0}, {1600, 60, 0},
+    {1300, 40, 0}, {1700, 55, 0}, {1200, 50, 0}, {700, 60, 0},
+    {0, 0, 0}
+};
+
 // ==[ MORSE REMOVED ]==
 // Morse GG was too long (600ms+), replaced with warm resolve in HANDSHAKE
 
@@ -302,9 +342,10 @@ void play(Event event) {
     if (event == NONE) return;
     
     // Priority events (captures/celebrations) interrupt anything else
-    bool isPriority = (event == PMKID || event == HANDSHAKE || event == ACHIEVEMENT || 
+    bool isPriority = (event == PMKID || event == HANDSHAKE || event == ACHIEVEMENT ||
                        event == LEVEL_UP || event == JACKPOT_XP || event == ULTRA_STREAK ||
-                       event == CHALLENGE_SWEEP);
+                       event == CHALLENGE_SWEEP ||
+                       event == PIG_ALARM || event == PIG_RAVEN);  // camera/raven cut through
     if (isPriority && currentSequence != nullptr) {
         // Interrupt current sound for priority feedback
         M5.Speaker.stop();
@@ -447,6 +488,18 @@ bool update() {
                 break;
             case YOU_DIED:
                 startSequence(SND_YOU_DIED);
+                break;
+            case PIG_SQUEAL:
+                startSequence(SND_PIG_SQUEAL);
+                break;
+            case PIG_ALARM:
+                startSequence(SND_PIG_ALARM);
+                break;
+            case PIG_GRUNT:
+                startSequence(SND_PIG_GRUNT);
+                break;
+            case PIG_RAVEN:
+                startSequence(SND_PIG_RAVEN);
                 break;
             default:
                 break;

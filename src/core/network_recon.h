@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <esp_wifi.h>
 #include <vector>
+#include "../defense/attack_detect.h"
 
 // Maximum networks to track
 #define MAX_RECON_NETWORKS 200
@@ -198,6 +199,39 @@ using PacketCallback = void(*)(const wifi_promiscuous_pkt_t* pkt, wifi_promiscuo
  * Pass nullptr to clear callback
  */
 void setPacketCallback(PacketCallback callback);
+
+/**
+ * @brief Drain queued Flock/Raven detections and fire the alarm + SD log.
+ *
+ * Must be called every frame from the global app loop (main.cpp loop()), NOT
+ * only from update(): update() early-returns when NetworkRecon is paused, which
+ * left passive modes like DO NO HAM silent. This runs mode-independently so the
+ * pig alarm + flock.csv log fire in DNH / OINK / SPECTRUM / WARHOG alike.
+ * Cheap when there is nothing to drain.
+ */
+void serviceFlockAlerts();
+
+/**
+ * @brief SQUEAL ALERT accessors — the passive 802.11 attack monitor fed by the
+ * shared promiscuous path. Per-second stats + the latest crossed threshold, for
+ * GUARD HOG's fused watch face. clearLastAttack() acks the sticky flag.
+ */
+const attackdet::AttackStats& getAttackStats();
+attackdet::AttackType getLastAttack();
+void clearLastAttack();
+
+/** FAKE BACON: running count of distinct evil-twin SSIDs flagged this session. */
+uint8_t getEvilTwinCount();
+
+/** Count of unique Flock/Raven devices alerted this session (for GUARD HOG). */
+uint32_t getFlockAlertCount();
+
+/**
+ * @brief Run flock + attack + evil-twin inspection on one raw 802.11 frame,
+ * without the full network-tracking engine. For GUARD HOG's own passive
+ * promiscuous slice (it owns the radio while NetworkRecon is stopped).
+ */
+void inspectDefenseFrame(const uint8_t* payload, uint16_t len, int8_t rssi, uint8_t channel);
 
 /**
  * @brief New network discovery callback type

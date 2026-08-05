@@ -41,6 +41,19 @@ int Mood::momentumBoost = 0;
 uint32_t Mood::lastBoostTime = 0;
 static int lastEffectiveHappiness = 50;
 
+// ===== GUARD HOG "life" economy (named tuning constants) =====
+// The pig's happiness is its life bar and decays -1 every phraseInterval (5s) =
+// -12/min in quiet modes. On GUARD HOG guard duty we want IDLE ~= break-even and
+// a CATCH to visibly fatten him.
+//   - On-duty decay is reduced: decay only fires every Nth 5s cycle in GUARD HOG
+//     -> -1 per 15s = -4/min. Paired with the +1/rotation vigilance trickle in
+//     guardhog.cpp (~+3.53/min over a 17s BLE<->WiFi rotation) the idle net is
+//     ~-0.47/min: a hair below zero, never a free gain.
+//   - Each confirmed catch adds GH_CATCH_HAPPINESS (a clear jump), on top of the
+//     XP award at the call site.
+static const uint8_t GH_ONDUTY_DECAY_DIVISOR = 3;   // 1 = full rate; 3 = 1/3 rate on guard duty
+static const int     GH_CATCH_HAPPINESS      = 8;   // mood jump per dedup'd defensive catch
+
 // Phrase queue for chaining (4 slots for 5-line riddles)
 char Mood::phraseQueue[4][40] = {{0}, {0}, {0}, {0}};
 uint8_t Mood::phraseQueueCount = 0;
@@ -1430,8 +1443,17 @@ void Mood::update() {
 
     // Natural happiness decay
     if (now - lastPhraseChange > phraseInterval) {
-        happiness = constrain(happiness - 1, -100, 100);
-        
+        // On GUARD HOG guard duty the pig starves slower (reduced on-duty decay):
+        // the -1 only lands every GH_ONDUTY_DECAY_DIVISOR-th cycle. Paired with
+        // GUARD HOG's per-rotation vigilance trickle, idle nets ~break-even.
+        bool decayThisCycle = true;
+        if (porkchop.getMode() == PorkchopMode::GUARDHOG_MODE) {
+            static uint8_t guardDecayTick = 0;
+            if (++guardDecayTick < GH_ONDUTY_DECAY_DIVISOR) decayThisCycle = false;
+            else guardDecayTick = 0;
+        }
+        if (decayThisCycle) happiness = constrain(happiness - 1, -100, 100);
+
         // Skip automatic phrase selection if dialogue is locked (BLE sync in progress)
         // This prevents mood phrases from overwriting Papa/Son dialogue
         if (!dialogueLocked) {
@@ -2930,6 +2952,17 @@ void Mood::onDeauthSuccess(const uint8_t* clientMac) {
     SFX::play(SFX::DEAUTH);
     
     // Force mood peek to show emotional reaction
+    forceMoodPeek();
+}
+
+// DEFENSIVE SUITE: a confirmed, dedup'd catch (tracker / camera / evil-twin /
+// attack / drone / flipper / SPOOKED). Fattens the pig up — a clear happiness
+// jump + a burst of excitement. XP is awarded separately at the call site.
+void Mood::onDefensiveCatch() {
+    lastActivityTime = millis();
+    happiness = constrain(happiness + GH_CATCH_HAPPINESS, -100, 100);
+    applyMomentumBoost(25);   // caught something — visible excitement
+    Avatar::sniff();
     forceMoodPeek();
 }
 

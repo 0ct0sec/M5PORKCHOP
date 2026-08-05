@@ -253,6 +253,11 @@ void loop() {
     // Update main controller (handles modes, input, state)
     porkchop.update();
 
+    // Fire Flock/Raven alarms mode-independently. Kept OUT of NetworkRecon::
+    // update() on purpose: that early-returns when recon is paused, which is why
+    // DO NO HAM was silent. Runs every frame in every mode; cheap when idle.
+    NetworkRecon::serviceFlockAlerts();
+
     // Update display
     Display::update();
 

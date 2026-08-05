@@ -58,6 +58,13 @@ enum class XPEvent : uint8_t {
     SMOKED_BACON            // +15 XP - rare upload bonus
 };
 
+// DEFENSIVE SUITE (GUARD HOG etc.) XP per dedup'd catch. Named for easy retuning.
+// Sized to the existing XPEvent economy (DEAUTH_SUCCESS/BOAR_BRO_MERCY = 15) so a
+// handful of catches visibly fattens the bar but it's not trivially farmable
+// (dedup is per device at each detector; sustained floods are cooldown-gated).
+static const uint16_t XP_DEFENSE_HIT     = 15;  // one confirmed catch (tracker/cam/twin/attack/drone/flipper)
+static const uint16_t XP_DEFENSE_SPOOKED = 30;  // entering SPOOKED (two radios agree = a real threat)
+
 // Achievement bitflags (uint64_t for 60 achievements)
 enum PorkAchievement : uint64_t {
     ACH_NONE            = 0,

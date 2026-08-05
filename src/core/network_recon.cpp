@@ -13,6 +13,25 @@
 #include <esp_heap_caps.h>
 #include <NimBLEDevice.h>
 #include <atomic>
+#include <SD.h>
+#include "sd_layout.h"
+#include "flock_detect.h"
+#include "flock_log.h"
+#include "../defense/attack_detect.h"
+#include "../defense/eviltwin_detect.h"
+#include "xp.h"
+#include "../piglet/mood.h"
+#include "../gps/gps.h"
+#include "../audio/sfx.h"
+#include "../ui/display.h"
+
+// Serial-print the flock pipeline counters (match/enqueue/drain/alert) from
+// serviceFlockAlerts() for bring-up. Off by default now DNH is confirmed;
+// flip to 1 to diagnose a silent detector. The atomic counters themselves stay
+// live (they're cheap) so GUARD HOG and future diagnostics can read them.
+#ifndef FLOCK_DEBUG_COUNTERS
+#define FLOCK_DEBUG_COUNTERS 0
+#endif
 
 namespace NetworkRecon {
 
@@ -100,6 +119,168 @@ static std::atomic<uint8_t> pendingSsidWrite{0};
 
 static std::atomic<PacketCallback> modeCallback{nullptr};
 static NewNetworkCallback newNetworkCallback = nullptr;
+
+// ============================================================================
+// FLOCK DETECTION (passive counter-surveillance)
+// Runs on every promiscuous frame while any passive mode (DO NO HAM / OINK /
+// SPECTRUM) is active. Detection is cheap and done in the packet callback;
+// the siren + GPS-tagged SD log are deferred to update() (main-loop context)
+// via a lock-free ring buffer, mirroring the pendingNetworks pattern.
+// ============================================================================
+static flockdet::FlockDetect g_flockDet;
+
+// SQUEAL ALERT — passive 802.11 attack monitor, fed from promiscuousCallback,
+// rolled + alerted from serviceFlockAlerts() on the main loop.
+static attackdet::AttackMonitor g_attackMon;
+static attackdet::AttackType    g_lastAttack = attackdet::AttackType::None;
+static uint32_t                 g_lastAttackAlertMs = 0;
+
+// FAKE BACON — evil-twin monitor. Fed a compact AP observation per newly-seen
+// beacon via a lock-free ring (callback-safe); the table logic + alert run on
+// the main loop in serviceFlockAlerts().
+static eviltwin::EvilTwinMonitor g_evilTwin;
+struct ApObs { char ssid[33]; uint8_t bssid[6]; uint8_t open; };
+static const uint8_t AP_OBS_SLOTS = 8;
+static ApObs apObsRing[AP_OBS_SLOTS];
+static std::atomic<uint8_t> apObsWrite{0};
+static std::atomic<uint8_t> apObsRead{0};
+static uint8_t g_evilTwinCount = 0;
+
+// callback-safe: copy an AP observation into the ring (no alloc/IO)
+static inline void enqueueApObs(const char* ssid, const uint8_t* bssid, bool open) {
+    if (!ssid || ssid[0] == '\0') return;   // skip hidden
+    uint8_t w = apObsWrite.load(std::memory_order_relaxed);
+    uint8_t nxt = (uint8_t)((w + 1) % AP_OBS_SLOTS);
+    if (nxt == apObsRead.load(std::memory_order_acquire)) return;  // full: drop
+    strncpy(apObsRing[w].ssid, ssid, 32);
+    apObsRing[w].ssid[32] = '\0';
+    memcpy(apObsRing[w].bssid, bssid, 6);
+    apObsRing[w].open = open ? 1 : 0;
+    apObsWrite.store(nxt, std::memory_order_release);
+}
+
+struct FlockHitRec {
+    uint8_t     mac[6];
+    int8_t      rssi;
+    uint8_t     channel;
+    uint8_t     kind;        // flockdet::DeviceKind
+    uint8_t     confidence;  // flockdet::Confidence
+    const char* reason;
+};
+static const uint8_t FLOCK_HIT_SLOTS = 8;
+static FlockHitRec flockHits[FLOCK_HIT_SLOTS];
+static std::atomic<uint8_t> flockHitWrite{0};
+static std::atomic<uint8_t> flockHitRead{0};
+
+static const uint8_t FLOCK_SEEN_MAX = 64;
+static uint8_t flockSeen[FLOCK_SEEN_MAX][6];
+static uint8_t flockSeenCount = 0;
+static char flockCsvFilename[128] = {0};
+
+// [TEMP DEBUG — strip once DNH confirmed] counters to prove enqueue vs drain.
+// enqueue climbs but drain stays 0  => drain path never runs in this mode.
+// enqueue stays 0                   => frames never match (detection/frame path).
+static std::atomic<uint32_t> flockMatchCount{0};    // inspectWifiFrame().hit()
+static std::atomic<uint32_t> flockEnqueueCount{0};  // successfully rang the buffer
+static std::atomic<uint32_t> flockDrainCount{0};    // dequeued in main loop
+static std::atomic<uint32_t> flockAlertCount{0};    // passed dedup -> siren+log
+
+// callback-safe: copy hit into ring buffer, no allocation/IO
+static inline void enqueueFlockHit(const flockdet::Detection& d) {
+    uint8_t w = flockHitWrite.load(std::memory_order_relaxed);
+    uint8_t nxt = (uint8_t)((w + 1) % FLOCK_HIT_SLOTS);
+    if (nxt == flockHitRead.load(std::memory_order_acquire)) return; // full: drop
+    flockEnqueueCount.fetch_add(1, std::memory_order_relaxed);
+    FlockHitRec& r = flockHits[w];
+    memcpy(r.mac, d.mac, 6);
+    r.rssi = d.rssi;
+    r.channel = d.channel;
+    r.kind = (uint8_t)d.kind;
+    r.confidence = (uint8_t)d.confidence;
+    r.reason = d.reason;
+    flockHitWrite.store(nxt, std::memory_order_release);
+}
+
+static bool flockAlreadySeen(const uint8_t* mac) {
+    for (uint8_t i = 0; i < flockSeenCount; i++)
+        if (memcmp(flockSeen[i], mac, 6) == 0) return true;
+    return false;
+}
+static void flockMarkSeen(const uint8_t* mac) {
+    if (flockSeenCount < FLOCK_SEEN_MAX) memcpy(flockSeen[flockSeenCount++], mac, 6);
+}
+
+static bool ensureFlockFile() {
+    if (flockCsvFilename[0] != '\0') return true;
+    const char* dir = SDLayout::wardrivingDir();
+    if (!SD.exists(dir)) { if (!SD.mkdir(dir)) return false; }
+    GPSData g = GPS::getData();
+    if (g.date > 0 && g.time > 0) {
+        uint8_t day=g.date/10000, mon=(g.date/100)%100, yr=g.date%100;
+        uint8_t hh=g.time/1000000, mm=(g.time/10000)%100, ss=(g.time/100)%100;
+        snprintf(flockCsvFilename, sizeof(flockCsvFilename),
+                 "%s/flock_20%02d%02d%02d_%02d%02d%02d.csv", dir, yr,mon,day,hh,mm,ss);
+    } else {
+        snprintf(flockCsvFilename, sizeof(flockCsvFilename),
+                 "%s/flock_%lu.csv", dir, (unsigned long)millis());
+    }
+    File f = SD.open(flockCsvFilename, FILE_WRITE);
+    if (!f) { flockCsvFilename[0] = '\0'; return false; }
+    f.print(flockdet::flockCsvHeader());
+    f.close();
+    return true;
+}
+
+// main-loop context: de-dup, siren, GPS-tag, SD log for new hits
+static void drainFlockHits() {
+    while (flockHitRead.load(std::memory_order_relaxed) !=
+           flockHitWrite.load(std::memory_order_acquire)) {
+        uint8_t r = flockHitRead.load(std::memory_order_relaxed);
+        FlockHitRec rec = flockHits[r];
+        flockHitRead.store((uint8_t)((r + 1) % FLOCK_HIT_SLOTS), std::memory_order_release);
+        flockDrainCount.fetch_add(1, std::memory_order_relaxed);
+
+        if (flockAlreadySeen(rec.mac)) continue;   // one alert per device per session
+        flockMarkSeen(rec.mac);
+        flockAlertCount.fetch_add(1, std::memory_order_relaxed);
+
+        bool raven = (rec.kind == (uint8_t)flockdet::DeviceKind::RavenDetector);
+        Display::showToast(raven ? "RAVEN NEARBY" : "FLOCK CAM NEAR");
+        SFX::play(raven ? SFX::PIG_RAVEN : SFX::PIG_ALARM);
+        // DEFENSIVE catch: a new camera/Raven (deduped per MAC above) — XP + fatten.
+        XP::addXP(XP_DEFENSE_HIT);
+        Mood::onDefensiveCatch();
+
+        if (Config::isSDAvailable() && ensureFlockFile()) {
+            flockdet::Detection d;
+            d.kind = (flockdet::DeviceKind)rec.kind;
+            d.confidence = (flockdet::Confidence)rec.confidence;
+            memcpy(d.mac, rec.mac, 6);
+            d.rssi = rec.rssi; d.channel = rec.channel; d.reason = rec.reason;
+
+            flockdet::GpsFix fix;
+            GPSData g = GPS::getData();
+            if (g.latitude != 0.0 || g.longitude != 0.0) {
+                fix.lat = g.latitude; fix.lon = g.longitude;
+                fix.altM = (float)g.altitude;
+                fix.accM = (float)(g.hdop > 0 ? g.hdop * 5.0 : 10.0);
+                if (g.date > 0 && g.time > 0) {
+                    uint8_t day=g.date/10000, mon=(g.date/100)%100, yr=g.date%100;
+                    uint8_t hh=g.time/1000000, mm=(g.time/10000)%100, ss=(g.time/100)%100;
+                    snprintf(fix.utc, sizeof(fix.utc), "20%02d-%02d-%02dT%02d:%02d:%02dZ",
+                             yr,mon,day,hh,mm,ss);
+                    fix.valid = true;
+                }
+            }
+            char line[192];
+            int n = flockdet::flockCsvRow(line, sizeof(line), d, fix);
+            if (n > 0) {
+                File f = SD.open(flockCsvFilename, FILE_APPEND);
+                if (f) { f.print(line); f.close(); }
+            }
+        }
+    }
+}
 
 // ============================================================================
 // Internal Functions
@@ -413,7 +594,13 @@ static void processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) {
         if (net.channel == 0) {
             net.channel = currentChannel;
         }
-        
+
+        // FAKE BACON: feed the evil-twin monitor one observation per new AP.
+        // We have a fully-parsed SSID + BSSID + auth here.
+        if (!net.isHidden) {
+            enqueueApObs(net.ssid, net.bssid, net.authmode == WIFI_AUTH_OPEN);
+        }
+
         // Queue for deferred add
         enqueuePendingNetwork(net);
     } else {
@@ -600,7 +787,23 @@ static void promiscuousCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
     packetCount.fetch_add(1, std::memory_order_relaxed);
     
     const uint8_t* payload = pkt->payload;
+    uint8_t frameType    = (payload[0] >> 2) & 0x03;
     uint8_t frameSubtype = (payload[0] >> 4) & 0x0F;
+
+    // Passive Flock/Raven detection on every frame (cheap OUI check; siren and
+    // SD logging are deferred to drainFlockHits() in update()).
+    {
+        flockdet::Detection fd = g_flockDet.inspectWifiFrame(payload, len, rssi, currentChannel);
+        if (fd.hit()) {
+            flockMatchCount.fetch_add(1, std::memory_order_relaxed);
+            enqueueFlockHit(fd);
+        }
+    }
+
+    // SQUEAL ALERT: passive 802.11 attack counters (deauth/disassoc/beacon/probe
+    // floods). addr2 (payload+10) is the transmitter. Per-second roll-up + alert
+    // happen in serviceFlockAlerts() on the main loop.
+    g_attackMon.onFrame(frameType, frameSubtype, (len >= 16) ? payload + 10 : nullptr);
     
     // Basic network tracking (always happens)
     switch (type) {
@@ -924,7 +1127,13 @@ void update() {
     
     // Process deferred events from callback
     processDeferredEvents();
-    
+
+    // NOTE: Flock hits are NOT drained here anymore. This update() early-returns
+    // whenever NetworkRecon is paused (e.g. WARHOG's active-scan slice) and is
+    // tied to NetworkRecon's lifecycle, which left DO NO HAM silent. The drain
+    // now runs unconditionally from the global app loop via serviceFlockAlerts()
+    // so the siren fires in every sniffing mode.
+
     // Channel hopping
     uint32_t hopInterval = getHopIntervalMsInternal();
     if (!channelLocked.load(std::memory_order_acquire) && now - lastHopTime > hopInterval) {
@@ -1092,6 +1301,147 @@ void setChannel(uint8_t channel) {
     if (channel < 1 || channel > 14) return;
     currentChannel = channel;
     esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+}
+
+// Drain any Flock/Raven hits and fire the alarm + SD log. Called every frame
+// from the global app loop so it runs in EVERY mode, independent of whether
+// NetworkRecon::update() ran (it early-returns when paused). Cheap when idle:
+// a single relaxed atomic compare when the ring is empty.
+void serviceFlockAlerts() {
+    drainFlockHits();
+
+    // SQUEAL ALERT: roll the attack window and squeal (rate-limited) when the
+    // air turns hostile. Mode-independent, same as the flock drain.
+    uint32_t nowA = millis();
+    attackdet::AttackType atk = g_attackMon.tick(nowA);
+    if (atk != attackdet::AttackType::None) {
+        g_lastAttack = atk;
+        if (nowA - g_lastAttackAlertMs >= 5000) {   // don't squeal every second
+            g_lastAttackAlertMs = nowA;
+            const attackdet::AttackStats& s = g_attackMon.stats();
+            char toast[64];
+            snprintf(toast, sizeof(toast), "SQUEAL: %s\n%02X%02X d%u b%u",
+                     attackdet::attackLabel(atk), s.lastBssid[4], s.lastBssid[5],
+                     (unsigned)s.deauthPerSec, (unsigned)s.beaconPerSec);
+            Display::showToast(toast);
+            SFX::play(SFX::PIG_SQUEAL);
+            // DEFENSIVE catch: an active attack. Gated by a longer cooldown so a
+            // sustained flood can't farm XP (there's no per-device dedup for a
+            // flood). ATTACK_XP_COOLDOWN_MS is separate from the 5s toast gate.
+            static const uint32_t ATTACK_XP_COOLDOWN_MS = 30000;
+            static uint32_t lastAttackXpMs = 0;
+            if (lastAttackXpMs == 0 || nowA - lastAttackXpMs >= ATTACK_XP_COOLDOWN_MS) {
+                lastAttackXpMs = nowA;
+                XP::addXP(XP_DEFENSE_HIT);
+                Mood::onDefensiveCatch();
+            }
+        }
+    }
+
+    // FAKE BACON: drain AP observations and flag evil twins (security-mismatch
+    // clones of a known SSID). Table + alert live here on the main loop.
+    while (apObsRead.load(std::memory_order_relaxed) != apObsWrite.load(std::memory_order_acquire)) {
+        uint8_t r = apObsRead.load(std::memory_order_relaxed);
+        ApObs obs = apObsRing[r];
+        apObsRead.store((uint8_t)((r + 1) % AP_OBS_SLOTS), std::memory_order_release);
+
+        eviltwin::TwinHit twin;
+        eviltwin::Sec sec = obs.open ? eviltwin::Sec::Open : eviltwin::Sec::Encrypted;
+        if (g_evilTwin.observe(obs.ssid, obs.bssid, sec, twin)) {
+            g_evilTwinCount = g_evilTwin.twinCount();
+            char toast[80];
+            snprintf(toast, sizeof(toast), "FAKE BACON!\n%s NOW %s\n%02X%02X vs %02X%02X",
+                     twin.ssid, twin.impostorSec == eviltwin::Sec::Open ? "OPEN" : "ENC",
+                     twin.baselineBssid[4], twin.baselineBssid[5],
+                     twin.impostorBssid[4], twin.impostorBssid[5]);
+            Display::showToast(toast);
+            SFX::play(SFX::PIG_ALARM);
+            // DEFENSIVE catch: a new evil twin (flagged once per SSID) — XP + fatten.
+            XP::addXP(XP_DEFENSE_HIT);
+            Mood::onDefensiveCatch();
+        }
+    }
+
+#if FLOCK_DEBUG_COUNTERS
+    // [TEMP DEBUG — strip once DNH confirmed] print the pipeline counters ~3s,
+    // and only when something changed, so the log isn't spammed.
+    static uint32_t lastPrint = 0;
+    static uint32_t lastMatch = 0, lastEnq = 0, lastDrain = 0, lastAlert = 0;
+    uint32_t now = millis();
+    if (now - lastPrint >= 3000) {
+        uint32_t m = flockMatchCount.load(std::memory_order_relaxed);
+        uint32_t e = flockEnqueueCount.load(std::memory_order_relaxed);
+        uint32_t d = flockDrainCount.load(std::memory_order_relaxed);
+        uint32_t a = flockAlertCount.load(std::memory_order_relaxed);
+        if (m != lastMatch || e != lastEnq || d != lastDrain || a != lastAlert) {
+            Serial.printf("[FLOCK-DBG] match=%u enqueue=%u drain=%u alert=%u recon=%d/%s pkts=%u\n",
+                          m, e, d, a, (int)running, paused ? "paused" : "run",
+                          (unsigned)packetCount.load(std::memory_order_relaxed));
+            lastMatch = m; lastEnq = e; lastDrain = d; lastAlert = a;
+        }
+        lastPrint = now;
+    }
+#endif
+}
+
+const attackdet::AttackStats& getAttackStats() {
+    return g_attackMon.stats();
+}
+
+attackdet::AttackType getLastAttack() {
+    return g_lastAttack;
+}
+
+void clearLastAttack() {
+    g_lastAttack = attackdet::AttackType::None;
+}
+
+uint8_t getEvilTwinCount() {
+    return g_evilTwinCount;
+}
+
+uint32_t getFlockAlertCount() {
+    return flockAlertCount.load(std::memory_order_relaxed);
+}
+
+// Run the passive defensive inspectors (flock + attack + evil-twin) on one raw
+// 802.11 frame, WITHOUT the full NetworkRecon network-tracking engine. GUARD HOG
+// calls this from its own short promiscuous slice so the WiFi-radio detectors
+// contribute to the fused score without tearing BLE down. Feeds the same static
+// monitors + rings that serviceFlockAlerts() drains on the main loop.
+void inspectDefenseFrame(const uint8_t* payload, uint16_t len, int8_t rssi, uint8_t channel) {
+    if (!payload || len < 24) return;
+    uint8_t fType = (payload[0] >> 2) & 0x03;
+    uint8_t fSub  = (payload[0] >> 4) & 0x0F;
+
+    flockdet::Detection fd = g_flockDet.inspectWifiFrame(payload, len, rssi, channel);
+    if (fd.hit()) {
+        flockMatchCount.fetch_add(1, std::memory_order_relaxed);
+        enqueueFlockHit(fd);
+    }
+
+    g_attackMon.onFrame(fType, fSub, (len >= 16) ? payload + 10 : nullptr);
+
+    // Beacon -> evil-twin. Use the capability privacy bit as the open/encrypted
+    // proxy (bit 4 of the capabilities field at body offset +10).
+    if (fType == 0 && fSub == 0x08 && len >= 38) {
+        const uint8_t* bssid = payload + 16;
+        uint16_t caps = (uint16_t)payload[34] | ((uint16_t)payload[35] << 8);
+        bool open = (caps & 0x0010) == 0;
+        char ssid[33] = {0};
+        uint16_t off = 36;
+        while (off + 2 <= len) {
+            uint8_t id = payload[off];
+            uint8_t ieLen = payload[off + 1];
+            if ((uint32_t)off + 2 + ieLen > len) break;
+            if (id == 0) {
+                if (ieLen > 0 && ieLen <= 32) { memcpy(ssid, payload + off + 2, ieLen); ssid[ieLen] = 0; }
+                break;
+            }
+            off += 2 + ieLen;
+        }
+        if (ssid[0]) enqueueApObs(ssid, bssid, open);
+    }
 }
 
 void setPacketCallback(PacketCallback callback) {
