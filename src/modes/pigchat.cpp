@@ -396,25 +396,26 @@ void PigChatMode::draw(M5Canvas& canvas) {
                 canvas.drawString(line, 4, 18 + i * 13);
             }
         }
-        canvas.drawString("[;/.] SELECT  [ENTER] CHAT", 4, 102);
+        canvas.drawString("[;/.] SELECT  [ENTER] CHAT", 4, 94);
         return;
     }
 
     char header[40];
     snprintf(header, sizeof(header), "PIGCHAT > %s", remoteName[0] ? remoteName : "PIG");
     canvas.drawString(header, 4, 2);
-    uint8_t visible = min<uint8_t>(historyCount, 5);
+    // MAIN_H is 107 px; reserve the bottom 28 px for editor + help.
+    uint8_t visible = min<uint8_t>(historyCount, 4);
     uint8_t first = historyCount - visible;
     for (uint8_t i = 0; i < visible; i++) {
         const HistoryEntry& entry = history[(historyStart + first + i) % HISTORY_SIZE];
         char line[42];
         snprintf(line, sizeof(line), "%s %.32s%s", entry.mine ? "ME>" : "PG>", entry.text,
                  entry.mine ? (entry.delivered ? " +" : " ...") : "");
-        canvas.drawString(line, 4, 16 + i * 14);
+        canvas.drawString(line, 4, 15 + i * 13);
     }
-    canvas.drawRect(2, 88, canvas.width() - 4, 18, COLOR_FG);
+    canvas.drawRect(2, 76, canvas.width() - 4, 18, COLOR_FG);
     char edit[42];
     snprintf(edit, sizeof(edit), "> %.34s", input);
-    canvas.drawString(edit, 5, 92);
-    canvas.drawString("ENTER SEND  DEL ERASE  ESC EXIT", 4, 108);
+    canvas.drawString(edit, 5, 80);
+    canvas.drawString("ENTER SEND  DEL ERASE  ESC EXIT", 4, 96);
 }
