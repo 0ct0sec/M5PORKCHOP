@@ -23,6 +23,8 @@
 #include "../modes/piggy_blues.h"
 #include "../modes/spectrum.h"
 #include "../modes/pigsync_mode.h"
+#include "../modes/pigsync_server.h"
+#include "../modes/pigchat.h"
 #include "../modes/pigsync_protocol.h"
 #include "../modes/bacon.h"
 #include "../modes/charging.h"
@@ -339,6 +341,12 @@ void Display::update() {
         case PorkchopMode::PIGSYNC_DEVICE_SELECT:
             // Draw device selection menu
             drawPigSyncDeviceSelect(mainCanvas);
+            break;
+        case PorkchopMode::PIGSYNC_SERVER:
+            PigSyncServerMode::draw(mainCanvas);
+            break;
+        case PorkchopMode::PIGCHAT:
+            PigChatMode::draw(mainCanvas);
             break;
 
             

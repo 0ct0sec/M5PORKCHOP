@@ -87,6 +87,16 @@ static const char* const H_SYNC[] = {
     "IF IT FAILS - DNS DID IT.",
     "SERIAL OUTPUT. CRY FOR HELP @115200."
 };
+static const char* const H_SIRLOIN[] = {
+    "BECOME THE SON. ANSWER THE PHONE.",
+    "LISTEN ON ONE. TALK ENCRYPTED.",
+    "POPS FINALLY GETS A RESPONSE."
+};
+static const char* const H_PIGCHAT[] = {
+    "ENCRYPTED OINKS. HUMAN TYPING.",
+    "LOCAL CHAT. NO CLOUD. ALL PIG.",
+    "KEYS CLACK. ESP-NOW TALKS."
+};
 static const char* const H_BACONTX[] = {
     "BEACON THE BLOCK. BLAME 'RF NOISE'.",
     "SOME CHAOS REQUIRED.",
@@ -190,6 +200,8 @@ const uint8_t Menu::GROUP_LOOT_SIZE = sizeof(GROUP_LOOT) / sizeof(GROUP_LOOT[0])
 // Group: COMMS - external communication
 const MenuItem Menu::GROUP_COMMS[] = {
     {"@)", "PIGSYNC",    16, H_SYNC,    (uint8_t)(sizeof(H_SYNC)/sizeof(H_SYNC[0]))},
+    {"S)", "SIRLOIN",    23, H_SIRLOIN, (uint8_t)(sizeof(H_SIRLOIN)/sizeof(H_SIRLOIN[0]))},
+    {"PC", "PIGCHAT",    24, H_PIGCHAT, (uint8_t)(sizeof(H_PIGCHAT)/sizeof(H_PIGCHAT[0]))},
     {"))", "BACONTX", 18, H_BACONTX, (uint8_t)(sizeof(H_BACONTX)/sizeof(H_BACONTX[0]))},
     {"FX", "TRANSFR",    3,  H_XFIL,    (uint8_t)(sizeof(H_XFIL)/sizeof(H_XFIL[0]))},
     {"5G", "JANUSHG",   22, H_JANUS,   (uint8_t)(sizeof(H_JANUS)/sizeof(H_JANUS[0]))}

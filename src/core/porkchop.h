@@ -32,6 +32,8 @@ enum class PorkchopMode : uint8_t {
     JANUS_HOG_MODE = 22,   // Janus Hog (ESP32-C5) UART coprocessor status
     SD_FORMAT = 23,        // SD card format utility
     CHARGING = 24,         // Low power charging mode
+    PIGSYNC_SERVER = 25,   // Sirloin-compatible PigSync responder
+    PIGCHAT = 26,          // Encrypted peer-to-peer ESP-NOW chat
 
     // Legacy aliases (deprecated; remove in v0.2.0)
     CAPTURES = HASHES,

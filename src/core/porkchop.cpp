@@ -24,6 +24,8 @@
 #include "../modes/piggy_blues.h"
 #include "../modes/spectrum.h"
 #include "../modes/pigsync_mode.h"
+#include "../modes/pigsync_server.h"
+#include "../modes/pigchat.h"
 #include "../modes/bacon.h"
 #include "janus_hog.h"
 #include "../modes/charging.h"
@@ -64,6 +66,8 @@ static const char* modeToString(PorkchopMode mode) {
         case PorkchopMode::UNLOCKABLES: return "UNLOCKABLES";
         case PorkchopMode::BOUNTY: return "BOUNTY";
         case PorkchopMode::PIGSYNC_DEVICE_SELECT: return "PIGSYNC_DEVICE_SELECT";
+        case PorkchopMode::PIGSYNC_SERVER: return "PIGSYNC_SERVER";
+        case PorkchopMode::PIGCHAT: return "PIGCHAT";
         case PorkchopMode::BACON_MODE: return "BACON";
         case PorkchopMode::JANUS_HOG_MODE: return "JANUS_HOG";
         case PorkchopMode::SD_FORMAT: return "SD_FORMAT";
@@ -231,6 +235,8 @@ void Porkchop::init() {
             case 20: setMode(PorkchopMode::SD_FORMAT); break;
             case 21: setMode(PorkchopMode::CHARGING); break;
             case 22: setMode(PorkchopMode::JANUS_HOG_MODE); break;
+            case 23: setMode(PorkchopMode::PIGSYNC_SERVER); break;
+            case 24: setMode(PorkchopMode::PIGCHAT); break;
         }
     });
 
@@ -414,6 +420,12 @@ void Porkchop::setMode(PorkchopMode mode) {
             PigSyncMode::stopDiscovery();
             PigSyncMode::stop();
             break;
+        case PorkchopMode::PIGSYNC_SERVER:
+            PigSyncServerMode::stop();
+            break;
+        case PorkchopMode::PIGCHAT:
+            PigChatMode::stop();
+            break;
         case PorkchopMode::BACON_MODE:
             BaconMode::stop();
             break;
@@ -541,6 +553,16 @@ void Porkchop::setMode(PorkchopMode mode) {
             SDLog::log("PORK", "Mode: PIGSYNC Device Select");
             PigSyncMode::start();
             PigSyncMode::startDiscovery();
+            break;
+        case PorkchopMode::PIGSYNC_SERVER:
+            Avatar::setState(AvatarState::EXCITED);
+            SDLog::log("PORK", "Mode: PIGSYNC Sirloin Server");
+            PigSyncServerMode::start();
+            break;
+        case PorkchopMode::PIGCHAT:
+            Avatar::setState(AvatarState::HAPPY);
+            SDLog::log("PORK", "Mode: PIGCHAT");
+            PigChatMode::start();
             break;
         case PorkchopMode::BACON_MODE:
             Avatar::setState(AvatarState::HAPPY);
@@ -687,6 +709,12 @@ void Porkchop::handleInput() {
     // ESC to return to IDLE from any active mode
     if (escPressed && currentMode != PorkchopMode::IDLE) {
         setMode(PorkchopMode::IDLE);
+        return;
+    }
+
+    // PigChat owns the full keyboard (including global shortcut letters).
+    // Its update() consumes the current key state after this input pass.
+    if (currentMode == PorkchopMode::PIGCHAT) {
         return;
     }
     
@@ -1054,6 +1082,12 @@ void Porkchop::updateMode() {
             }
             break;
         }
+        case PorkchopMode::PIGSYNC_SERVER:
+            PigSyncServerMode::update();
+            break;
+        case PorkchopMode::PIGCHAT:
+            PigChatMode::update();
+            break;
         case PorkchopMode::CHARGING:
             ChargingMode::update();
             if (ChargingMode::shouldExit()) {
