@@ -782,9 +782,21 @@ void init() {
 void start() {
     if (!initialized) init();
 
-    // Re-reserve if freeNetworks() dropped capacity to 0
+    // Re-reserve if freeNetworks() dropped capacity to 0.
+    // CRITICAL: reserve(MAX_RECON_NETWORKS) wants ~19KB CONTIGUOUS. With exceptions
+    // disabled, a failed vector allocation calls abort() (hard reset). After a TLS
+    // sync freed/restored the 26KB canvas, the largest block can be < 19KB, so
+    // scale the reserve to what actually fits. A smaller cap just tracks fewer
+    // networks until the next start() re-reserves against a cleaner heap.
     if (networks.capacity() == 0) {
-        networks.reserve(MAX_RECON_NETWORKS);
+        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        size_t fit = (largest > 4096) ? (largest - 4096) / sizeof(DetectedNetwork) : 0;
+        size_t cap = (fit < MAX_RECON_NETWORKS) ? fit : MAX_RECON_NETWORKS;
+        if (cap > 0) {
+            networks.reserve(cap);
+        }
+        Serial.printf("[RECON] Re-reserved networks cap=%u (largest=%u)\n",
+                      (unsigned)cap, (unsigned)largest);
     }
 
     if (running) {
@@ -909,9 +921,21 @@ void resume() {
 
     Serial.println("[RECON] Resuming promiscuous mode...");
 
-    // Re-reserve if freeNetworks() dropped capacity to 0
+    // Re-reserve if freeNetworks() dropped capacity to 0.
+    // CRITICAL: reserve(MAX_RECON_NETWORKS) wants ~19KB CONTIGUOUS. With exceptions
+    // disabled, a failed vector allocation calls abort() (hard reset). After a TLS
+    // sync freed/restored the 26KB canvas, the largest block can be < 19KB, so
+    // scale the reserve to what actually fits. A smaller cap just tracks fewer
+    // networks until the next start() re-reserves against a cleaner heap.
     if (networks.capacity() == 0) {
-        networks.reserve(MAX_RECON_NETWORKS);
+        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        size_t fit = (largest > 4096) ? (largest - 4096) / sizeof(DetectedNetwork) : 0;
+        size_t cap = (fit < MAX_RECON_NETWORKS) ? fit : MAX_RECON_NETWORKS;
+        if (cap > 0) {
+            networks.reserve(cap);
+        }
+        Serial.printf("[RECON] Re-reserved networks cap=%u (largest=%u)\n",
+                      (unsigned)cap, (unsigned)largest);
     }
 
     // Disconnect from any network before enabling promiscuous mode

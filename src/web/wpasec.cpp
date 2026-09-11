@@ -5,6 +5,7 @@
 #include "../core/sd_layout.h"
 #include "../core/config.h"
 #include "../core/heap_gates.h"
+#include "../core/tls.h"
 #include "../core/wifi_utils.h"
 #include "../core/network_recon.h"
 #include "../piglet/mood.h"
@@ -408,25 +409,12 @@ bool WPASec::uploadSingleCapture(const char* filepath, const char* bssid) {
     client.printf("%s\r\n", disposition);
     client.print("Content-Type: application/octet-stream\r\n\r\n");
     
-    // Stream file in chunks (heap-safe)
+    // Stream the file with heap pacing (shared TLS uploader). On failure it has
+    // already closed the file and stopped the client.
     client.setTimeout(30000);
-    char chunk[256];
-    size_t sent = 0;
-    while (capFile.available() && sent < fileSize && client.connected()) {
-        size_t toRead = min((size_t)sizeof(chunk), fileSize - sent);
-        size_t bytesRead = capFile.read((uint8_t*)chunk, toRead);
-        if (bytesRead > 0) {
-            size_t written = client.write((uint8_t*)chunk, bytesRead);
-            if (written != bytesRead) {
-                capFile.close();
-                snprintf(lastError, sizeof(lastError), "Write failed at %u/%u", (unsigned)sent, (unsigned)fileSize);
-                return false;
-            }
-            sent += bytesRead;
-        }
-        yield();  // Let WiFi stack breathe
+    if (!Tls::streamFile(client, capFile, fileSize, "WPASEC", lastError, sizeof(lastError))) {
+        return false;
     }
-    capFile.close();
 
     if (!client.connected()) {
         snprintf(lastError, sizeof(lastError), "Connection lost during upload");

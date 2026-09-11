@@ -8,6 +8,7 @@
 #include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
+#include <esp_heap_caps.h>
 #include "../core/porkchop.h"
 #include "../core/config.h"
 #include "../core/xp.h"
@@ -165,6 +166,15 @@ static void drawTopBarHeapHealth(M5Canvas& topBar, uint16_t fg, uint16_t bg) {
 M5Canvas Display::topBar(&M5.Display);
 M5Canvas Display::mainCanvas(&M5.Display);
 M5Canvas Display::bottomBar(&M5.Display);
+
+// mainCanvas is backed by this fixed static buffer instead of a heap createSprite().
+// 8bpp (1 byte/px) => DISPLAY_W * MAIN_H bytes. Living in .bss it has a permanent
+// link-time address and never participates in heap fragmentation. It is also lent
+// to mbedTLS as a scratch arena during TLS sync (TlsArena) — safe because the
+// render loop is blocked during the (blocking) sync, so the canvas isn't drawn.
+// 16-byte aligned for multi_heap_register / DMA push.
+static constexpr size_t kMainCanvasBytes = (size_t)DISPLAY_W * MAIN_H;
+alignas(16) static uint8_t s_mainCanvasBuf[kMainCanvasBytes];
 bool Display::gpsStatus = false;
 bool Display::wifiStatus = false;
 bool Display::mlStatus = false;
@@ -232,7 +242,7 @@ void Display::init() {
     topBar.createSprite(DISPLAY_W, TOP_BAR_H);
 
     mainCanvas.setColorDepth(8);
-    mainCanvas.createSprite(DISPLAY_W, MAIN_H);
+    mainCanvas.setBuffer(s_mainCanvasBuf, DISPLAY_W, MAIN_H, 8);
 
     bottomBar.setColorDepth(8);
     bottomBar.createSprite(DISPLAY_W, BOTTOM_BAR_H);
@@ -251,6 +261,9 @@ void Display::init() {
     
     Serial.println("[DISPLAY] Initialized");
 }
+
+uint8_t* Display::mainCanvasBuffer() { return s_mainCanvasBuf; }
+size_t   Display::mainCanvasBufferSize() { return kMainCanvasBytes; }
 
 void Display::update() {
     // Apply any pending top-bar message requests from worker tasks

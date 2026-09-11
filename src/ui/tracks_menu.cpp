@@ -6,6 +6,7 @@
 #include <WiFi.h>
 #include <string.h>
 #include "display.h"
+#include "../core/tls.h"
 #include "../web/wigle.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
@@ -837,9 +838,16 @@ void TracksMenu::processSyncState() {
             {
                 // Run sync (blocking but with progress callback)
                 strncpy(syncStatusText, "SYNCING...", sizeof(syncStatusText) - 1);
-                
+
+                // Lend the idle main-canvas buffer to mbedTLS as its allocation
+                // arena for the blocking sync. The ~16KB TLS IN record buffer comes
+                // from this static buffer instead of the heap, so the handshake fits
+                // without freeing/re-allocating anything (no heap fragmentation).
+                // Safe: the render loop is blocked here, so the canvas isn't drawn.
+                Tls::arenaBegin(Display::mainCanvasBuffer(), Display::mainCanvasBufferSize());
                 WigleSyncResult result = WiGLE::syncFiles(onSyncProgress);
-                
+                Tls::arenaEnd();
+
                 syncUploaded = result.uploaded;
                 syncFailed = result.failed;
                 syncSkipped = result.skipped;

@@ -12,6 +12,7 @@
 #include "../core/config.h"
 #include "../core/sd_layout.h"
 #include "../core/heap_gates.h"
+#include "../core/tls.h"
 #include "../core/wifi_utils.h"
 #include "../core/network_recon.h"
 #include "../core/sdlog.h"
@@ -372,58 +373,12 @@ bool WiGLE::uploadSingleFile(const char* csvPath) {
     // Send multipart body start
     client.print(bodyStart);
     
-    // Stream file in chunks (heap-safe, 2KB for fewer TLS operations)
-    const size_t CHUNK_SIZE = 2048;
-    uint8_t chunk[CHUNK_SIZE];
-    size_t bytesRemaining = fileSize;
-    size_t bytesSent = 0;
-    
-    while (bytesRemaining > 0) {
-        // Verify connection is still alive before each chunk
-        if (!client.connected()) {
-            char tlsErr[64] = {0};
-            int errCode = client.lastError(tlsErr, sizeof(tlsErr) - 1);
-            snprintf(lastError, sizeof(lastError), "CONN LOST @%uB: %d", 
-                     (unsigned int)bytesSent, errCode);
-            Serial.printf("[WIGLE] Connection lost during upload: sent=%u/%u, err=%d (%s)\n",
-                          (unsigned int)bytesSent, (unsigned int)fileSize, errCode, tlsErr);
-            csvFile.close();
-            client.stop();
-            return false;
-        }
-        
-        size_t toRead = (bytesRemaining > CHUNK_SIZE) ? CHUNK_SIZE : bytesRemaining;
-        size_t bytesRead = csvFile.read(chunk, toRead);
-        if (bytesRead == 0) {
-            snprintf(lastError, sizeof(lastError), "SD READ @%uB", (unsigned int)bytesSent);
-            Serial.printf("[WIGLE] SD read failed at offset %u/%u\n", 
-                          (unsigned int)bytesSent, (unsigned int)fileSize);
-            csvFile.close();
-            client.stop();
-            return false;
-        }
-        
-        size_t written = client.write(chunk, bytesRead);
-        if (written != bytesRead) {
-            char tlsErr[64] = {0};
-            int errCode = client.lastError(tlsErr, sizeof(tlsErr) - 1);
-            snprintf(lastError, sizeof(lastError), "TLS WRITE: %d @%uB", 
-                     errCode, (unsigned int)bytesSent);
-            Serial.printf("[WIGLE] TLS write failed: wrote=%u/%u, sent=%u/%u, err=%d (%s), conn=%d\n",
-                          (unsigned int)written, (unsigned int)bytesRead,
-                          (unsigned int)bytesSent, (unsigned int)fileSize,
-                          errCode, tlsErr, client.connected());
-            csvFile.close();
-            client.stop();
-            return false;
-        }
-        
-        bytesSent += bytesRead;
-        bytesRemaining -= bytesRead;
-        yield();  // Let WiFi stack breathe
+    // Stream the file with heap pacing (shared TLS uploader). On failure it has
+    // already closed the file and stopped the client.
+    if (!Tls::streamFile(client, csvFile, fileSize, "WIGLE", lastError, sizeof(lastError))) {
+        return false;
     }
-    csvFile.close();
-    
+
     // Send multipart body end
     client.print(bodyEnd);
     client.flush();

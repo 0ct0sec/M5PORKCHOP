@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <string.h>
 #include "display.h"
+#include "../core/tls.h"
 #include "../web/wpasec.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
@@ -1209,9 +1210,13 @@ void HashesMenu::processSyncState() {
             {
                 // Run sync (blocking but with progress callback)
                 strncpy(syncStatusText, "SYNCING...", sizeof(syncStatusText) - 1);
-                
+
+                // Lend the idle main-canvas buffer to mbedTLS as its allocation
+                // arena for the blocking sync (see tracks_menu for rationale).
+                Tls::arenaBegin(Display::mainCanvasBuffer(), Display::mainCanvasBufferSize());
                 WPASecSyncResult result = WPASec::syncCaptures(onSyncProgress);
-                
+                Tls::arenaEnd();
+
                 syncUploaded = result.uploaded;
                 syncFailed = result.failed;
                 syncCracked = result.cracked;

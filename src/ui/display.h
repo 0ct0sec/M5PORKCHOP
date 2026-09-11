@@ -132,6 +132,15 @@ public:
     static float getShakeDecay();      // 1.0 at start → 0.0 at end
     static uint8_t getShakeIntensity();
 
+    // Temporarily release the main canvas sprite (~26KB) to free heap for
+    // memory-heavy blocking operations (e.g. TLS sync). Caller MUST restore it
+    // before the next render. Safe only while the render loop is blocked.
+    // mainCanvas is backed by a fixed static buffer (never heap-allocated) so it
+    // never fragments the heap. During TLS sync the same buffer is lent to mbedTLS
+    // as a scratch arena (see TlsArena) — these accessors expose it for that.
+    static uint8_t* mainCanvasBuffer();
+    static size_t   mainCanvasBufferSize();
+
 private:
     // Screen shake state
     static bool screenShakeActive;
