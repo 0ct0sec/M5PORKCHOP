@@ -40,6 +40,8 @@ enum SettingId : uint8_t {
     SET_WIGLE_NAME_STATUS,
     SET_WIGLE_TOKEN_STATUS,
     SET_WIGLE_LOAD,
+    SET_WDGWARS_STATUS,
+    SET_WDGWARS_LOAD,
     SET_CH_HOP,
     SET_SPEC_SWEEP,
     SET_SPEC_TILT,
@@ -127,6 +129,8 @@ static const EntryData kIntegEntries[] = {
     {SET_WIGLE_NAME_STATUS, "WGL NAME", SettingType::TEXT, 0, 0, 0, "", "WIGLE.NET API NAME"},
     {SET_WIGLE_TOKEN_STATUS, "WGL TKN", SettingType::TEXT, 0, 0, 0, "", "WIGLE.NET API TOKEN"},
     {SET_WIGLE_LOAD, "WGL LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WIGLE_KEY.TXT (ROOT|M5PORKCHOP)"}
+    ,{SET_WDGWARS_STATUS, "WDG KEY", SettingType::TEXT, 0, 0, 0, "", "WDGWARS.PL API KEY"}
+    ,{SET_WDGWARS_LOAD, "WDG LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WDGWARS_KEY.TXT (ROOT|M5PORKCHOP)"}
 };
 
 static const EntryData kRadioEntries[] = {
@@ -441,6 +445,15 @@ static void getSettingTextBuf(SettingId id, char* out, size_t len) {
             return;
         case SET_WIGLE_TOKEN_STATUS:
             formatWigleTokenStatus(out, len);
+            return;
+        case SET_WDGWARS_STATUS:
+            if (strlen(Config::wifi().wdgWarsApiKey) == 64) {
+                snprintf(out, len, "%.4s...%.4s", Config::wifi().wdgWarsApiKey,
+                         Config::wifi().wdgWarsApiKey + 60);
+            } else {
+                strncpy(out, "[NOT SET]", len - 1);
+                out[len - 1] = '\0';
+            }
             return;
         case SET_CALLSIGN:
             if (!XP::hasUnlockable(2)) {
@@ -1202,6 +1215,17 @@ void SettingsMenu::handleInput() {
                             Display::notify(NoticeKind::WARNING, "NO KEY FILE");
                         } else {
                             Display::notify(NoticeKind::WARNING, "INVALID FORMAT");
+                        }
+                    } else if (entry.id == SET_WDGWARS_LOAD) {
+                        if (Config::loadWdgWarsKeyFromFile()) {
+                            Display::notify(NoticeKind::STATUS, "WDGWARS KEY LOADED");
+                        } else if (!Config::isSDAvailable()) {
+                            Display::notify(NoticeKind::WARNING, "NO SD CARD");
+                        } else if (!SD.exists(SDLayout::wdgWarsKeyPath()) &&
+                                   !SD.exists(SDLayout::legacyWdgWarsKeyPath())) {
+                            Display::notify(NoticeKind::WARNING, "NO KEY FILE");
+                        } else {
+                            Display::notify(NoticeKind::WARNING, "INVALID KEY");
                         }
                     }
                     break;

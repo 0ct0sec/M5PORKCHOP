@@ -101,6 +101,7 @@ struct WiFiConfig {
     char wpaSecKey[33];                 // WPA-SEC.stanev.org user key (32 hex chars)
     char wigleApiName[65];              // WiGLE API Name (from wigle.net/account)
     char wigleApiToken[65];             // WiGLE API Token (from wigle.net/account)
+    char wdgWarsApiKey[65];             // WDGWars 64-character hex API key
 };
 
 // BLE settings for PIGGY BLUES mode
@@ -146,6 +147,7 @@ public:
     static bool reinitSD();  // Try to (re)initialize SD card at runtime
     static bool loadWpaSecKeyFromFile();  // Load key from /m5porkchop/wpa-sec/wpasec_key.txt (legacy /wpasec_key.txt)
     static bool loadWigleKeyFromFile();   // Load keys from /m5porkchop/wigle/wigle_key.txt (legacy /wigle_key.txt)
+    static bool loadWdgWarsKeyFromFile(); // Load key from /m5porkchop/wdgwars/wdgwars_key.txt
     static void prepareSDBus();           // Prepare SPI bus for raw SD access
     static void prepareCapLoraGpio();     // Quiesce SX1262 and clear G13 IOMUX before GPS UART
     static SPIClass& sdSpi();             // Access SD SPI bus

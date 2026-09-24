@@ -104,6 +104,9 @@ struct __attribute__((packed)) ConfigBlob {
     uint16_t c5ScanIntervalMs;
     uint8_t  c5UartTxPin;
     uint8_t  c5UartRxPin;
+
+    // Added at the end so older binary config blobs remain readable.
+    char     wdgWarsApiKey[65];
 };
 
 static void populateBlob(ConfigBlob& b, const GPSConfig& gps, const WiFiConfig& wifi,
@@ -159,6 +162,7 @@ static void populateBlob(ConfigBlob& b, const GPSConfig& gps, const WiFiConfig& 
     b.c5ScanIntervalMs = c5.scanIntervalMs;
     b.c5UartTxPin      = c5.uartTxPin;
     b.c5UartRxPin      = c5.uartRxPin;
+    strncpy(b.wdgWarsApiKey, wifi.wdgWarsApiKey, sizeof(b.wdgWarsApiKey) - 1);
 }
 
 static bool writeBlobTo(fs::FS& fs, const char* path, const ConfigBlob& b) {
@@ -284,6 +288,9 @@ static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
     c5.scanIntervalMs = b.c5ScanIntervalMs > 0 ? b.c5ScanIntervalMs : 30000;
     c5.uartTxPin      = b.c5UartTxPin > 0 ? b.c5UartTxPin : 2;
     c5.uartRxPin      = b.c5UartRxPin > 0 ? b.c5UartRxPin : 1;
+
+    strncpy(wifi.wdgWarsApiKey, b.wdgWarsApiKey, sizeof(wifi.wdgWarsApiKey) - 1);
+    wifi.wdgWarsApiKey[sizeof(wifi.wdgWarsApiKey) - 1] = '\0';
 }
 
 static uint16_t clampU16(uint32_t value, uint16_t minVal, uint16_t maxVal) {
@@ -422,6 +429,9 @@ bool Config::init() {
     }
     if (loadWigleKeyFromFile()) {
         Serial.println("[CONFIG] WiGLE API keys loaded from file");
+    }
+    if (loadWdgWarsKeyFromFile()) {
+        Serial.println("[CONFIG] WDGWars API key loaded from file");
     }
 
     // Merge creds from JSON porkchop.conf if present (handles the case where
@@ -1067,6 +1077,38 @@ bool Config::loadWigleKeyFromFile() {
         Serial.println("[CONFIG] Warning: Could not delete WiGLE key file");
     }
 
+    return true;
+}
+
+bool Config::loadWdgWarsKeyFromFile() {
+    if (!sdAvailable) return false;
+    const char* keyFile = SDLayout::wdgWarsKeyPath();
+    const char* legacy = SDLayout::legacyWdgWarsKeyPath();
+    if (!SD.exists(keyFile) && SD.exists(legacy)) keyFile = legacy;
+    if (!SD.exists(keyFile)) return false;
+
+    File f = SD.open(keyFile, FILE_READ);
+    if (!f) return false;
+    char key[65];
+    size_t len = f.readBytesUntil('\n', key, sizeof(key) - 1);
+    key[len] = '\0';
+    f.close();
+    while (len && (key[len - 1] == '\r' || key[len - 1] == ' ' || key[len - 1] == '\t')) key[--len] = '\0';
+    if (len != 64) {
+        Serial.printf("[CONFIG] Invalid WDGWars key length: %u (expected 64)\n", (unsigned)len);
+        return false;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        if (!isxdigit((unsigned char)key[i])) {
+            Serial.printf("[CONFIG] Invalid WDGWars key character at %u\n", (unsigned)i);
+            return false;
+        }
+    }
+    strncpy(wifiConfig.wdgWarsApiKey, key, sizeof(wifiConfig.wdgWarsApiKey) - 1);
+    wifiConfig.wdgWarsApiKey[sizeof(wifiConfig.wdgWarsApiKey) - 1] = '\0';
+    save();
+    if (SD.remove(keyFile)) Serial.println("[CONFIG] Deleted WDGWars key file after import");
+    SDLog::log("CFG", "WDGWars API key imported from file");
     return true;
 }
 

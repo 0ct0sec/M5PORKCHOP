@@ -26,6 +26,7 @@ static constexpr const char* kNewScreenshots = "/m5porkchop/screenshots";
 static constexpr const char* kNewDiagnostics = "/m5porkchop/diagnostics";
 static constexpr const char* kNewWpaSec = "/m5porkchop/wpa-sec";
 static constexpr const char* kNewWigle = "/m5porkchop/wigle";
+static constexpr const char* kNewWdgWars = "/m5porkchop/wdgwars";
 static constexpr const char* kNewXp = "/m5porkchop/xp";
 static constexpr const char* kNewMisc = "/m5porkchop/misc";
 static constexpr const char* kNewConfig = "/m5porkchop/config";
@@ -38,6 +39,7 @@ static constexpr const char* kLegacyWpasecUploaded = "/wpasec_uploaded.txt";
 static constexpr const char* kLegacyWpasecSent = "/wpasec_sent.txt";
 static constexpr const char* kLegacyWigleUploaded = "/wigle_uploaded.txt";
 static constexpr const char* kLegacyWigleStats = "/wigle_stats.json";
+static constexpr const char* kLegacyWdgWarsUploaded = "/wdgwars_uploaded.txt";
 static constexpr const char* kLegacyXpBackup = "/xp_backup.bin";
 static constexpr const char* kLegacyXpAwardedWpa = "/xp_awarded_wpa.txt";
 static constexpr const char* kLegacyXpAwardedWigle = "/xp_awarded_wigle.txt";
@@ -46,6 +48,7 @@ static constexpr const char* kLegacyHeapLog = "/heap_log.txt";
 static constexpr const char* kLegacyHeapWatermarks = "/heap_wm.bin";
 static constexpr const char* kLegacyWpasecKey = "/wpasec_key.txt";
 static constexpr const char* kLegacyWigleKey = "/wigle_key.txt";
+static constexpr const char* kLegacyWdgWarsKey = "/wdgwars_key.txt";
 static constexpr const char* kLegacyConfigBin = "/porkchop.dat";
 
 static constexpr const char* kNewConfigPath = "/m5porkchop/config/porkchop.conf";
@@ -55,6 +58,7 @@ static constexpr const char* kNewWpasecUploaded = "/m5porkchop/wpa-sec/wpasec_up
 static constexpr const char* kNewWpasecSent = "/m5porkchop/wpa-sec/wpasec_sent.txt";
 static constexpr const char* kNewWigleUploaded = "/m5porkchop/wigle/wigle_uploaded.txt";
 static constexpr const char* kNewWigleStats = "/m5porkchop/wigle/wigle_stats.json";
+static constexpr const char* kNewWdgWarsUploaded = "/m5porkchop/wdgwars/uploaded.txt";
 static constexpr const char* kNewXpBackup = "/m5porkchop/xp/xp_backup.bin";
 static constexpr const char* kNewXpAwardedWpa = "/m5porkchop/xp/xp_awarded_wpa.txt";
 static constexpr const char* kNewXpAwardedWigle = "/m5porkchop/xp/xp_awarded_wigle.txt";
@@ -63,6 +67,7 @@ static constexpr const char* kNewHeapLog = "/m5porkchop/diagnostics/heap_log.txt
 static constexpr const char* kNewHeapWatermarks = "/m5porkchop/diagnostics/heap_wm.bin";
 static constexpr const char* kNewWpasecKey = "/m5porkchop/wpa-sec/wpasec_key.txt";
 static constexpr const char* kNewWigleKey = "/m5porkchop/wigle/wigle_key.txt";
+static constexpr const char* kNewWdgWarsKey = "/m5porkchop/wdgwars/wdgwars_key.txt";
 static constexpr const char* kNewConfigBin = "/m5porkchop/config/porkchop.dat";
 
 // Use mutex to protect shared state
@@ -453,6 +458,42 @@ const char* migrationMarkerPath() { return kMarker; }
 
 const char* handshakesDir() { return usingNewLayout() ? kNewHandshakes : kLegacyHandshakes; }
 const char* wardrivingDir() { return usingNewLayout() ? kNewWardriving : kLegacyWardriving; }
+const char* wardrivingReadDir() {
+    const char* preferred = wardrivingDir();
+    const char* fallback = usingNewLayout() ? kLegacyWardriving : kNewWardriving;
+
+    auto containsWigleCsv = [](const char* path) {
+        if (!SD.exists(path)) return false;
+        File dir = SD.open(path);
+        if (!dir || !dir.isDirectory()) {
+            if (dir) dir.close();
+            return false;
+        }
+        File entry = dir.openNextFile();
+        while (entry) {
+            if (!entry.isDirectory()) {
+                const char* name = basenameFromPath(entry.name());
+                size_t len = strlen(name);
+                if (len >= 10 && strcasecmp(name + len - 10, ".wigle.csv") == 0) {
+                    entry.close();
+                    dir.close();
+                    return true;
+                }
+            }
+            entry.close();
+            entry = dir.openNextFile();
+        }
+        dir.close();
+        return false;
+    };
+
+    if (containsWigleCsv(preferred)) return preferred;
+    if (containsWigleCsv(fallback)) {
+        Serial.printf("[SD] Wardriving read fallback: %s (preferred %s)\n", fallback, preferred);
+        return fallback;
+    }
+    return preferred;
+}
 const char* modelsDir() { return usingNewLayout() ? kNewModels : kLegacyModels; }
 const char* logsDir() { return usingNewLayout() ? kNewLogs : kLegacyLogs; }
 const char* crashDir() { return usingNewLayout() ? kNewCrash : kLegacyCrash; }
@@ -460,6 +501,7 @@ const char* screenshotsDir() { return usingNewLayout() ? kNewScreenshots : kLega
 const char* diagnosticsDir() { return usingNewLayout() ? kNewDiagnostics : "/"; }
 const char* wpaSecDir() { return usingNewLayout() ? kNewWpaSec : "/"; }
 const char* wigleDir() { return usingNewLayout() ? kNewWigle : "/"; }
+const char* wdgWarsDir() { return usingNewLayout() ? kNewWdgWars : "/"; }
 const char* xpDir() { return usingNewLayout() ? kNewXp : "/"; }
 const char* miscDir() { return usingNewLayout() ? kNewMisc : "/"; }
 const char* configDir() { return usingNewLayout() ? kNewConfig : "/"; }
@@ -472,6 +514,7 @@ const char* wpasecUploadedPath() { return usingNewLayout() ? kNewWpasecUploaded 
 const char* wpasecSentPath() { return usingNewLayout() ? kNewWpasecSent : kLegacyWpasecSent; }
 const char* wigleUploadedPath() { return usingNewLayout() ? kNewWigleUploaded : kLegacyWigleUploaded; }
 const char* wigleStatsPath() { return usingNewLayout() ? kNewWigleStats : kLegacyWigleStats; }
+const char* wdgWarsUploadedPath() { return usingNewLayout() ? kNewWdgWarsUploaded : kLegacyWdgWarsUploaded; }
 const char* xpBackupPath() { return usingNewLayout() ? kNewXpBackup : kLegacyXpBackup; }
 const char* xpAwardedWpaPath() { return usingNewLayout() ? kNewXpAwardedWpa : kLegacyXpAwardedWpa; }
 const char* xpAwardedWiglePath() { return usingNewLayout() ? kNewXpAwardedWigle : kLegacyXpAwardedWigle; }
@@ -480,11 +523,13 @@ const char* heapLogPath() { return usingNewLayout() ? kNewHeapLog : kLegacyHeapL
 const char* heapWatermarksPath() { return usingNewLayout() ? kNewHeapWatermarks : kLegacyHeapWatermarks; }
 const char* wpasecKeyPath() { return usingNewLayout() ? kNewWpasecKey : kLegacyWpasecKey; }
 const char* wigleKeyPath() { return usingNewLayout() ? kNewWigleKey : kLegacyWigleKey; }
+const char* wdgWarsKeyPath() { return usingNewLayout() ? kNewWdgWarsKey : kLegacyWdgWarsKey; }
 
 const char* legacyConfigPath() { return kLegacyConfig; }
 const char* legacyPersonalityPath() { return kLegacyPersonality; }
 const char* legacyWpasecKeyPath() { return kLegacyWpasecKey; }
 const char* legacyWigleKeyPath() { return kLegacyWigleKey; }
+const char* legacyWdgWarsKeyPath() { return kLegacyWdgWarsKey; }
 
 void sanitizeSsid(const char* ssid, char* out, size_t outLen) {
     if (!out || outLen == 0) return;
@@ -549,6 +594,7 @@ void ensureDirs() {
     ensureDir(kNewDiagnostics);
     ensureDir(kNewWpaSec);
     ensureDir(kNewWigle);
+    ensureDir(kNewWdgWars);
     ensureDir(kNewXp);
     ensureDir(kNewMisc);
     ensureDir(kNewConfig);
@@ -698,6 +744,7 @@ bool migrateIfNeeded() {
     ensureDir(kNewConfig);
     ensureDir(kNewWpaSec);
     ensureDir(kNewWigle);
+    ensureDir(kNewWdgWars);
     ensureDir(kNewXp);
     ensureDir(kNewMisc);
     ensureDir(kNewDiagnostics);

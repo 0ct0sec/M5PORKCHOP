@@ -13,6 +13,8 @@ enum class WigleFileStatus {
     UPLOADED    // Uploaded to WiGLE
 };
 
+enum class TrackSyncTarget : uint8_t { WIGLE, WDGWARS };
+
 struct WigleFileInfo {
     char filename[48];
     uint32_t fileSize;
@@ -39,6 +41,7 @@ public:
     static void update();
     static void draw(M5Canvas& canvas);
     static bool isActive() { return active; }
+    static void setSyncTarget(TrackSyncTarget target) { syncTarget = target; }
     static size_t getCount() { return files.size(); }
     static void getSelectedInfo(char* out, size_t len);
     
@@ -88,6 +91,7 @@ private:
     static bool syncStatsFetched;
     static char syncError[48];
     static bool reconWasRunning;
+    static TrackSyncTarget syncTarget;
 
     // Sync operations
     static void startSync();

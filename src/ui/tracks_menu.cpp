@@ -7,6 +7,7 @@
 #include <string.h>
 #include "display.h"
 #include "../web/wigle.h"
+#include "../web/wdgwars.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
 #include "../core/wifi_utils.h"
@@ -44,6 +45,7 @@ uint8_t TracksMenu::syncSkipped = 0;
 bool TracksMenu::syncStatsFetched = false;
 char TracksMenu::syncError[48] = "";
 bool TracksMenu::reconWasRunning = false;
+TrackSyncTarget TracksMenu::syncTarget = TrackSyncTarget::WIGLE;
 
 namespace {
 
@@ -180,6 +182,7 @@ void TracksMenu::hide() {
     files.clear();  // Release memory when not in menu
     files.shrink_to_fit();
     WiGLE::freeUploadedListMemory();
+    WDGWars::freeUploadedListMemory();
     scanDeferredHeap = false;
     scanBaseDir[0] = '\0';
 }
@@ -279,7 +282,7 @@ void TracksMenu::processAsyncScan() {
                 // Check upload status (reconstruct path on stack — no need to store 80B per entry)
                 char tmpPath[80];
                 snprintf(tmpPath, sizeof(tmpPath), "%s/%s", scanRoot, base);
-                info.status = WiGLE::isUploaded(tmpPath) ?
+                info.status = (syncTarget == TrackSyncTarget::WDGWARS ? WDGWars::isUploaded(tmpPath) : WiGLE::isUploaded(tmpPath)) ?
                     WigleFileStatus::UPLOADED : WigleFileStatus::LOCAL;
                 
                 files.push_back(info);
@@ -494,7 +497,8 @@ void TracksMenu::draw(M5Canvas& canvas) {
     }
     uint16_t local = total - uploaded;
     char summary[64];
-    snprintf(summary, sizeof(summary), "WIGLE %u UP %u LOC %u NETS~%lu",
+    snprintf(summary, sizeof(summary), "%s %u UP %u LOC %u NETS~%lu",
+             syncTarget == TrackSyncTarget::WDGWARS ? "WDG" : "WIGLE",
              (unsigned)total, (unsigned)uploaded, (unsigned)local, (unsigned long)netSum);
     canvas.setCursor(4, 2);
     canvas.print(summary);
@@ -682,6 +686,7 @@ void TracksMenu::nukeTrack() {
 
     // Remove from uploaded tracking if present
     WiGLE::removeFromUploaded(fullPath);
+    WDGWars::removeFromUploaded(fullPath);
     
     if (deleted) {
         Display::setTopBarMessage("TRACK NUKED!", 4000);
@@ -757,7 +762,7 @@ void TracksMenu::disconnectWiFi() {
 }
 
 void TracksMenu::startSync() {
-    Serial.println("[TRACKS] Starting WiGLE sync...");
+    Serial.printf("[TRACKS] Starting %s sync...\n", syncTarget == TrackSyncTarget::WDGWARS ? "WDGWars" : "WiGLE");
     
     // Reset sync state
     syncModalActive = true;
@@ -773,8 +778,9 @@ void TracksMenu::startSync() {
     syncStartTime = millis();
     
     // Pre-flight checks
-    if (!WiGLE::hasCredentials()) {
-        strncpy(syncError, "NO WIGLE CREDENTIALS", sizeof(syncError) - 1);
+    bool credentialsOk = syncTarget == TrackSyncTarget::WDGWARS ? WDGWars::hasCredentials() : WiGLE::hasCredentials();
+    if (!credentialsOk) {
+        strncpy(syncError, syncTarget == TrackSyncTarget::WDGWARS ? "NO WDGWARS API KEY" : "NO WIGLE CREDENTIALS", sizeof(syncError) - 1);
         syncState = WigleSyncState::ERROR;
         return;
     }
@@ -783,6 +789,7 @@ void TracksMenu::startSync() {
     files.clear();
     files.shrink_to_fit();
     WiGLE::freeUploadedListMemory();
+    WDGWars::freeUploadedListMemory();
 
     // Pause NetworkRecon before WiFi mode changes — promiscuous callbacks
     // crash if they fire during STA mode transition
@@ -837,19 +844,23 @@ void TracksMenu::processSyncState() {
             {
                 // Run sync (blocking but with progress callback)
                 strncpy(syncStatusText, "SYNCING...", sizeof(syncStatusText) - 1);
-                
-                WigleSyncResult result = WiGLE::syncFiles(onSyncProgress);
-                
-                syncUploaded = result.uploaded;
-                syncFailed = result.failed;
-                syncSkipped = result.skipped;
-                syncStatsFetched = result.statsFetched;
-                
-                if (result.error[0] != '\0') {
-                    strncpy(syncError, result.error, sizeof(syncError) - 1);
+                if (syncTarget == TrackSyncTarget::WDGWARS) {
+                    WdgWarsSyncResult result = WDGWars::syncFiles(onSyncProgress);
+                    syncUploaded = result.uploaded;
+                    syncFailed = result.failed;
+                    syncSkipped = result.skipped;
+                    syncStatsFetched = true;
+                    if (result.error[0]) strncpy(syncError, result.error, sizeof(syncError) - 1);
+                } else {
+                    WigleSyncResult result = WiGLE::syncFiles(onSyncProgress);
+                    syncUploaded = result.uploaded;
+                    syncFailed = result.failed;
+                    syncSkipped = result.skipped;
+                    syncStatsFetched = result.statsFetched;
+                    if (result.error[0]) strncpy(syncError, result.error, sizeof(syncError) - 1);
                 }
-                
-                syncState = WigleSyncState::COMPLETE;
+                syncState = (syncError[0] && syncUploaded == 0 && syncFailed == 0 && syncSkipped == 0)
+                    ? WigleSyncState::ERROR : WigleSyncState::COMPLETE;
             }
             break;
             
@@ -891,7 +902,7 @@ void TracksMenu::drawSyncModal(M5Canvas& canvas) {
     int centerX = canvas.width() / 2;
     
     // Title
-    canvas.drawString("WIGLE SYNC", centerX, boxY + 6);
+    canvas.drawString(syncTarget == TrackSyncTarget::WDGWARS ? "WDGWARS SYNC" : "WIGLE SYNC", centerX, boxY + 6);
     
     if (syncState == WigleSyncState::ERROR) {
         // Error state
@@ -908,7 +919,9 @@ void TracksMenu::drawSyncModal(M5Canvas& canvas) {
         canvas.drawString(stats, centerX, boxY + 42);
         
         // Stats status
-        const char* statsMsg = syncStatsFetched ? "STATS UPDATED" : "STATS FAILED";
+        const char* statsMsg = syncError[0] ? syncError :
+                               (syncTarget == TrackSyncTarget::WDGWARS ? "TRACKING UPDATED" :
+                               (syncStatsFetched ? "STATS UPDATED" : "STATS FAILED"));
         canvas.drawString(statsMsg, centerX, boxY + 54);
         
         canvas.drawString("[ENTER] CLOSE", centerX, boxY + 68);

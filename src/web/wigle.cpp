@@ -711,7 +711,7 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
     if (cb) {
         cb("scanning csv", 0, 0);
     }
-    const char* wardrivingDir = SDLayout::wardrivingDir();
+    const char* wardrivingDir = SDLayout::wardrivingReadDir();
     if (!SD.exists(wardrivingDir)) {
         strncpy(result.error, "NO WARDRIVING DIR", sizeof(result.error) - 1);
         if (wasReconRunning) NetworkRecon::resume();
@@ -768,6 +768,13 @@ WigleSyncResult WiGLE::syncFiles(WigleProgressCallback cb) {
     
     Serial.printf("[WIGLE] Found %u files to upload, %u skipped\n", 
                   (unsigned int)pendingCount, (unsigned int)result.skipped);
+
+    if (pendingCount == 0 && result.skipped == 0) {
+        strncpy(result.error, "NO WIGLE CSV FILES", sizeof(result.error) - 1);
+        if (wasReconRunning) NetworkRecon::resume();
+        busy = false;
+        return result;
+    }
     
     // Free memory before TLS operations - keeps heap clear for WiFiClientSecure
     freeUploadedListMemory();

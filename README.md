@@ -1084,6 +1084,7 @@
     LOOT:
         HASHES       - handshakes + PMKIDs with WPA-SEC status
         TRACKS       - wardriving files with WiGLE status
+        WDGWARS      - wardriving files with WDGWars upload status
         BOUNTY       - unclaimed wardriven network targets
 
     RANK:
@@ -1130,6 +1131,32 @@
     [S] sync with WiGLE
     [D] nuke selected track
     [ENTER] detail view
+
+
+----[ 7.4 - LOOT > WDGWARS
+
+    uploads existing WigleWifi-1.6 .wigle.csv files to wdgwars.pl using
+    POST /api/upload-csv. uploads are streamed from SD using the same
+    heap/TLS safeguards as WiGLE sync; the CSV is not parsed on-device.
+
+    setup:
+      1. create /m5porkchop/wdgwars/wdgwars_key.txt on the SD card
+         (legacy root path /wdgwars_key.txt is also accepted)
+      2. put only the 64-character hexadecimal API key in the file
+      3. reboot, or choose SETTINGS > INTEGRATION > WDG LOAD
+
+    the key is validated, saved in the binary config, and the plaintext
+    import file is deleted. WDGWars upload history is tracked separately
+    from WiGLE in /m5porkchop/wdgwars/uploaded.txt.
+
+    [S] upload pending files to WDGWars
+    [D] nuke selected track
+    [ENTER] detail view
+
+    HTTP 429 pacing is handled automatically. The uploader honors the
+    server's Retry-After header (and supported JSON wait fields), waits with
+    watchdog-friendly yields, retries the rejected file once, then applies
+    the same pacing to the remainder of the four-file batch.
 
 ------------------------------------------------------------------------
 

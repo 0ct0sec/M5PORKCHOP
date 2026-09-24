@@ -15,6 +15,7 @@ namespace SDLayout {
     // Directories (resolved to legacy or new layout)
     const char* handshakesDir();
     const char* wardrivingDir();
+    const char* wardrivingReadDir();     // Layout containing existing .wigle.csv files
     const char* modelsDir();
     const char* logsDir();
     const char* crashDir();
@@ -22,6 +23,7 @@ namespace SDLayout {
     const char* diagnosticsDir();
     const char* wpaSecDir();
     const char* wigleDir();
+    const char* wdgWarsDir();
     const char* xpDir();
     const char* miscDir();
     const char* configDir();
@@ -35,6 +37,7 @@ namespace SDLayout {
     const char* wpasecSentPath();
     const char* wigleUploadedPath();
     const char* wigleStatsPath();
+    const char* wdgWarsUploadedPath();
     const char* xpBackupPath();
     const char* xpAwardedWpaPath();
     const char* xpAwardedWiglePath();
@@ -43,12 +46,14 @@ namespace SDLayout {
     const char* heapWatermarksPath();
     const char* wpasecKeyPath();
     const char* wigleKeyPath();
+    const char* wdgWarsKeyPath();
 
     // Legacy paths (explicit, for fallback imports)
     const char* legacyConfigPath();
     const char* legacyPersonalityPath();
     const char* legacyWpasecKeyPath();
     const char* legacyWigleKeyPath();
+    const char* legacyWdgWarsKeyPath();
 
     // Filename helpers
     void sanitizeSsid(const char* ssid, char* out, size_t outLen);

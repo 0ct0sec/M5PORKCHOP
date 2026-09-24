@@ -77,6 +77,11 @@ static const char* const H_TRACKS[] = {
     "MAP IT OUT. PRETEND IT'S SCIENCE.",
     "IT'S NOT A BUG. IT'S A JOURNEY."
 };
+static const char* const H_WDGWARS[] = {
+    "SEND TRACKS TO WDGWARS.PL",
+    "UPLOAD WIGLE CSV FILES.",
+    "YOUR PIG GOES TO WAR."
+};
 static const char* const H_BOUNTY[] = {
     "COLLECT BACON. AVOID CONSEQUENCES",
     "TARGETS LISTED. MORALS OPTIONAL.",
@@ -193,6 +198,7 @@ const uint8_t Menu::GROUP_RECON_SIZE = sizeof(GROUP_RECON) / sizeof(GROUP_RECON[
 const MenuItem Menu::GROUP_LOOT[] = {
     {"C#", "HASHES",  4,  H_HASHES, (uint8_t)(sizeof(H_HASHES)/sizeof(H_HASHES[0]))},
     {"~>", "TRACKS",  13, H_TRACKS, (uint8_t)(sizeof(H_TRACKS)/sizeof(H_TRACKS[0]))},
+    {"WG", "WDGWARS", 25, H_WDGWARS, (uint8_t)(sizeof(H_WDGWARS)/sizeof(H_WDGWARS[0]))},
     {"B$", "BOUNTY",  17, H_BOUNTY, (uint8_t)(sizeof(H_BOUNTY)/sizeof(H_BOUNTY[0]))}
 };
 const uint8_t Menu::GROUP_LOOT_SIZE = sizeof(GROUP_LOOT) / sizeof(GROUP_LOOT[0]);

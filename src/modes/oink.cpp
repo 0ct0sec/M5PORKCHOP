@@ -115,11 +115,12 @@ struct PendingHandshakeFrame {
 };
 
 // Circular buffer for pending handshake frames (4 slots to handle rapid EAPOL bursts)
-// STATIC POOL: Pre-allocated to avoid malloc in WiFi callback context (heap fragmentation risk)
+// Allocated before the OINK callback is registered and freed after it is
+// removed. The callback itself still performs no heap operations.
 // WARNING: Each PendingHandshakeFrame is ~3.3KB (contains 4x EAPOLFrame @ 822 bytes each)
-// Total static pool: 4 * 3.3KB = ~13KB permanently in .bss - reduces heap even when idle!
+// Total active pool: 4 * 3.3KB = ~13KB while OINK is running.
 static const uint8_t PENDING_HS_SLOTS = 4;
-static PendingHandshakeFrame pendingHsPool[PENDING_HS_SLOTS];  // Static pool - no heap ops in callback
+static PendingHandshakeFrame* pendingHsPool = nullptr;
 // #region agent log
 // [DEBUG] H1: This static pool uses ~13KB of RAM - logged at compile time in .bss
 // Size info logged in init() below
@@ -378,9 +379,8 @@ static char lastPwnedSSID[33] = "";
 
 void OinkMode::init() {
     // #region agent log
-    // [DEBUG] H1: Log static pool size to confirm ~13KB allocation
-    Serial.printf("[DBG-OINK] pendingHsPool size: %u bytes (%u slots x %u each)\n",
-                  (unsigned)(sizeof(pendingHsPool)), 
+    Serial.printf("[DBG-OINK] pendingHsPool capacity: %u bytes (%u slots x %u each)\n",
+                  (unsigned)(sizeof(PendingHandshakeFrame) * PENDING_HS_SLOTS),
                   (unsigned)PENDING_HS_SLOTS,
                   (unsigned)sizeof(PendingHandshakeFrame));
     Serial.printf("[DBG-OINK] EAPOLFrame size: %u bytes\n", (unsigned)sizeof(EAPOLFrame));
@@ -479,6 +479,14 @@ void OinkMode::init() {
 
 void OinkMode::start() {
     if (running) return;
+
+    if (!pendingHsPool) {
+        pendingHsPool = static_cast<PendingHandshakeFrame*>(
+            calloc(PENDING_HS_SLOTS, sizeof(PendingHandshakeFrame)));
+        if (!pendingHsPool) {
+            Serial.println("[OINK] WARNING: handshake pool unavailable; EAPOL capture disabled");
+        }
+    }
     
     Serial.printf("[OINK] Starting... free=%u largest=%u\n",
                   ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
@@ -594,7 +602,7 @@ void OinkMode::stop() {
     pmkids.clear();
     pmkids.shrink_to_fit();
     
-    // Reset static pool tracking (no heap ops - pool is pre-allocated)
+    // Reset tracking before releasing the mode-lifetime pool.
     for (int i = 0; i < PENDING_HS_SLOTS; i++) {
         pendingHandshakes[i] = nullptr;
         pendingHsBusy[i] = false;
@@ -604,6 +612,9 @@ void OinkMode::stop() {
     pendingHsRead = 0;
     pendingPmkidWrite = 0;
     pendingPmkidRead = 0;
+
+    free(pendingHsPool);
+    pendingHsPool = nullptr;
 
     running = false;
     Mood::setDialogueLock(false);
@@ -2519,7 +2530,8 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
         if (targetSlot >= PENDING_HS_SLOTS) {
             // Check if buffer is full (write pointer would catch read pointer)
             uint8_t nextWrite = (writePos + 1) % PENDING_HS_SLOTS;
-            if (nextWrite != pendingHsRead && !pendingHsBusy[writePos] && !pendingHsAllocated[writePos]) {
+            if (pendingHsPool && nextWrite != pendingHsRead &&
+                !pendingHsBusy[writePos] && !pendingHsAllocated[writePos]) {
                 // Slot is available - acquire from static pool (no heap ops)
                 targetSlot = writePos;
                 

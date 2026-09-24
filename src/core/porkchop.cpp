@@ -225,7 +225,7 @@ void Porkchop::init() {
             case 10: setMode(PorkchopMode::SPECTRUM_MODE); break;
             case 11: setMode(PorkchopMode::FLEXES); break;
             case 12: setMode(PorkchopMode::BOAR_BROS); break;
-            case 13: setMode(PorkchopMode::TRACKS); break;
+            case 13: TracksMenu::setSyncTarget(TrackSyncTarget::WIGLE); setMode(PorkchopMode::TRACKS); break;
             case 14: setMode(PorkchopMode::DNH_MODE); break;
             case 15: setMode(PorkchopMode::UNLOCKABLES); break;
             case 16: setMode(PorkchopMode::PIGSYNC_DEVICE_SELECT); break;
@@ -233,6 +233,7 @@ void Porkchop::init() {
             case 18: setMode(PorkchopMode::BACON_MODE); break;
             case 19: setMode(PorkchopMode::DIAGDATA); break;
             case 20: setMode(PorkchopMode::SD_FORMAT); break;
+            case 25: TracksMenu::setSyncTarget(TrackSyncTarget::WDGWARS); setMode(PorkchopMode::TRACKS); break;
             case 21: setMode(PorkchopMode::CHARGING); break;
             case 22: setMode(PorkchopMode::JANUS_HOG_MODE); break;
             case 23: setMode(PorkchopMode::PIGSYNC_SERVER); break;
