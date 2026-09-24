@@ -77,6 +77,11 @@ static const char* const H_TRACKS[] = {
     "MAP IT OUT. PRETEND IT'S SCIENCE.",
     "IT'S NOT A BUG. IT'S A JOURNEY."
 };
+static const char* const H_WDGWARS[] = {
+    "SEND TRACKS TO WDGWARS.PL",
+    "UPLOAD WIGLE CSV FILES.",
+    "YOUR PIG GOES TO WAR."
+};
 static const char* const H_BOUNTY[] = {
     "COLLECT BACON. AVOID CONSEQUENCES",
     "TARGETS LISTED. MORALS OPTIONAL.",
@@ -86,6 +91,16 @@ static const char* const H_SYNC[] = {
     "PG PHONE HOME. PRAY IT CONNECTS.",
     "IF IT FAILS - DNS DID IT.",
     "SERIAL OUTPUT. CRY FOR HELP @115200."
+};
+static const char* const H_SIRLOIN[] = {
+    "BECOME THE SON. ANSWER THE PHONE.",
+    "LISTEN ON ONE. TALK ENCRYPTED.",
+    "POPS FINALLY GETS A RESPONSE."
+};
+static const char* const H_PIGCHAT[] = {
+    "ENCRYPTED OINKS. HUMAN TYPING.",
+    "LOCAL CHAT. NO CLOUD. ALL PIG.",
+    "KEYS CLACK. ESP-NOW TALKS."
 };
 static const char* const H_BACONTX[] = {
     "BEACON THE BLOCK. BLAME 'RF NOISE'.",
@@ -147,6 +162,11 @@ static const char* const H_CHARGING[] = {
     "BATTERY REST. SERVICES CEASED.",
     "CHARGING VIBES. MAX CHILL."
 };
+static const char* const H_JANUS[] = {
+    "TWO FACES. ALL BANDS. JANUS HOG.",
+    "C5 COPROCESSOR LINK STATUS.",
+    "5GHZ RECON VIA MONSTERC5."
+};
 
 // Root menu items
 const RootItem Menu::ROOT_ITEMS[] = {
@@ -178,6 +198,7 @@ const uint8_t Menu::GROUP_RECON_SIZE = sizeof(GROUP_RECON) / sizeof(GROUP_RECON[
 const MenuItem Menu::GROUP_LOOT[] = {
     {"C#", "HASHES",  4,  H_HASHES, (uint8_t)(sizeof(H_HASHES)/sizeof(H_HASHES[0]))},
     {"~>", "TRACKS",  13, H_TRACKS, (uint8_t)(sizeof(H_TRACKS)/sizeof(H_TRACKS[0]))},
+    {"WG", "WDGWARS", 25, H_WDGWARS, (uint8_t)(sizeof(H_WDGWARS)/sizeof(H_WDGWARS[0]))},
     {"B$", "BOUNTY",  17, H_BOUNTY, (uint8_t)(sizeof(H_BOUNTY)/sizeof(H_BOUNTY[0]))}
 };
 const uint8_t Menu::GROUP_LOOT_SIZE = sizeof(GROUP_LOOT) / sizeof(GROUP_LOOT[0]);
@@ -185,8 +206,11 @@ const uint8_t Menu::GROUP_LOOT_SIZE = sizeof(GROUP_LOOT) / sizeof(GROUP_LOOT[0])
 // Group: COMMS - external communication
 const MenuItem Menu::GROUP_COMMS[] = {
     {"@)", "PIGSYNC",    16, H_SYNC,    (uint8_t)(sizeof(H_SYNC)/sizeof(H_SYNC[0]))},
+    {"S)", "SIRLOIN",    23, H_SIRLOIN, (uint8_t)(sizeof(H_SIRLOIN)/sizeof(H_SIRLOIN[0]))},
+    {"PC", "PIGCHAT",    24, H_PIGCHAT, (uint8_t)(sizeof(H_PIGCHAT)/sizeof(H_PIGCHAT[0]))},
     {"))", "BACONTX", 18, H_BACONTX, (uint8_t)(sizeof(H_BACONTX)/sizeof(H_BACONTX[0]))},
-    {"FX", "TRANSFR",    3,  H_XFIL,    (uint8_t)(sizeof(H_XFIL)/sizeof(H_XFIL[0]))}
+    {"FX", "TRANSFR",    3,  H_XFIL,    (uint8_t)(sizeof(H_XFIL)/sizeof(H_XFIL[0]))},
+    {"5G", "JANUSHG",   22, H_JANUS,   (uint8_t)(sizeof(H_JANUS)/sizeof(H_JANUS[0]))}
 };
 const uint8_t Menu::GROUP_COMMS_SIZE = sizeof(GROUP_COMMS) / sizeof(GROUP_COMMS[0]);
 

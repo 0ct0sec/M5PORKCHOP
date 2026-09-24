@@ -2,7 +2,7 @@
 // "BRAVO 6, GOING DARK"
 // Passive WiFi reconnaissance - no attacks, just listening
 
-#include "donoham.h"
+#include "do_no_ham.h"
 #include <M5Unified.h>
 #include <WiFi.h>
 #include <NimBLEDevice.h>  // For BLE coexistence check
@@ -52,12 +52,12 @@ static const uint8_t DNH_RADIOTAP_HEADER[] = {
 };
 
 // Static member initialization
-bool DoNoHamMode::running = false;
+std::atomic<bool> DoNoHamMode::running{false};
 DNHState DoNoHamMode::state = DNHState::HOPPING;
 uint8_t DoNoHamMode::currentChannel = 1;
 uint8_t DoNoHamMode::channelIndex = 0;
 uint32_t DoNoHamMode::dwellStartTime = 0;
-bool DoNoHamMode::dwellResolved = false;
+volatile bool DoNoHamMode::dwellResolved = false;
 
 // networks vector moved to NetworkRecon - use networks() helper below
 std::vector<CapturedPMKID> DoNoHamMode::pmkids;
@@ -108,6 +108,7 @@ static void onNewNetworkDiscovered(wifi_auth_mode_t authmode, bool isHidden,
     (void)ssid;
     (void)channel;
     if (rssi < Config::wifi().attackMinRssi) return;  // Skip weak networks
+    Avatar::waveRipple(WaveMode::INCOMING);
     XP::addXP(XPEvent::DNH_NETWORK_PASSIVE);
 }
 
@@ -284,9 +285,11 @@ void DoNoHamMode::stop() {
     running = false;
     dnhBusy = true;
     
-    // Stop grass animation
+    // Stop grass animation, tree, and wave ripples
     Avatar::setGrassMoving(false);
-    
+    Avatar::hideTree();
+    Avatar::waveRipple(WaveMode::NONE);
+
     bool pausedByUs = false;
     if (NetworkRecon::isRunning()) {
         NetworkRecon::pause();
@@ -582,15 +585,13 @@ void DoNoHamMode::update() {
                 }
             }
             
-            // Look up SSID if missing
+            // Look up SSID if missing — use findNetwork() for atomic lookup+copy
             if (hs.ssid[0] == 0) {
-                int netIdx = NetworkRecon::findNetworkIndex(hs.bssid);
-                NetworkRecon::enterCritical();
-                if (netIdx >= 0 && netIdx < (int)networks().size() && networks()[netIdx].ssid[0] != 0) {
-                    strncpy(hs.ssid, networks()[netIdx].ssid, 32);
+                DetectedNetwork netCopy;
+                if (NetworkRecon::findNetwork(hs.bssid, &netCopy) && netCopy.ssid[0] != 0) {
+                    strncpy(hs.ssid, netCopy.ssid, 32);
                     hs.ssid[32] = 0;
                 }
-                NetworkRecon::exitCritical();
             }
             
             // Check if we just completed a valid pair
@@ -646,7 +647,33 @@ void DoNoHamMode::update() {
         Avatar::setGrassMoving(isHopping);
     }
     lastGrassState = state;
-    
+
+    // Sync fruit tree with HUNTING state
+    {
+        bool isHunting = (state == DNHState::HUNTING);
+        static bool hadTree = false;
+
+        if (isHunting && !hadTree) {
+            // ~40% chance to spawn tree — variable-ratio schedule makes trees noteworthy
+            if (esp_random() % 100 < 40) {
+                uint8_t fruits = 0;
+                uint8_t ch = currentChannel;
+                NetworkRecon::enterCritical();
+                for (size_t i = 0; i < NetworkRecon::getNetworks().size() && fruits < 8; i++) {
+                    const auto& n = NetworkRecon::getNetworks()[i];
+                    if (n.channel != ch) continue;
+                    if (n.authmode == WIFI_AUTH_OPEN) continue;
+                    if (NetworkRecon::estimateClientCount(n) > 0) fruits++;
+                }
+                NetworkRecon::exitCritical();
+                Avatar::showTree(max((uint8_t)1, fruits));
+            }
+        } else if (!isHunting && hadTree) {
+            Avatar::hideTree();
+        }
+        hadTree = isHunting;
+    }
+
     switch (state) {
         case DNHState::HOPPING:
             {
@@ -1170,6 +1197,7 @@ void DoNoHamMode::saveAllHandshakes() {
 
         // Copy and zero MIC
         uint8_t eapolCopy[512];
+        if (eapolLen < 97) continue;  // need >=97 bytes for MIC at offset 81+16
         memcpy(eapolCopy, eapolFrame->data, eapolLen);
         memset(eapolCopy + 81, 0, 16);
 

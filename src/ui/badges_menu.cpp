@@ -1,6 +1,6 @@
-// Achievements Menu - View unlocked achievements
+// Badges Menu - View unlocked achievements
 
-#include "achievements_menu.h"
+#include "badges_menu.h"
 #include <M5Cardputer.h>
 #include "display.h"
 #include "../core/xp.h"
@@ -8,11 +8,11 @@
 #include <string.h>
 
 // Static member initialization
-uint8_t AchievementsMenu::selectedIndex = 0;
-uint8_t AchievementsMenu::scrollOffset = 0;
-bool AchievementsMenu::active = false;
-bool AchievementsMenu::keyWasPressed = false;
-bool AchievementsMenu::showingDetail = false;
+uint8_t BadgesMenu::selectedIndex = 0;
+uint8_t BadgesMenu::scrollOffset = 0;
+bool BadgesMenu::active = false;
+bool BadgesMenu::keyWasPressed = false;
+bool BadgesMenu::showingDetail = false;
 
 // Achievement info - order must match PorkAchievement enum bit positions
 static const struct {
@@ -94,13 +94,13 @@ static const struct {
     { ACH_FULL_CLEAR,     "TH3_C0MPL3T10N1ST", "Unlock all other achievements" },
 };
 
-void AchievementsMenu::init() {
+void BadgesMenu::init() {
     selectedIndex = 0;
     scrollOffset = 0;
     showingDetail = false;
 }
 
-void AchievementsMenu::show() {
+void BadgesMenu::show() {
     active = true;
     selectedIndex = 0;
     scrollOffset = 0;
@@ -109,18 +109,18 @@ void AchievementsMenu::show() {
     updateBottomOverlay();
 }
 
-void AchievementsMenu::hide() {
+void BadgesMenu::hide() {
     active = false;
     showingDetail = false;
     Display::clearBottomOverlay();
 }
 
-void AchievementsMenu::update() {
+void BadgesMenu::update() {
     if (!active) return;
     handleInput();
 }
 
-void AchievementsMenu::handleInput() {
+void BadgesMenu::handleInput() {
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -172,7 +172,7 @@ void AchievementsMenu::handleInput() {
     }
 }
 
-void AchievementsMenu::draw(M5Canvas& canvas) {
+void BadgesMenu::draw(M5Canvas& canvas) {
     if (!active) return;
     
     // If showing detail popup, draw that instead
@@ -228,8 +228,8 @@ void AchievementsMenu::draw(M5Canvas& canvas) {
     }
 }
 
-void AchievementsMenu::drawDetail(M5Canvas& canvas) {
-    canvas.fillScreen(COLOR_BG);
+void BadgesMenu::drawDetail(M5Canvas& canvas) {
+    canvas.fillSprite(COLOR_BG);
     
     bool hasIt = (XP::getAchievements() & ACHIEVEMENTS[selectedIndex].flag) != 0;
     
@@ -302,7 +302,7 @@ void AchievementsMenu::drawDetail(M5Canvas& canvas) {
     canvas.setTextDatum(top_left);
 }
 
-void AchievementsMenu::updateBottomOverlay() {
+void BadgesMenu::updateBottomOverlay() {
     uint64_t unlocked = XP::getAchievements();
     bool hasIt = (unlocked & ACHIEVEMENTS[selectedIndex].flag) != 0;
     

@@ -1,0 +1,145 @@
+diff --git a/ESP32C5/main/main.c b/ESP32C5/main/main.c
+index 5e7a41d..daee8e1 100644
+--- a/ESP32C5/main/main.c
++++ b/ESP32C5/main/main.c
+@@ -48,6 +48,7 @@
+ #include "mbedtls/bignum.h"
+ #include "mbedtls/ctr_drbg.h"
+ #include "mbedtls/entropy.h"
++#include "mbedtls/base64.h"
+ #include "esp_timer.h"
+ #include "esp_app_format.h"
+ 
+@@ -1092,6 +1093,8 @@ static int cmd_reboot(int argc, char **argv);
+ static int cmd_led(int argc, char **argv);
+ static int cmd_vendor(int argc, char **argv);
+ static int cmd_download(int argc, char **argv);
++static int cmd_pork_caps(int argc, char **argv);
++static int cmd_file_get(int argc, char **argv);
+ static int cmd_wpasec_key(int argc, char **argv);
+ static int cmd_wpasec_upload(int argc, char **argv);
+ static int cmd_channel_time(int argc, char **argv);
+@@ -8315,6 +8318,92 @@ static int cmd_file_delete(int argc, char **argv)
+     return 0;
+ }
+ 
++// Command: pork_caps - Print capabilities for the Porkchop host (JANUS HOG)
++// Format: pork_caps|proto=<n>|file_get=<0|1>|fw=<tag>
++static int cmd_pork_caps(int argc, char **argv)
++{
++    (void)argc;
++    (void)argv;
++    printf("pork_caps|proto=1|file_get=1|fw=projectZero\n");
++    return 0;
++}
++
++// Command: file_get <path> - Base64 stream a file from SD over UART
++// Output framing:
++//   file_get_start|<size>|<path>
++//   file_get_chunk|<offset>|<base64>
++//   file_get_end|<size>
++//   file_get_error|<reason>
++static int cmd_file_get(int argc, char **argv)
++{
++    if (argc < 2) {
++        printf("Usage: file_get <path>\n");
++        printf("Example: file_get \"lab/handshakes/SSID_ABCDEF_123.pcap\"\n");
++        return 1;
++    }
++
++    char full_path[SD_PATH_MAX];
++    if (!build_sd_path(full_path, sizeof(full_path), argv[1])) {
++        printf("file_get_error|bad_path\n");
++        return 1;
++    }
++
++    esp_err_t ret = init_sd_card();
++    if (ret != ESP_OK) {
++        printf("file_get_error|sd_init\n");
++        return 1;
++    }
++
++    struct stat st;
++    if (stat(full_path, &st) != 0) {
++        printf("file_get_error|stat\n");
++        return 1;
++    }
++    if (S_ISDIR(st.st_mode)) {
++        printf("file_get_error|is_dir\n");
++        return 1;
++    }
++
++    FILE *f = fopen(full_path, "rb");
++    if (!f) {
++        printf("file_get_error|open\n");
++        return 1;
++    }
++
++    const size_t CHUNK = 384;  // 384 -> base64 line ~512 chars, safe for UART line buffers
++    uint8_t buf[CHUNK];
++    unsigned char b64[600];
++    size_t offset = 0;
++
++    printf("file_get_start|%lu|%s\n", (unsigned long)st.st_size, full_path);
++
++    while (true) {
++        size_t n = fread(buf, 1, CHUNK, f);
++        if (n == 0) {
++            break;
++        }
++
++        size_t b64Len = 0;
++        int rc = mbedtls_base64_encode(b64, sizeof(b64) - 1, &b64Len, buf, n);
++        if (rc != 0) {
++            fclose(f);
++            printf("file_get_error|b64\n");
++            return 1;
++        }
++        b64[b64Len] = '\0';
++
++        printf("file_get_chunk|%lu|%s\n", (unsigned long)offset, (const char *)b64);
++        offset += n;
++
++        // Yield to keep the console responsive and avoid starving other tasks.
++        vTaskDelay(pdMS_TO_TICKS(1));
++    }
++
++    fclose(f);
++    printf("file_get_end|%lu\n", (unsigned long)offset);
++    return 0;
++}
++
+ // Command: select_html [index] - Loads HTML file from SD card
+ static int cmd_select_html(int argc, char **argv)
+ {
+@@ -11224,6 +11313,24 @@ static void register_commands(void)
+     };
+     ESP_ERROR_CHECK(esp_console_cmd_register(&file_delete_cmd));
+ 
++    const esp_console_cmd_t pork_caps_cmd = {
++        .command = "pork_caps",
++        .help = "Print capabilities for Porkchop host (JANUS HOG)",
++        .hint = NULL,
++        .func = &cmd_pork_caps,
++        .argtable = NULL
++    };
++    ESP_ERROR_CHECK(esp_console_cmd_register(&pork_caps_cmd));
++
++    const esp_console_cmd_t file_get_cmd = {
++        .command = "file_get",
++        .help = "Stream file from SD over UART: file_get <path>",
++        .hint = NULL,
++        .func = &cmd_file_get,
++        .argtable = NULL
++    };
++    ESP_ERROR_CHECK(esp_console_cmd_register(&file_get_cmd));
++
+     const esp_console_cmd_t select_html_cmd = {
+         .command = "select_html",
+         .help = "Load custom HTML from SD card: select_html <index>",
+@@ -13625,5 +13732,3 @@ static bool is_bssid_whitelisted(const uint8_t *bssid) {
+     
+     return false;
+ }
+-
+-

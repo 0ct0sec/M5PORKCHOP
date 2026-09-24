@@ -1,6 +1,6 @@
-// SWINE STATS - Lifetime statistics and active buff/debuff overlay
+// FLEXES - Lifetime statistics and active buff/debuff overlay
 
-#include "swine_stats.h"
+#include "flexes_screen.h"
 #include "display.h"
 #include "../core/xp.h"
 #include "../core/config.h"
@@ -10,12 +10,12 @@
 #include <M5Cardputer.h>
 
 // Static member initialization
-bool SwineStats::active = false;
-bool SwineStats::keyWasPressed = false;
-BuffState SwineStats::currentBuffs = {0, 0};
-uint16_t SwineStats::currentClassBuffs = 0;
-uint32_t SwineStats::lastBuffUpdate = 0;
-StatsTab SwineStats::currentTab = StatsTab::STATS;
+bool FlexesScreen::active = false;
+bool FlexesScreen::keyWasPressed = false;
+BuffState FlexesScreen::currentBuffs = {0, 0};
+uint16_t FlexesScreen::currentClassBuffs = 0;
+uint32_t FlexesScreen::lastBuffUpdate = 0;
+StatsTab FlexesScreen::currentTab = StatsTab::STATS;
 
 // Buff names and descriptions (leet one-word style)
 // Buff names and descriptions (vNext Neon Operator)
@@ -93,7 +93,7 @@ static const char* STAT_LABELS[] = {
     "G30L0CS"
 };
 
-void SwineStats::init() {
+void FlexesScreen::init() {
     active = false;
     keyWasPressed = false;
     currentBuffs = {0, 0};
@@ -102,7 +102,7 @@ void SwineStats::init() {
     currentTab = StatsTab::STATS;
 }
 
-void SwineStats::show() {
+void FlexesScreen::show() {
     active = true;
     keyWasPressed = true;  // Ignore the key that activated us
     currentBuffs = calculateBuffs();
@@ -111,11 +111,11 @@ void SwineStats::show() {
     currentTab = StatsTab::STATS;
 }
 
-void SwineStats::hide() {
+void FlexesScreen::hide() {
     active = false;
 }
 
-void SwineStats::update() {
+void FlexesScreen::update() {
     if (!active) return;
     
     // Update buffs periodically
@@ -128,7 +128,7 @@ void SwineStats::update() {
     handleInput();
 }
 
-void SwineStats::handleInput() {
+void FlexesScreen::handleInput() {
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -194,7 +194,7 @@ void SwineStats::handleInput() {
     }
 }
 
-BuffState SwineStats::calculateBuffs() {
+BuffState FlexesScreen::calculateBuffs() {
     BuffState state = {0, 0};
     int happiness = Mood::getEffectiveHappiness();
     const SessionStats& session = XP::getSession();
@@ -260,7 +260,7 @@ BuffState SwineStats::calculateBuffs() {
     return state;
 }
 
-uint16_t SwineStats::calculateClassBuffs() {
+uint16_t FlexesScreen::calculateClassBuffs() {
     uint8_t level = XP::getLevel();
     uint16_t buffs = 0;
     
@@ -281,11 +281,11 @@ uint16_t SwineStats::calculateClassBuffs() {
     return buffs;
 }
 
-bool SwineStats::hasClassBuff(ClassBuff cb) {
+bool FlexesScreen::hasClassBuff(ClassBuff cb) {
     return (calculateClassBuffs() & (uint16_t)cb) != 0;
 }
 
-uint8_t SwineStats::getDeauthBurstCount() {
+uint8_t FlexesScreen::getDeauthBurstCount() {
     // In vNext the deauth burst count is no longer significantly boosted by class or mood.
     // Preserve a small global perk from 0MN1P0RK (+4%) but remove spammy stacking.
     uint16_t classBuffs = calculateClassBuffs();
@@ -302,7 +302,7 @@ uint8_t SwineStats::getDeauthBurstCount() {
     return base;
 }
 
-uint8_t SwineStats::getDeauthJitterMax() {
+uint8_t FlexesScreen::getDeauthJitterMax() {
     BuffState buffs = calculateBuffs();
     uint16_t classBuffs = calculateClassBuffs();
     // Base maximum jitter in milliseconds
@@ -332,7 +332,7 @@ uint8_t SwineStats::getDeauthJitterMax() {
     return jitterMax;
 }
 
-uint16_t SwineStats::getChannelHopInterval() {
+uint16_t FlexesScreen::getChannelHopInterval() {
     BuffState buffs = calculateBuffs();
     uint16_t classBuffs = calculateClassBuffs();
     uint16_t base = Config::wifi().channelHopInterval;  // Default from config
@@ -377,7 +377,7 @@ uint16_t SwineStats::getChannelHopInterval() {
     return interval;
 }
 
-float SwineStats::getXPMultiplier() {
+float FlexesScreen::getXPMultiplier() {
     BuffState buffs = calculateBuffs();
     uint16_t classBuffs = calculateClassBuffs();
     // vNext Signal Drip (global XP multiplier)
@@ -406,7 +406,7 @@ float SwineStats::getXPMultiplier() {
     return finalMult;
 }
 
-uint32_t SwineStats::getLockTime() {
+uint32_t FlexesScreen::getLockTime() {
     uint16_t classBuffs = calculateClassBuffs();
     BuffState buffs = calculateBuffs();
     uint32_t base = Config::wifi().lockTime;  // From settings
@@ -442,7 +442,7 @@ uint32_t SwineStats::getLockTime() {
     return result;
 }
 
-float SwineStats::getDistanceXPMultiplier() {
+float FlexesScreen::getDistanceXPMultiplier() {
     uint16_t classBuffs = calculateClassBuffs();
     // vNext R04M CR3D (distance XP multiplier)
     float mod = 0.0f;
@@ -470,7 +470,7 @@ float SwineStats::getDistanceXPMultiplier() {
     return finalMult;
 }
 
-float SwineStats::getCaptureXPMultiplier() {
+float FlexesScreen::getCaptureXPMultiplier() {
     uint16_t classBuffs = calculateClassBuffs();
     BuffState buffs = calculateBuffs();
     // vNext L00T M3M0RY (capture XP multiplier)
@@ -500,7 +500,7 @@ float SwineStats::getCaptureXPMultiplier() {
     return finalMult;
 }
 
-const char* SwineStats::getClassBuffName(ClassBuff cb) {
+const char* FlexesScreen::getClassBuffName(ClassBuff cb) {
     switch (cb) {
         case ClassBuff::P4CK3T_NOSE: return CLASS_BUFF_NAMES[0];
         case ClassBuff::H4RD_SNOUT:  return CLASS_BUFF_NAMES[1];
@@ -515,7 +515,7 @@ const char* SwineStats::getClassBuffName(ClassBuff cb) {
     }
 }
 
-const char* SwineStats::getClassBuffDesc(ClassBuff cb) {
+const char* FlexesScreen::getClassBuffDesc(ClassBuff cb) {
     switch (cb) {
         case ClassBuff::P4CK3T_NOSE: return CLASS_BUFF_DESCS[0];
         case ClassBuff::H4RD_SNOUT:  return CLASS_BUFF_DESCS[1];
@@ -530,7 +530,7 @@ const char* SwineStats::getClassBuffDesc(ClassBuff cb) {
     }
 }
 
-const char* SwineStats::getBuffName(PorkBuff b) {
+const char* FlexesScreen::getBuffName(PorkBuff b) {
     switch (b) {
         case PorkBuff::R4G3: return BUFF_NAMES[0];
         case PorkBuff::SNOUT_SHARP: return BUFF_NAMES[1];
@@ -541,7 +541,7 @@ const char* SwineStats::getBuffName(PorkBuff b) {
     }
 }
 
-const char* SwineStats::getDebuffName(PorkDebuff d) {
+const char* FlexesScreen::getDebuffName(PorkDebuff d) {
     switch (d) {
         case PorkDebuff::SLOP_SLUG: return DEBUFF_NAMES[0];
         case PorkDebuff::F0GSNOUT: return DEBUFF_NAMES[1];
@@ -552,7 +552,7 @@ const char* SwineStats::getDebuffName(PorkDebuff d) {
     }
 }
 
-const char* SwineStats::getBuffDesc(PorkBuff b) {
+const char* FlexesScreen::getBuffDesc(PorkBuff b) {
     switch (b) {
         case PorkBuff::R4G3: return BUFF_DESCS[0];
         case PorkBuff::SNOUT_SHARP: return BUFF_DESCS[1];
@@ -563,7 +563,7 @@ const char* SwineStats::getBuffDesc(PorkBuff b) {
     }
 }
 
-const char* SwineStats::getDebuffDesc(PorkDebuff d) {
+const char* FlexesScreen::getDebuffDesc(PorkDebuff d) {
     switch (d) {
         case PorkDebuff::SLOP_SLUG: return DEBUFF_DESCS[0];
         case PorkDebuff::F0GSNOUT: return DEBUFF_DESCS[1];
@@ -574,7 +574,7 @@ const char* SwineStats::getDebuffDesc(PorkDebuff d) {
     }
 }
 
-void SwineStats::draw(M5Canvas& canvas) {
+void FlexesScreen::draw(M5Canvas& canvas) {
     if (!active) return;
     
     canvas.fillSprite(COLOR_BG);
@@ -595,7 +595,7 @@ void SwineStats::draw(M5Canvas& canvas) {
 
 }
 
-void SwineStats::drawTabBar(M5Canvas& canvas) {
+void FlexesScreen::drawTabBar(M5Canvas& canvas) {
     canvas.setTextSize(1);
     const int tabY = 0;
     const int tabH = 12;
@@ -640,7 +640,7 @@ void SwineStats::drawTabBar(M5Canvas& canvas) {
     canvas.setTextColor(COLOR_FG);
 }
 
-void SwineStats::drawStatsTab(M5Canvas& canvas) {
+void FlexesScreen::drawStatsTab(M5Canvas& canvas) {
     canvas.setTextSize(1);
     canvas.setTextDatum(top_left);
     
@@ -687,7 +687,7 @@ void SwineStats::drawStatsTab(M5Canvas& canvas) {
     drawStats(canvas);
 }
 
-void SwineStats::drawBuffsTab(M5Canvas& canvas) {
+void FlexesScreen::drawBuffsTab(M5Canvas& canvas) {
     canvas.setTextSize(1);
     canvas.setTextDatum(top_left);
     
@@ -762,7 +762,7 @@ void SwineStats::drawBuffsTab(M5Canvas& canvas) {
     }
 }
 
-void SwineStats::drawStats(M5Canvas& canvas) {
+void FlexesScreen::drawStats(M5Canvas& canvas) {
     const PorkXPData& data = XP::getData();
     
     canvas.setTextSize(1);
@@ -830,7 +830,7 @@ void SwineStats::drawStats(M5Canvas& canvas) {
 // statistics from the WiGLE service and displays them in a simple
 // key/value format. If no cache is available, a placeholder message
 // instructs the user to refresh the WiGLE menu.
-void SwineStats::drawWigleTab(M5Canvas& canvas) {
+void FlexesScreen::drawWigleTab(M5Canvas& canvas) {
     canvas.setTextSize(1);
     canvas.setTextDatum(top_left);
     int y = 14;

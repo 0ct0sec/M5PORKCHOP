@@ -34,6 +34,7 @@ MLConfig Config::mlConfig;
 WiFiConfig Config::wifiConfig;
 BLEConfig Config::bleConfig;
 PersonalityConfig Config::personalityConfig;
+C5Config Config::c5Config;
 bool Config::initialized = false;
 static bool sdAvailable = false;
 
@@ -96,10 +97,21 @@ struct __attribute__((packed)) ConfigBlob {
     float    mlVulnScorerThreshold;
     uint8_t  mlAutoUpdate;
     char     mlUpdateUrl[128];
+
+    // C5 (JanusHog coprocessor)
+    uint8_t  c5Enabled;
+    uint32_t c5BaudRate;
+    uint16_t c5ScanIntervalMs;
+    uint8_t  c5UartTxPin;
+    uint8_t  c5UartRxPin;
+
+    // Added at the end so older binary config blobs remain readable.
+    char     wdgWarsApiKey[65];
 };
 
 static void populateBlob(ConfigBlob& b, const GPSConfig& gps, const WiFiConfig& wifi,
-                          const BLEConfig& ble, const MLConfig& ml) {
+                          const BLEConfig& ble, const MLConfig& ml,
+                          const C5Config& c5 = C5Config()) {
     memset(&b, 0, sizeof(b));
     b.magic    = CONFIG_MAGIC;
     b.version  = CONFIG_VERSION;
@@ -144,19 +156,52 @@ static void populateBlob(ConfigBlob& b, const GPSConfig& gps, const WiFiConfig& 
     b.mlVulnScorerThreshold  = ml.vulnScorerThreshold;
     b.mlAutoUpdate           = ml.autoUpdate ? 1 : 0;
     strncpy(b.mlUpdateUrl, ml.updateUrl, sizeof(b.mlUpdateUrl) - 1);
+
+    b.c5Enabled        = c5.enabled ? 1 : 0;
+    b.c5BaudRate       = c5.baudRate;
+    b.c5ScanIntervalMs = c5.scanIntervalMs;
+    b.c5UartTxPin      = c5.uartTxPin;
+    b.c5UartRxPin      = c5.uartRxPin;
+    strncpy(b.wdgWarsApiKey, wifi.wdgWarsApiKey, sizeof(b.wdgWarsApiKey) - 1);
 }
 
 static bool writeBlobTo(fs::FS& fs, const char* path, const ConfigBlob& b) {
-    File file = fs.open(path, FILE_WRITE);
+    // Atomic write for SD (FAT32 rename is single-sector = atomic).
+    // SPIFFS doesn't support rename, so falls back to direct write.
+    bool useAtomic = (&fs == &((fs::FS&)SD));
+    char tmpPath[128];
+    const char* writePath = path;
+    if (useAtomic) {
+        snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", path);
+        writePath = tmpPath;
+    }
+
+    File file = fs.open(writePath, FILE_WRITE);
     if (!file) {
-        Serial.printf("[CONFIG] writeBlobTo: failed to open '%s'\n", path);
+        Serial.printf("[CONFIG] writeBlobTo: failed to open '%s'\n", writePath);
         return false;
     }
     size_t written = file.write((const uint8_t*)&b, sizeof(b));
     file.close();
+
+    if (written != sizeof(b)) {
+        Serial.printf("[CONFIG] writeBlobTo: short write %u/%u -> '%s'\n",
+                      written, sizeof(b), writePath);
+        if (useAtomic) fs.remove(writePath);
+        return false;
+    }
+
+    if (useAtomic) {
+        fs.remove(path);  // FAT32 rename fails if target exists
+        if (!SD.rename(tmpPath, path)) {
+            Serial.printf("[CONFIG] writeBlobTo: rename failed '%s' -> '%s'\n", tmpPath, path);
+            return false;
+        }
+    }
+
     Serial.printf("[CONFIG] writeBlobTo: %u/%u bytes -> '%s'\n",
                   written, sizeof(b), path);
-    return written == sizeof(b);
+    return true;
 }
 
 static bool readBlobFrom(fs::FS& fs, const char* path, ConfigBlob& b) {
@@ -172,12 +217,17 @@ static bool readBlobFrom(fs::FS& fs, const char* path, ConfigBlob& b) {
     file.close();
 
     if (got < 8 || b.magic != CONFIG_MAGIC) return false;
+    // Detect stale blobs from older builds (different struct size)
+    if (b.blobSize > 0 && b.blobSize != sizeof(ConfigBlob)) {
+        Serial.printf("[CONFIG] Blob size mismatch: stored=%u expected=%u\n",
+                      b.blobSize, (unsigned)sizeof(ConfigBlob));
+    }
     Serial.printf("[CONFIG] readBlobFrom: '%s' v%u, %u bytes\n", path, b.version, got);
     return true;
 }
 
 static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
-                         BLEConfig& ble, MLConfig& ml) {
+                         BLEConfig& ble, MLConfig& ml, C5Config& c5) {
     gps.enabled        = b.gpsEnabled != 0;
     gps.source         = static_cast<GPSSource>(b.gpsSource);
     gps.rxPin          = b.gpsRxPin;
@@ -231,6 +281,16 @@ static void extractBlob(const ConfigBlob& b, GPSConfig& gps, WiFiConfig& wifi,
     ml.autoUpdate           = b.mlAutoUpdate != 0;
     strncpy(ml.updateUrl, b.mlUpdateUrl, sizeof(ml.updateUrl) - 1);
     ml.updateUrl[sizeof(ml.updateUrl) - 1] = '\0';
+
+    // C5 config (graceful default if blob predates C5 fields)
+    c5.enabled        = b.c5Enabled != 0;
+    c5.baudRate       = b.c5BaudRate > 0 ? b.c5BaudRate : 115200;
+    c5.scanIntervalMs = b.c5ScanIntervalMs > 0 ? b.c5ScanIntervalMs : 30000;
+    c5.uartTxPin      = b.c5UartTxPin > 0 ? b.c5UartTxPin : 2;
+    c5.uartRxPin      = b.c5UartRxPin > 0 ? b.c5UartRxPin : 1;
+
+    strncpy(wifi.wdgWarsApiKey, b.wdgWarsApiKey, sizeof(wifi.wdgWarsApiKey) - 1);
+    wifi.wdgWarsApiKey[sizeof(wifi.wdgWarsApiKey) - 1] = '\0';
 }
 
 static uint16_t clampU16(uint32_t value, uint16_t minVal, uint16_t maxVal) {
@@ -252,6 +312,24 @@ static void sanitizeWiFiConfig(WiFiConfig& cfg) {
     cfg.attackMinRssi = clampI8(cfg.attackMinRssi, -90, -50);
     if (cfg.spectrumTopN > 100) cfg.spectrumTopN = 100;
     cfg.spectrumStaleMs = clampU16(cfg.spectrumStaleMs, 1000, 20000);
+}
+
+static void sanitizeC5Config(C5Config& cfg) {
+    // Valid ESP32-S3 GPIO range: 0-48
+    if (cfg.uartTxPin > 48) cfg.uartTxPin = 2;
+    if (cfg.uartRxPin > 48) cfg.uartRxPin = 1;
+    // Baud rate sanity: 9600-921600
+    if (cfg.baudRate < 9600 || cfg.baudRate > 921600) cfg.baudRate = 115200;
+    // Scan interval: 0 (disabled) or 5000-120000ms
+    if (cfg.scanIntervalMs > 0 && cfg.scanIntervalMs < 5000) cfg.scanIntervalMs = 5000;
+    if (cfg.scanIntervalMs > 120000) cfg.scanIntervalMs = 30000;
+}
+
+static void sanitizeGPSConfig(GPSConfig& cfg) {
+    if (cfg.rxPin > 48) cfg.rxPin = 1;
+    if (cfg.txPin > 48) cfg.txPin = 2;
+    if (cfg.baudRate < 4800 || cfg.baudRate > 921600) cfg.baudRate = 9600;
+    if (static_cast<uint8_t>(cfg.source) >= GPS_SOURCE_COUNT) cfg.source = GPSSource::GROVE;
 }
 
 static void ensureSdSpiReady() {
@@ -351,6 +429,9 @@ bool Config::init() {
     }
     if (loadWigleKeyFromFile()) {
         Serial.println("[CONFIG] WiGLE API keys loaded from file");
+    }
+    if (loadWdgWarsKeyFromFile()) {
+        Serial.println("[CONFIG] WDGWars API key loaded from file");
     }
 
     // Merge creds from JSON porkchop.conf if present (handles the case where
@@ -467,10 +548,10 @@ bool Config::reinitSD() {
         SDLayout::ensureDirs();
         SDLog::log("CFG", "SD card re-initialized OK");
     } else {
-        // FAIL: Restore previous state — don't corrupt flags
-        sdAvailable = wasSdAvailable;
+        // FAIL: All retries exhausted — SD is definitively gone
+        sdAvailable = false;
         SDLayout::setUseNewLayout(wasNewLayout);
-        Serial.println("[CONFIG] SD reinit failed, keeping previous SD state");
+        Serial.println("[CONFIG] SD reinit failed, marking SD unavailable");
     }
 
     return sdAvailable;
@@ -526,7 +607,9 @@ bool Config::applyJson(const JsonDocument& doc) {
     // ML config
     if (doc["ml"].is<JsonObject>()) {
         mlConfig.enabled = doc["ml"]["enabled"] | true;
-        mlConfig.collectionMode = static_cast<MLCollectionMode>(doc["ml"]["collectionMode"] | 0);
+        { uint8_t cm = doc["ml"]["collectionMode"] | 0;
+          if (cm > static_cast<uint8_t>(MLCollectionMode::ENHANCED)) cm = 0;
+          mlConfig.collectionMode = static_cast<MLCollectionMode>(cm); }
         const char* mp = doc["ml"]["modelPath"] | "/m5porkchop/models/porkchop_model.bin";
         strncpy(mlConfig.modelPath, mp, sizeof(mlConfig.modelPath) - 1);
         mlConfig.modelPath[sizeof(mlConfig.modelPath) - 1] = '\0';
@@ -611,8 +694,10 @@ bool Config::load() {
 
     // 1. Try binary from SD (current layout path)
     if (sdAvailable && readBlobFrom((fs::FS&)SD, configBinPathSD(), blob)) {
-        extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
+        extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
         sanitizeWiFiConfig(wifiConfig);
+        sanitizeC5Config(c5Config);
+        sanitizeGPSConfig(gpsConfig);
         Serial.println("[CONFIG] Loaded binary from SD");
         // Mirror to SPIFFS
         writeBlobTo((fs::FS&)SPIFFS, CONFIG_BIN_FILE, blob);
@@ -622,8 +707,10 @@ bool Config::load() {
     // 1b. Try legacy binary path on SD (migration may not have moved porkchop.dat)
     if (sdAvailable && SDLayout::usingNewLayout()) {
         if (readBlobFrom((fs::FS&)SD, "/porkchop.dat", blob)) {
-            extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
+            extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
             sanitizeWiFiConfig(wifiConfig);
+            sanitizeC5Config(c5Config);
+            sanitizeGPSConfig(gpsConfig);
             Serial.println("[CONFIG] Loaded binary from legacy SD path, migrating...");
             // Move to new location and mirror to SPIFFS
             writeBlobTo((fs::FS&)SD, configBinPathSD(), blob);
@@ -636,8 +723,10 @@ bool Config::load() {
 
     // 2. Try binary from SPIFFS
     if (readBlobFrom((fs::FS&)SPIFFS, CONFIG_BIN_FILE, blob)) {
-        extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
+        extractBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
         sanitizeWiFiConfig(wifiConfig);
+        sanitizeC5Config(c5Config);
+        sanitizeGPSConfig(gpsConfig);
         Serial.println("[CONFIG] Loaded binary from SPIFFS");
         return true;
     }
@@ -647,17 +736,19 @@ bool Config::load() {
         const char* sdPath = SDLayout::configPathSD();
         if (loadFrom((fs::FS&)SD, sdPath)) {
             Serial.printf("[CONFIG] Migrated JSON from SD: '%s'\n", sdPath);
-            save();           // write binary to both SD + SPIFFS
-            SD.remove(sdPath);  // delete old JSON
-            Serial.printf("[CONFIG] Deleted old JSON: '%s'\n", sdPath);
+            if (save()) {
+                SD.remove(sdPath);  // delete old JSON only if save succeeded
+                Serial.printf("[CONFIG] Deleted old JSON: '%s'\n", sdPath);
+            }
             return true;
         }
         if (SDLayout::usingNewLayout()) {
             const char* legacyPath = SDLayout::legacyConfigPath();
             if (loadFrom((fs::FS&)SD, legacyPath)) {
                 Serial.printf("[CONFIG] Migrated JSON from SD legacy: '%s'\n", legacyPath);
-                save();
-                SD.remove(legacyPath);
+                if (save()) {
+                    SD.remove(legacyPath);
+                }
                 return true;
             }
         }
@@ -680,7 +771,17 @@ bool Config::loadPersonality() {
     File file = SPIFFS.open(PERSONALITY_FILE, FILE_READ);
     if (!file) {
         Serial.println("[CONFIG] Personality file not found in SPIFFS");
-        return false;
+        // Fallback: try SD card backup
+        if (sdAvailable) {
+            file = SD.open(SDLayout::personalityPathSD(), FILE_READ);
+            if (file) {
+                Serial.println("[CONFIG] Restoring personality from SD backup");
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
     }
 
     JsonDocument doc;
@@ -701,13 +802,27 @@ bool Config::loadPersonality() {
     personalityConfig.callsign[sizeof(personalityConfig.callsign) - 1] = '\0';
 
     personalityConfig.mood = doc["mood"] | 50;
+    if (personalityConfig.mood > 100) personalityConfig.mood = 100;
+    if (personalityConfig.mood < -100) personalityConfig.mood = -100;
     personalityConfig.experience = doc["experience"] | 0;
     personalityConfig.curiosity = doc["curiosity"] | 0.7f;
+    if (personalityConfig.curiosity < 0.0f || personalityConfig.curiosity > 1.0f) personalityConfig.curiosity = 0.7f;
     personalityConfig.aggression = doc["aggression"] | 0.3f;
+    if (personalityConfig.aggression < 0.0f || personalityConfig.aggression > 1.0f) personalityConfig.aggression = 0.3f;
     personalityConfig.patience = doc["patience"] | 0.5f;
-    personalityConfig.soundEnabled = doc["soundEnabled"] | true;
+    if (personalityConfig.patience < 0.0f || personalityConfig.patience > 1.0f) personalityConfig.patience = 0.5f;
+    // Migration: old boolean soundEnabled → new soundLevel
+    if (doc.containsKey("soundLevel")) {
+        personalityConfig.soundLevel = doc["soundLevel"] | 1;
+        if (personalityConfig.soundLevel > 5) personalityConfig.soundLevel = 5;
+    } else {
+        bool oldEnabled = doc["soundEnabled"] | true;
+        personalityConfig.soundLevel = oldEnabled ? 1 : 0;
+    }
     personalityConfig.brightness = doc["brightness"] | 80;
+    if (personalityConfig.brightness > 100) personalityConfig.brightness = 100;
     personalityConfig.dimLevel = doc["dimLevel"] | 20;
+    if (personalityConfig.dimLevel > 100) personalityConfig.dimLevel = 100;
     personalityConfig.dimTimeout = doc["dimTimeout"] | 30;
     personalityConfig.themeIndex = doc["themeIndex"] | 0;
     uint8_t g0Action = doc["g0Action"] | static_cast<uint8_t>(G0Action::SCREEN_TOGGLE);
@@ -721,10 +836,10 @@ bool Config::loadPersonality() {
     }
     personalityConfig.bootMode = static_cast<BootMode>(bootMode);
 
-    Serial.printf("[CONFIG] Personality: %s (mood: %d, sound: %s, bright: %d%%, dim: %ds, theme: %d)\n",
+    Serial.printf("[CONFIG] Personality: %s (mood: %d, sound: %d, bright: %d%%, dim: %ds, theme: %d)\n",
                   personalityConfig.name,
                   personalityConfig.mood,
-                  personalityConfig.soundEnabled ? "ON" : "OFF",
+                  personalityConfig.soundLevel,
                   personalityConfig.brightness,
                   personalityConfig.dimTimeout,
                   personalityConfig.themeIndex);
@@ -740,7 +855,7 @@ void Config::savePersonalityToSPIFFS() {
     doc["curiosity"] = personalityConfig.curiosity;
     doc["aggression"] = personalityConfig.aggression;
     doc["patience"] = personalityConfig.patience;
-    doc["soundEnabled"] = personalityConfig.soundEnabled;
+    doc["soundLevel"] = personalityConfig.soundLevel;
     doc["brightness"] = personalityConfig.brightness;
     doc["dimLevel"] = personalityConfig.dimLevel;
     doc["dimTimeout"] = personalityConfig.dimTimeout;
@@ -752,16 +867,25 @@ void Config::savePersonalityToSPIFFS() {
     if (file) {
         serializeJsonPretty(doc, file);
         file.close();
-        Serial.printf("[CONFIG] Saved personality to SPIFFS (sound: %s)\n",
-                      personalityConfig.soundEnabled ? "ON" : "OFF");
+        Serial.printf("[CONFIG] Saved personality to SPIFFS (sound: %d)\n",
+                      personalityConfig.soundLevel);
     } else {
         Serial.println("[CONFIG] Failed to save personality to SPIFFS");
+    }
+
+    // Mirror to SD card for backup (survives SPIFFS format)
+    if (sdAvailable) {
+        File sdFile = SD.open(SDLayout::personalityPathSD(), FILE_WRITE);
+        if (sdFile) {
+            serializeJsonPretty(doc, sdFile);
+            sdFile.close();
+        }
     }
 }
 
 bool Config::save() {
     ConfigBlob blob;
-    populateBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig);
+    populateBlob(blob, gpsConfig, wifiConfig, bleConfig, mlConfig, c5Config);
 
     Serial.printf("[CONFIG] save(): sdAvail=%d, wpaKey=%s, wigle=%s\n",
                   sdAvailable,
@@ -786,6 +910,7 @@ bool Config::createDefaultConfig() {
     wifiConfig = WiFiConfig();
     sanitizeWiFiConfig(wifiConfig);
     bleConfig = BLEConfig();
+    c5Config = C5Config();
     return true;
 }
 
@@ -797,7 +922,7 @@ bool Config::createDefaultPersonality() {
     personalityConfig.curiosity = 0.7f;
     personalityConfig.aggression = 0.3f;
     personalityConfig.patience = 0.5f;
-    personalityConfig.soundEnabled = true;
+    personalityConfig.soundLevel = 1;
     personalityConfig.g0Action = G0Action::SCREEN_TOGGLE;
     personalityConfig.bootMode = BootMode::IDLE;
     return true;
@@ -829,19 +954,25 @@ void Config::setPersonality(const PersonalityConfig& cfg) {
     savePersonalityToSPIFFS();
 }
 
+void Config::setC5(const C5Config& cfg) {
+    c5Config = cfg;
+    save();
+}
+
 bool Config::loadWpaSecKeyFromFile() {
     const char* keyFile = SDLayout::wpasecKeyPath();
     const char* legacyKeyFile = SDLayout::legacyWpasecKeyPath();
+    static constexpr const char* kNewKeyFile = "/m5porkchop/wpa-sec/wpasec_key.txt";
 
     if (!sdAvailable) {
         return false;
     }
-    if (!SD.exists(keyFile) && SD.exists(legacyKeyFile)) {
-        keyFile = legacyKeyFile;
-    }
+    // Mixed-layout fallback: if SDLayout is out of sync with what's on disk, still accept the key.
     if (!SD.exists(keyFile)) {
-        return false;
+        if (SD.exists(kNewKeyFile)) keyFile = kNewKeyFile;
+        else if (SD.exists(legacyKeyFile)) keyFile = legacyKeyFile;
     }
+    if (!SD.exists(keyFile)) return false;
 
     File f = SD.open(keyFile, FILE_READ);
     if (!f) {
@@ -887,16 +1018,17 @@ bool Config::loadWpaSecKeyFromFile() {
 bool Config::loadWigleKeyFromFile() {
     const char* keyFile = SDLayout::wigleKeyPath();
     const char* legacyKeyFile = SDLayout::legacyWigleKeyPath();
+    static constexpr const char* kNewKeyFile = "/m5porkchop/wigle/wigle_key.txt";
 
     if (!sdAvailable) {
         return false;
     }
-    if (!SD.exists(keyFile) && SD.exists(legacyKeyFile)) {
-        keyFile = legacyKeyFile;
-    }
+    // Mixed-layout fallback: if SDLayout is out of sync with what's on disk, still accept the key.
     if (!SD.exists(keyFile)) {
-        return false;
+        if (SD.exists(kNewKeyFile)) keyFile = kNewKeyFile;
+        else if (SD.exists(legacyKeyFile)) keyFile = legacyKeyFile;
     }
+    if (!SD.exists(keyFile)) return false;
 
     File f = SD.open(keyFile, FILE_READ);
     if (!f) {
@@ -948,6 +1080,38 @@ bool Config::loadWigleKeyFromFile() {
     return true;
 }
 
+bool Config::loadWdgWarsKeyFromFile() {
+    if (!sdAvailable) return false;
+    const char* keyFile = SDLayout::wdgWarsKeyPath();
+    const char* legacy = SDLayout::legacyWdgWarsKeyPath();
+    if (!SD.exists(keyFile) && SD.exists(legacy)) keyFile = legacy;
+    if (!SD.exists(keyFile)) return false;
+
+    File f = SD.open(keyFile, FILE_READ);
+    if (!f) return false;
+    char key[65];
+    size_t len = f.readBytesUntil('\n', key, sizeof(key) - 1);
+    key[len] = '\0';
+    f.close();
+    while (len && (key[len - 1] == '\r' || key[len - 1] == ' ' || key[len - 1] == '\t')) key[--len] = '\0';
+    if (len != 64) {
+        Serial.printf("[CONFIG] Invalid WDGWars key length: %u (expected 64)\n", (unsigned)len);
+        return false;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        if (!isxdigit((unsigned char)key[i])) {
+            Serial.printf("[CONFIG] Invalid WDGWars key character at %u\n", (unsigned)i);
+            return false;
+        }
+    }
+    strncpy(wifiConfig.wdgWarsApiKey, key, sizeof(wifiConfig.wdgWarsApiKey) - 1);
+    wifiConfig.wdgWarsApiKey[sizeof(wifiConfig.wdgWarsApiKey) - 1] = '\0';
+    save();
+    if (SD.remove(keyFile)) Serial.println("[CONFIG] Deleted WDGWars key file after import");
+    SDLog::log("CFG", "WDGWars API key imported from file");
+    return true;
+}
+
 bool Config::importCredsFromJsonConf() {
     if (!sdAvailable) return false;
 
@@ -975,8 +1139,7 @@ bool Config::importCredsFromJsonConf() {
     }
 
     if (!doc["wifi"].is<JsonObject>()) {
-        Serial.printf("[CONFIG] importCreds: no 'wifi' object in '%s'\n", confPath);
-        SD.remove(confPath);
+        Serial.printf("[CONFIG] importCreds: no 'wifi' object in '%s', keeping file\n", confPath);
         return false;
     }
 
@@ -1012,11 +1175,10 @@ bool Config::importCredsFromJsonConf() {
     if (merged) {
         save();
         SDLog::log("CFG", "Credentials imported from porkchop.conf");
-    }
-
-    // Delete the JSON conf after import (same pattern as key files)
-    if (SD.remove(confPath)) {
-        Serial.printf("[CONFIG] importCreds: deleted '%s' after import\n", confPath);
+        // Delete the JSON conf only after successful import
+        if (SD.remove(confPath)) {
+            Serial.printf("[CONFIG] importCreds: deleted '%s' after import\n", confPath);
+        }
     }
 
     return merged;

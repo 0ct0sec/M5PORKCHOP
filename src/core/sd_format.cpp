@@ -5,7 +5,7 @@
 #include "config.h"
 #include "sd_layout.h"
 #include "sdlog.h"
-#include "../web/fileserver.h"
+#include "../web/xfer_server.h"
 #include <SD.h>
 #include <esp_task_wdt.h>
 #include <esp_heap_caps.h>
@@ -75,7 +75,7 @@ SDFormat::Result makeResult(bool success, bool usedFallback, const char* msg) {
 bool wipePorkchopLayout() {
     const char* root = SDLayout::newRoot();
     if (SD.exists(root)) {
-        if (!FileServer::deletePathRecursive(String(root))) {
+        if (!XferServer::deletePathRecursive(String(root))) {
             return false;
         }
     }

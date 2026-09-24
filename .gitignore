@@ -1,6 +1,7 @@
 ﻿.pio
 .vscode/
 .cache
+external/
 .z*
 .con*/
 .cu*

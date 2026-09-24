@@ -21,8 +21,8 @@ namespace NetworkRecon {
 // ============================================================================
 
 static bool initialized = false;
-static bool running = false;
-static bool paused = false;
+static std::atomic<bool> running{false};
+static std::atomic<bool> paused{false};
 static std::atomic<bool> channelLocked{false};
 static bool channelLockedBeforePause = false;  // [BUG4 FIX] Save state for pause/resume
 static uint8_t lockedChannel = 0;
@@ -99,7 +99,7 @@ static std::atomic<uint8_t> pendingSsidWrite{0};
 // ============================================================================
 
 static std::atomic<PacketCallback> modeCallback{nullptr};
-static NewNetworkCallback newNetworkCallback = nullptr;
+static std::atomic<NewNetworkCallback> newNetworkCallback{nullptr};
 
 // ============================================================================
 // Internal Functions
@@ -270,11 +270,15 @@ static PmfResult detectPMF(const uint8_t* payload, uint16_t len) {
             if (rsnOffset + 2 > rsnEnd) break;
 
             uint16_t pairwiseCount = payload[rsnOffset] | (payload[rsnOffset + 1] << 8);
-            rsnOffset += 2 + (pairwiseCount * 4);
+            { uint32_t skip = 2u + (uint32_t)pairwiseCount * 4u;
+              if (skip > (uint32_t)(rsnEnd - rsnOffset)) break;
+              rsnOffset += (uint16_t)skip; }
             if (rsnOffset + 2 > rsnEnd) break;
 
             uint16_t akmCount = payload[rsnOffset] | (payload[rsnOffset + 1] << 8);
-            rsnOffset += 2 + (akmCount * 4);
+            { uint32_t skip = 2u + (uint32_t)akmCount * 4u;
+              if (skip > (uint32_t)(rsnEnd - rsnOffset)) break;
+              rsnOffset += (uint16_t)skip; }
             if (rsnOffset + 2 > rsnEnd) break;
 
             // RSN Capabilities - IEEE 802.11-2016 Table 9-133
@@ -417,8 +421,10 @@ static void processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) {
         // Queue for deferred add
         enqueuePendingNetwork(net);
     } else {
-        // Update existing network
+        // Update existing network — re-lookup under lock to avoid stale idx
+        // (cleanupStaleNetworks can erase/shift elements between the two critical sections)
         taskENTER_CRITICAL(&vectorMux);
+        idx = findNetworkInternal(bssid);
         if (idx >= 0 && idx < (int)networks.size()) {
             DetectedNetwork& net = networks[idx];
             net.rssi = rssi;
@@ -677,8 +683,9 @@ static void processDeferredEvents() {
         if (inserted || replaced) {
             // Notify mode of new network discovery (for XP events)
             // Called OUTSIDE critical section - safe for Mood/XP calls
-            if (newNetworkCallback) {
-                newNetworkCallback(
+            NewNetworkCallback nnCb = newNetworkCallback.load(std::memory_order_acquire);
+            if (nnCb) {
+                nnCb(
                     pending.authmode,
                     pending.isHidden,
                     pending.ssid,
@@ -714,6 +721,16 @@ static void cleanupStaleNetworks() {
         uint32_t timeout = STALE_TIMEOUT_MS;  // 60s default (strong signal)
         if (rssi < -75) timeout = 120000;     // Weak: 2 min
         else if (rssi < -50) timeout = 90000; // Medium: 1.5 min
+        // C5 (5GHz) scans are periodic and can miss a network for a scan or two.
+        // Keep external/C5 networks around longer to avoid flicker in UI.
+        if (networks[i].source == NET_SOURCE_C5) {
+            uint32_t interval = Config::c5().scanIntervalMs;
+            if (interval < 5000u) interval = 30000u;
+            uint64_t scaled = (uint64_t)interval * 10u;  // ~10 scan cycles
+            uint32_t c5Timeout = (scaled > 600000u) ? 600000u : (uint32_t)scaled;  // cap 10 minutes
+            if (c5Timeout < 180000u) c5Timeout = 180000u;  // at least 3 minutes
+            if (timeout < c5Timeout) timeout = c5Timeout;
+        }
         if (now - networks[i].lastSeen > timeout) {
             staleIndices[staleCount++] = i;
         }
@@ -889,14 +906,19 @@ void pause() {
 
 void resume() {
     if (!running || !paused) return;
-    
+
     Serial.println("[RECON] Resuming promiscuous mode...");
-    
+
+    // Re-reserve if freeNetworks() dropped capacity to 0
+    if (networks.capacity() == 0) {
+        networks.reserve(MAX_RECON_NETWORKS);
+    }
+
     // Disconnect from any network before enabling promiscuous mode
     // (WiFi may be connected after TLS operations like WiGLE/WPA-SEC sync)
     WiFi.disconnect();
     delay(50);
-    
+
     // Re-enable promiscuous
     esp_wifi_set_promiscuous_rx_cb(promiscuousCallback);
     esp_wifi_set_promiscuous_filter(nullptr);
@@ -1099,7 +1121,61 @@ void setPacketCallback(PacketCallback callback) {
 }
 
 void setNewNetworkCallback(NewNetworkCallback callback) {
-    newNetworkCallback = callback;
+    newNetworkCallback.store(callback, std::memory_order_release);
+}
+
+void injectExternal(const uint8_t* bssid, const char* ssid, int8_t rssi,
+                    uint8_t channel, wifi_auth_mode_t authmode, uint8_t source) {
+    if (!initialized) return;
+
+    taskENTER_CRITICAL(&vectorMux);
+
+    // Check for existing network by BSSID
+    bool found = false;
+    for (auto& net : networks) {
+        if (memcmp(net.bssid, bssid, 6) == 0) {
+            // Update existing
+            net.rssi = rssi;
+            net.rssiAvg = updateRssiAvg(net.rssiAvg, rssi);
+            net.lastSeen = millis();
+            net.channel = channel;
+            net.authmode = authmode;
+            // Don't allow an external 2.4GHz injection to overwrite a locally-seen network's source.
+            if (source == NET_SOURCE_LOCAL || net.source != NET_SOURCE_LOCAL || channel > 14) {
+                net.source = source;
+            }
+            if (ssid && ssid[0]) {
+                // Reveal SSID for hidden/empty entries, but don't overwrite an existing SSID.
+                if (!net.ssid[0] || net.isHidden) {
+                    strncpy(net.ssid, ssid, sizeof(net.ssid) - 1);
+                    net.ssid[sizeof(net.ssid) - 1] = '\0';
+                }
+                net.isHidden = false;
+            }
+            found = true;
+            break;
+        }
+    }
+
+    if (!found && networks.size() < MAX_RECON_NETWORKS) {
+        DetectedNetwork net = {};
+        memcpy(net.bssid, bssid, 6);
+        if (ssid) {
+            strncpy(net.ssid, ssid, sizeof(net.ssid) - 1);
+            net.ssid[sizeof(net.ssid) - 1] = '\0';
+        }
+        net.rssi = rssi;
+        net.rssiAvg = rssi;
+        net.channel = channel;
+        net.authmode = authmode;
+        net.source = source;
+        net.firstSeen = millis();
+        net.lastSeen = millis();
+        net.isHidden = (!ssid || ssid[0] == '\0');
+        networks.push_back(net);
+    }
+
+    taskEXIT_CRITICAL(&vectorMux);
 }
 
 void enterCritical() {

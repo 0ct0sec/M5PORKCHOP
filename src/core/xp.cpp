@@ -6,8 +6,9 @@
 #include "sd_layout.h"
 #include "challenges.h"
 #include "../ui/display.h"
-#include "../ui/swine_stats.h"
+#include "../ui/flexes_screen.h"
 #include "../audio/sfx.h"
+#include "../piglet/avatar.h"
 #include <M5Unified.h>
 #include <SD.h>
 #include <esp_mac.h>
@@ -36,6 +37,11 @@ void (*XP::levelUpCallback)(uint8_t, uint8_t) = nullptr;
 static bool pendingSaveFlag = false;
 
 static uint32_t lastSavedCRC = 0;
+
+// ============ RETURN BONUS ============
+// pig missed you. pig rewards loyalty.
+static uint32_t lastSessionEpoch = 0;       // epoch seconds from NVS (last save)
+static bool returnBonusChecked = false;      // one-shot per session
 
 static uint32_t computeDataCRC(const PorkXPData* d) {
     uint32_t crc = 0xFFFFFFFF;
@@ -91,7 +97,11 @@ static const uint16_t XP_VALUES[] = {
     150,    // DNH_PMKID_GHOST (buffed: very rare passive!)
     5,      // BOAR_BRO_ADDED
     15,     // BOAR_BRO_MERCY - mid-attack exclusion
-    15      // SMOKED_BACON - rare upload bonus
+    15,     // SMOKED_BACON - rare upload bonus
+    // C5Lab / JanOS / JANUS HOG (v0.1.9+)
+    2,      // SAE_COMMIT_SENT - SAE flood burst
+    25,     // C5_CONNECTED - JanusHog board detected
+    5       // C5_5GHZ_FOUND - 5GHz network via C5
 };
 
 // 10 class names (every 5 levels)
@@ -306,7 +316,7 @@ static const char* ACHIEVEMENT_NAMES[] = {
     "W1TN3SS PR0T3CT",    // 25 bros (title unlock)
     "FULL R0ST3R",        // 100 bros (max)
     // Combined achievements (bits 58-59)
-    "1NN3R P34C3",        // 1hr passive + 10 bros + 0 deauths
+    "PR0PH3CY W1TN3SS",  // Witnessed the riddle prophecy
     "P4C1F1ST RUN",       // 50+ nets all as bros
     // CLIENT MONITOR achievements (bits 60-62)
     "QU1CK DR4W",         // 5 clients in 30 seconds
@@ -373,28 +383,40 @@ bool XP::backupToSD() {
     }
     
     const char* backupPath = SDLayout::xpBackupPath();
-    File f = SD.open(backupPath, FILE_WRITE);
+    // Atomic write: write to .tmp, verify, rename over live file
+    char tmpPath[128];
+    snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", backupPath);
+
+    File f = SD.open(tmpPath, FILE_WRITE);
     if (!f) {
-        Serial.println("[XP] SD backup: failed to open file");
+        Serial.println("[XP] SD backup: failed to open temp file");
         return false;
     }
-    
+
     // Write XP data
     size_t written = f.write((uint8_t*)&data, sizeof(PorkXPData));
-    
+
     // seal the pact
     uint32_t signature = calculateDeviceBoundCRC(&data);
     written += f.write((uint8_t*)&signature, sizeof(signature));
     f.close();
-    
+
     size_t expectedSize = sizeof(PorkXPData) + sizeof(uint32_t);
-    if (written == expectedSize) {
-        Serial.printf("[XP] SD backup: saved %d bytes (sig: %08X)\n", written, signature);
-        return true;
+    if (written != expectedSize) {
+        Serial.printf("[XP] SD backup: write failed (%d/%d bytes)\n", written, expectedSize);
+        SD.remove(tmpPath);
+        return false;
     }
-    
-    Serial.printf("[XP] SD backup: write failed (%d/%d bytes)\n", written, expectedSize);
-    return false;
+
+    // Atomic rename: single FAT32 directory entry update
+    SD.remove(backupPath);
+    if (!SD.rename(tmpPath, backupPath)) {
+        Serial.printf("[XP] SD backup: rename failed\n");
+        return false;
+    }
+
+    Serial.printf("[XP] SD backup: saved %d bytes (sig: %08X)\n", written, signature);
+    return true;
 }
 
 bool XP::restoreFromSD() {
@@ -560,8 +582,9 @@ void XP::load() {
     data.mercyCount = prefs.getUInt("mercy", 0);
     data.titleOverride = static_cast<TitleOverride>(prefs.getUChar("titleo", 0));
     data.unlockables = prefs.getUInt("unlock", 0);  // Unlockables v0.1.8
+    lastSessionEpoch = prefs.getUInt("lastsess", 0);  // Return bonus tracking
     data.cachedLevel = calculateLevel(data.totalXP);
-    
+
     prefs.end();
     lastSavedCRC = computeDataCRC(&data);
 }
@@ -600,7 +623,15 @@ void XP::save() {
     prefs.putUInt("mercy", data.mercyCount);
     prefs.putUChar("titleo", static_cast<uint8_t>(data.titleOverride));
     prefs.putUInt("unlock", data.unlockables);  // Unlockables v0.1.8
-    
+    // Update last session epoch for return bonus tracking
+    {
+        time_t now = time(nullptr);
+        if (now > 1700000000) {
+            prefs.putUInt("lastsess", (uint32_t)now);
+            lastSessionEpoch = (uint32_t)now;
+        }
+    }
+
     prefs.end();
     lastSavedCRC = currentCRC;
 
@@ -644,7 +675,7 @@ static uint16_t sessionWarhogXP = 0;
 static bool bleCapWarned = false;
 static bool warhogCapWarned = false;
 static const uint16_t BLE_XP_CAP = 500;      // ~250 bursts worth
-static const uint16_t WARHOG_XP_CAP = 300;   // ~150 geotagged networks
+static const uint16_t WARHOG_XP_CAP = 800;   // ~400 geotagged networks (tuned: wardriving-viable progression)
 
 // ============ DOPAMINE HOOKS ============
 // the pig giveth, sometimes generously
@@ -673,16 +704,12 @@ void XP::startSession() {
     captureStreak = 0;
     lastCaptureTime = 0;
     ultraStreakAnnounced = false;
+    returnBonusChecked = false;
     
     data.sessions++;
     
     // pig wakes. pig demands action.
     Challenges::generate();
-}
-
-void XP::endSession() {
-    save();
-    Serial.printf("[XP] Session ended - +%lu XP this session\n", session.xp);
 }
 
 void XP::addXP(XPEvent event) {
@@ -737,6 +764,7 @@ void XP::addXP(XPEvent event) {
             if (captureStreak == 20 && !ultraStreakAnnounced) {
                 Display::showToast("ULTRA STREAK!");
                 SFX::play(SFX::ULTRA_STREAK);  // Non-blocking celebration
+                Avatar::triggerTailWiggle();
                 ultraStreakAnnounced = true;
             }
             // Check for clutch capture (handshake at <10% battery)
@@ -758,6 +786,7 @@ void XP::addXP(XPEvent event) {
             if (captureStreak == 20 && !ultraStreakAnnounced) {
                 Display::showToast("ULTRA STREAK!");
                 SFX::play(SFX::ULTRA_STREAK);  // Non-blocking celebration
+                Avatar::triggerTailWiggle();
                 ultraStreakAnnounced = true;
             }
             // Check for clutch capture (PMKID at <10% battery)
@@ -874,6 +903,7 @@ void XP::addXP(XPEvent event) {
             if (captureStreak == 20 && !ultraStreakAnnounced) {
                 Display::showToast("ULTRA STREAK!");
                 SFX::play(SFX::ULTRA_STREAK);
+                Avatar::triggerTailWiggle();
                 ultraStreakAnnounced = true;
             }
 
@@ -902,23 +932,45 @@ void XP::addXP(XPEvent event) {
                 unlockAchievement(ACH_MERCY_MODE);
             }
             break;
+        case XPEvent::SESSION_30MIN:
+        case XPEvent::SESSION_60MIN:
+        case XPEvent::SESSION_120MIN: {
+            // Scale session time bonuses by level tier so they stay meaningful at high levels
+            uint8_t lvl = data.cachedLevel;
+            uint8_t tier = 0;
+            if (lvl >= 41) tier = 4;
+            else if (lvl >= 31) tier = 3;
+            else if (lvl >= 21) tier = 2;
+            else if (lvl >= 11) tier = 1;
+            static const uint16_t SESSION_XP[5][3] = {
+                { 10,  25,  50},   // L1-10  (base)
+                { 15,  40,  80},   // L11-20
+                { 25,  65, 130},   // L21-30
+                { 40, 100, 200},   // L31-40
+                { 60, 150, 300},   // L41-50
+            };
+            uint8_t col = (event == XPEvent::SESSION_30MIN) ? 0 :
+                          (event == XPEvent::SESSION_60MIN) ? 1 : 2;
+            amount = SESSION_XP[tier][col];
+            break;
+        }
         default:
             break;
     }
-    
+
     // pig tracks your labor (challenges progress)
     Challenges::onXPEvent(event);
     
     // Apply capture XP multiplier for handshakes/PMKIDs (class buff: CR4CK_NOSE)
     if (event == XPEvent::HANDSHAKE_CAPTURED || event == XPEvent::PMKID_CAPTURED) {
-        float captureMult = SwineStats::getCaptureXPMultiplier();
+        float captureMult = FlexesScreen::getCaptureXPMultiplier();
         amount = (uint16_t)(amount * captureMult);
         if (amount < 1) amount = 1;
     }
     
     // Apply distance XP multiplier for km walked (class buff: R04D_H0G)
     if (event == XPEvent::DISTANCE_KM) {
-        float distMult = SwineStats::getDistanceXPMultiplier();
+        float distMult = FlexesScreen::getDistanceXPMultiplier();
         amount = (uint16_t)(amount * distMult);
         if (amount < 1) amount = 1;
     }
@@ -950,6 +1002,7 @@ void XP::addXP(uint16_t amount) {
             }
             Display::showToast("JACKPOT!");
             SFX::play(SFX::JACKPOT_XP);  // Non-blocking celebration
+            Avatar::triggerTailWiggle();
         } else if (roll >= 90) {
             // Bonus! 8% chance for 2x
             // Prevent overflow by checking before multiplication
@@ -1001,7 +1054,7 @@ void XP::addXP(uint16_t amount) {
     }
     
     // Apply buff/debuff XP multiplier (SNOUT$HARP +18%, F0GSNOUT -10%)
-    float mult = SwineStats::getXPMultiplier();
+    float mult = FlexesScreen::getXPMultiplier();
     // Prevent overflow when applying multiplier
     uint32_t tempAmount = (uint32_t)amount * mult;
     uint16_t modifiedAmount = (tempAmount > UINT16_MAX) ? UINT16_MAX : (uint16_t)tempAmount;
@@ -1049,7 +1102,7 @@ void XP::addXPSilent(uint16_t amount) {
     // Used for bonus XP from challenges/achievements where celebration already shown
     
     // Apply buff/debuff XP multiplier (SNOUT$HARP +18%, F0GSNOUT -10%)
-    float mult = SwineStats::getXPMultiplier();
+    float mult = FlexesScreen::getXPMultiplier();
     // Prevent overflow when applying multiplier
     uint32_t tempAmount = (uint32_t)amount * mult;
     uint16_t modifiedAmount = (tempAmount > UINT16_MAX) ? UINT16_MAX : (uint16_t)tempAmount;
@@ -1114,8 +1167,27 @@ void XP::addDistance(uint32_t meters) {
 }
 
 void XP::updateSessionTime() {
+    // Return bonus: deferred until clock is valid (GPS/NTP sync)
+    if (!returnBonusChecked) {
+        time_t now = time(nullptr);
+        if (now > 1700000000) {
+            returnBonusChecked = true;
+            if (lastSessionEpoch > 0 && (uint32_t)now > lastSessionEpoch) {
+                uint32_t elapsed = (uint32_t)now - lastSessionEpoch;
+                if (elapsed >= 172800) {  // 48 hours in seconds
+                    uint16_t bonus = 25 + (data.cachedLevel * 2);
+                    addXPSilent(bonus);
+                    Display::showToast("PIG MISSED YOU.");
+                    SFX::play(SFX::ACHIEVEMENT);
+                    Serial.printf("[XP] Return bonus: +%d XP (absent %lu hours)\n",
+                                  bonus, (unsigned long)(elapsed / 3600));
+                }
+            }
+        }
+    }
+
     uint32_t sessionMinutes = (millis() - session.startTime) / 60000;
-    
+
     if (sessionMinutes >= 30 && !session.session30Awarded) {
         addXP(XPEvent::SESSION_30MIN);
         session.session30Awarded = true;
@@ -1313,20 +1385,18 @@ void XP::unlockAchievement(PorkAchievement ach) {
     // Queue achievement for celebration (prevents cascade of sounds)
     // Celebration happens in processAchievementQueue() called from main loop
     if (initialized) {
-        // Protect the queue with mutex
         if (achQueueMutex != nullptr && xSemaphoreTake(achQueueMutex, portMAX_DELAY) == pdTRUE) {
             uint8_t nextHead = (achQueueHead + 1) % ACH_QUEUE_SIZE;
             if (nextHead != achQueueTail) {  // Not full
                 achQueue[achQueueHead] = ach;
                 achQueueHead = nextHead;
             }
+            pendingSaveFlag = true;
             xSemaphoreGive(achQueueMutex);
         }
+    } else {
+        pendingSaveFlag = true;  // pre-init path, no mutex needed yet
     }
-    
-    // Defer save to avoid SD writes during active WiFi mode
-    // Will be processed by processPendingSave() in main loop or mode exit
-    pendingSaveFlag = true;
 }
 
 void XP::processAchievementQueue() {
@@ -1362,6 +1432,7 @@ void XP::processAchievementQueue() {
         snprintf(toastMsg, sizeof(toastMsg), "* %s *", ACHIEVEMENT_NAMES[idx]);
         Display::showToast(toastMsg);
         SFX::play(SFX::ACHIEVEMENT);
+        Avatar::triggerTailWiggle();
     }
 }
 
@@ -1390,8 +1461,14 @@ uint8_t XP::getAchievementCount() {
 // Unlockables (v0.1.8) - secret challenges
 void XP::setUnlockable(uint8_t bitIndex) {
     if (bitIndex >= 32) return;  // Only 32 bits available
-    data.unlockables |= (1UL << bitIndex);
-    pendingSaveFlag = true;  // Defer save to avoid bus contention
+    if (achQueueMutex != nullptr && xSemaphoreTake(achQueueMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        data.unlockables |= (1UL << bitIndex);
+        pendingSaveFlag = true;
+        xSemaphoreGive(achQueueMutex);
+    } else {
+        data.unlockables |= (1UL << bitIndex);  // best-effort if mutex unavailable
+        pendingSaveFlag = true;
+    }
 }
 
 bool XP::hasUnlockable(uint8_t bitIndex) {
@@ -1706,8 +1783,7 @@ void XP::checkAchievements() {
         unlockAchievement(ACH_WITNESS_PROTECT);
     }
     
-    // 100 bros = Full Roster (max limit)
-    // Note: Check OinkMode::boarBros.size() when available
+    // 50 bros added lifetime = Full Roster
     if (data.boarBrosAdded >= 50 && !hasAchievement(ACH_FULL_ROSTER)) {
         unlockAchievement(ACH_FULL_ROSTER);
     }

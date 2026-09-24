@@ -101,6 +101,7 @@ struct WiFiConfig {
     char wpaSecKey[33];                 // WPA-SEC.stanev.org user key (32 hex chars)
     char wigleApiName[65];              // WiGLE API Name (from wigle.net/account)
     char wigleApiToken[65];             // WiGLE API Token (from wigle.net/account)
+    char wdgWarsApiKey[65];             // WDGWars 64-character hex API key
 };
 
 // BLE settings for PIGGY BLUES mode
@@ -118,13 +119,22 @@ struct PersonalityConfig {
     float curiosity = 0.7f;
     float aggression = 0.3f;
     float patience = 0.5f;
-    bool soundEnabled = true;
+    uint8_t soundLevel = 1;    // 0=off, 1-5 volume steps
     uint8_t brightness = 80;            // Display brightness 0-100%
     uint8_t dimLevel = 20;              // Dimmed brightness 0-100% (0 = off)
     uint16_t dimTimeout = 30;           // Seconds before dimming (0 = never)
     uint8_t themeIndex = 0;             // Color theme (0-14, see THEMES array)
     G0Action g0Action = G0Action::SCREEN_TOGGLE;
     BootMode bootMode = BootMode::IDLE;
+};
+
+// JanusHog coprocessor settings (JANUS HOG)
+struct C5Config {
+    bool enabled = false;           // Opt-in: disabled by default
+    uint32_t baudRate = 115200;     // UART baud rate
+    uint16_t scanIntervalMs = 30000; // Auto-scan interval (0 = manual only)
+    uint8_t uartTxPin = 2;         // Grove G2 default
+    uint8_t uartRxPin = 1;         // Grove G1 default
 };
 
 class Config {
@@ -137,6 +147,7 @@ public:
     static bool reinitSD();  // Try to (re)initialize SD card at runtime
     static bool loadWpaSecKeyFromFile();  // Load key from /m5porkchop/wpa-sec/wpasec_key.txt (legacy /wpasec_key.txt)
     static bool loadWigleKeyFromFile();   // Load keys from /m5porkchop/wigle/wigle_key.txt (legacy /wigle_key.txt)
+    static bool loadWdgWarsKeyFromFile(); // Load key from /m5porkchop/wdgwars/wdgwars_key.txt
     static void prepareSDBus();           // Prepare SPI bus for raw SD access
     static void prepareCapLoraGpio();     // Quiesce SX1262 and clear G13 IOMUX before GPS UART
     static SPIClass& sdSpi();             // Access SD SPI bus
@@ -148,6 +159,7 @@ public:
     static WiFiConfig& wifi() { return wifiConfig; }
     static BLEConfig& ble() { return bleConfig; }
     static PersonalityConfig& personality() { return personalityConfig; }
+    static C5Config& c5() { return c5Config; }
     
     // Setters with auto-save
     static void setGPS(const GPSConfig& cfg);
@@ -155,6 +167,7 @@ public:
     static void setWiFi(const WiFiConfig& cfg);
     static void setBLE(const BLEConfig& cfg);
     static void setPersonality(const PersonalityConfig& cfg);
+    static void setC5(const C5Config& cfg);
     
 private:
     static GPSConfig gpsConfig;
@@ -162,6 +175,7 @@ private:
     static WiFiConfig wifiConfig;
     static BLEConfig bleConfig;
     static PersonalityConfig personalityConfig;
+    static C5Config c5Config;
     static bool initialized;
     
     static bool createDefaultConfig();

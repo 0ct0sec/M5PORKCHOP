@@ -13,6 +13,7 @@
 #include <WiFiClientSecure.h>
 #include <ctype.h>
 #include <esp_heap_caps.h>
+#include <algorithm>
 
 // WPA-SEC API
 static const char* WPASEC_HOST = "wpa-sec.stanev.org";
@@ -80,6 +81,11 @@ bool WPASec::loadUploadedList() {
     }
 
     f.close();
+    // Sort for binary search — O(n log n) once, enables O(log n) lookups
+    std::sort(uploadedCache.begin(), uploadedCache.end(),
+        [](const UploadedEntry& a, const UploadedEntry& b) {
+            return strcmp(a.bssid, b.bssid) < 0;
+        });
     return true;
 }
 
@@ -87,7 +93,7 @@ bool WPASec::loadCache() {
     if (cacheLoaded) return true;
 
     crackedCache.clear();
-    crackedCache.reserve(128);  // 128 * 110B = 14KB — avoids 6 reallocations vs no reserve
+    crackedCache.reserve(8);  // Grow naturally — reserve(128) was 14KB contiguous
     uploadedCache.clear();
 
     const char* cachePath = SDLayout::wpasecResultsPath();
@@ -162,6 +168,12 @@ bool WPASec::loadCache() {
         f.close();
     }
 
+    // Sort for binary search — O(n log n) once, enables O(log n) lookups
+    std::sort(crackedCache.begin(), crackedCache.end(),
+        [](const CrackedEntry& a, const CrackedEntry& b) {
+            return strcmp(a.bssid, b.bssid) < 0;
+        });
+
     if (!loadUploadedList()) {
         return false;
     }
@@ -175,12 +187,22 @@ bool WPASec::loadCache() {
 // ============================================================================
 
 const WPASec::CrackedEntry* WPASec::findCracked(const char* normalizedBssid) {
-    for (size_t i = 0; i < crackedCache.size(); i++) {
-        if (strcmp(crackedCache[i].bssid, normalizedBssid) == 0) {
-            return &crackedCache[i];
-        }
+    auto it = std::lower_bound(crackedCache.begin(), crackedCache.end(), normalizedBssid,
+        [](const CrackedEntry& entry, const char* bssid) {
+            return strcmp(entry.bssid, bssid) < 0;
+        });
+    if (it != crackedCache.end() && strcmp(it->bssid, normalizedBssid) == 0) {
+        return &(*it);
     }
     return nullptr;
+}
+
+bool WPASec::findUploaded(const char* normalizedBssid) {
+    auto it = std::lower_bound(uploadedCache.begin(), uploadedCache.end(), normalizedBssid,
+        [](const UploadedEntry& entry, const char* bssid) {
+            return strcmp(entry.bssid, bssid) < 0;
+        });
+    return it != uploadedCache.end() && strcmp(it->bssid, normalizedBssid) == 0;
 }
 
 bool WPASec::isCracked(const char* bssid) {
@@ -216,10 +238,7 @@ bool WPASec::isUploaded(const char* bssid) {
     char key[13];
     normalizeBSSID_Char(bssid, key, sizeof(key));
     if (findCracked(key) != nullptr) return true;
-    for (size_t i = 0; i < uploadedCache.size(); i++) {
-        if (strcmp(uploadedCache[i].bssid, key) == 0) return true;
-    }
-    return false;
+    return findUploaded(key);
 }
 
 const char* WPASec::getLastError() {
@@ -261,16 +280,15 @@ void WPASec::markAsUploaded(const char* bssid) {
     normalizeBSSID_Char(bssid, key, sizeof(key));
     if (key[0] == '\0') return;
 
-    // Check if already present
-    for (size_t i = 0; i < uploadedCache.size(); i++) {
-        if (strcmp(uploadedCache[i].bssid, key) == 0) return;
-    }
-    // Cap in-memory cache to avoid unbounded heap growth
+    // Sorted insertion — maintains O(log n) lookup invariant
+    auto it = std::lower_bound(uploadedCache.begin(), uploadedCache.end(), key,
+        [](const UploadedEntry& e, const char* b) { return strcmp(e.bssid, b) < 0; });
+    if (it != uploadedCache.end() && strcmp(it->bssid, key) == 0) return;
     if (uploadedCache.size() >= WPASEC_MAX_CACHE_ENTRIES) return;
 
     UploadedEntry entry;
     memcpy(entry.bssid, key, sizeof(entry.bssid));
-    uploadedCache.push_back(entry);
+    uploadedCache.insert(it, entry);
     if (!batchMode) {
         saveUploadedList();
     }
@@ -373,7 +391,7 @@ bool WPASec::uploadSingleCapture(const char* filepath, const char* bssid) {
     
     size_t contentLength = 2 + strlen(boundary) + 2 +           // --boundary\r\n
                            strlen(disposition) + 2 +             // disposition\r\n
-                           36 + 4 +                              // Content-Type + \r\n\r\n
+                           38 + 4 +                              // Content-Type + \r\n\r\n
                            fileSize +                            // file data
                            2 + 2 + strlen(boundary) + 4;         // \r\n--boundary--\r\n
     
@@ -391,19 +409,33 @@ bool WPASec::uploadSingleCapture(const char* filepath, const char* bssid) {
     client.print("Content-Type: application/octet-stream\r\n\r\n");
     
     // Stream file in chunks (heap-safe)
+    client.setTimeout(30000);
     char chunk[256];
     size_t sent = 0;
-    while (capFile.available() && sent < fileSize) {
+    while (capFile.available() && sent < fileSize && client.connected()) {
         size_t toRead = min((size_t)sizeof(chunk), fileSize - sent);
         size_t bytesRead = capFile.read((uint8_t*)chunk, toRead);
         if (bytesRead > 0) {
-            client.write((uint8_t*)chunk, bytesRead);
+            size_t written = client.write((uint8_t*)chunk, bytesRead);
+            if (written != bytesRead) {
+                capFile.close();
+                snprintf(lastError, sizeof(lastError), "Write failed at %u/%u", (unsigned)sent, (unsigned)fileSize);
+                return false;
+            }
             sent += bytesRead;
         }
         yield();  // Let WiFi stack breathe
     }
     capFile.close();
+
+    if (!client.connected()) {
+        snprintf(lastError, sizeof(lastError), "Connection lost during upload");
+        return false;
+    }
     
+    // Flush upload data before sending boundary
+    client.flush();
+
     // End multipart
     client.printf("\r\n--%s--\r\n", boundary);
     
@@ -438,7 +470,12 @@ bool WPASec::uploadSingleCapture(const char* filepath, const char* bssid) {
         // This avoids reloading cache during TLS when heap is tight
         Serial.printf("[WPASEC] Upload success: %s\n", bssid);
     } else {
-        strncpy(lastError, "UPLOAD REJECTED", sizeof(lastError) - 1);
+        if (lastError[0] == '\0') {
+            strncpy(lastError, "UPLOAD REJECTED", sizeof(lastError) - 1);
+        }
+        Serial.printf("[WPASEC] Upload error: %s (heap=%u largest=%u)\n",
+                      lastError, (unsigned)ESP.getFreeHeap(),
+                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     }
     
     return success;
@@ -568,6 +605,7 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
     if (wasReconRunning) {
         Serial.println("[WPASEC] Pausing NetworkRecon for TLS operations");
         NetworkRecon::pause();
+        NetworkRecon::freeNetworks();  // Release ~19KB for TLS headroom
     }
     
     // Pre-flight checks
@@ -712,10 +750,7 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
                     // Check uploaded list directly (avoids 14KB crackedCache load from isUploaded)
                     char key[13];
                     normalizeBSSID_Char(bssid, key, sizeof(key));
-                    bool alreadyUploaded = false;
-                    for (size_t j = 0; j < uploadedCache.size(); j++) {
-                        if (strcmp(uploadedCache[j].bssid, key) == 0) { alreadyUploaded = true; break; }
-                    }
+                    bool alreadyUploaded = findUploaded(key);
                     if (!alreadyUploaded) {
                         snprintf(pendingUploads[pendingCount].path, 
                                 sizeof(pendingUploads[pendingCount].path),
@@ -730,6 +765,7 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
             file.close();
             file = dir.openNextFile();
         }
+        if (file) file.close();  // close leftover when loop exited on pendingCount limit
         dir.close();
     }
     
@@ -741,8 +777,8 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
     
     // Track successful uploads with bitmask - avoids reloading cache during TLS
     // We mark uploaded AFTER all TLS operations complete to keep heap clear
-    uint8_t successMask[50] = {0};
-    
+    uint16_t successMask = 0;  // Bitmask for max 16 pending uploads
+
     // Upload each pending file
     if (cb) {
         cb("yoinking caps", 0, 0);
@@ -754,20 +790,28 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
             cb(status, i + 1, pendingCount);
         }
         
-        Serial.printf("[WPASEC] Heap before upload %u: %u\n", 
+        Serial.printf("[WPASEC] Heap before upload %u: %u\n",
                       i, (unsigned int)ESP.getFreeHeap());
-        
+
+        // Re-check TLS gates before each upload — prior uploads may have
+        // fragmented heap below the contiguous block threshold
+        HeapGates::TlsGateStatus tlsPerFile = HeapGates::checkTlsGates();
+        if (!HeapGates::canTls(tlsPerFile, lastError, sizeof(lastError))) {
+            Serial.printf("[WPASEC] Heap degraded before upload %u, aborting remaining\n", i);
+            result.failed += (pendingCount - i);
+            break;
+        }
+
         if (uploadSingleCapture(pendingUploads[i].path, pendingUploads[i].bssid)) {
             result.uploaded++;
-            successMask[i] = 1;  // Track for deferred marking
+            successMask |= (1 << i);  // Track for deferred marking
         } else {
             result.failed++;
             Serial.printf("[WPASEC] Failed: %s\n", pendingUploads[i].path);
         }
         
-        // Small delay between uploads to let heap settle
-        delay(100);
-        yield();
+        // Wait for LWIP async TCP cleanup before next TLS gate check
+        HeapGates::waitForLwipCleanup();
     }
     
     // Mark successful uploads AFTER all TLS operations complete
@@ -778,18 +822,18 @@ WPASecSyncResult WPASec::syncCaptures(WPASecProgressCallback cb) {
         }
         loadCache();
         for (uint8_t i = 0; i < pendingCount; i++) {
-            if (successMask[i]) {
+            if (successMask & (1 << i)) {
                 char key[13];
                 normalizeBSSID_Char(pendingUploads[i].bssid, key, sizeof(key));
-                // Check not already present before push
-                bool found = false;
-                for (size_t j = 0; j < uploadedCache.size(); j++) {
-                    if (strcmp(uploadedCache[j].bssid, key) == 0) { found = true; break; }
-                }
-                if (!found && uploadedCache.size() < WPASEC_MAX_CACHE_ENTRIES) {
-                    UploadedEntry entry;
-                    memcpy(entry.bssid, key, sizeof(entry.bssid));
-                    uploadedCache.push_back(entry);
+                // Sorted insertion — maintains binary search invariant
+                auto uit = std::lower_bound(uploadedCache.begin(), uploadedCache.end(), key,
+                    [](const UploadedEntry& e, const char* b) { return strcmp(e.bssid, b) < 0; });
+                if (uit == uploadedCache.end() || strcmp(uit->bssid, key) != 0) {
+                    if (uploadedCache.size() < WPASEC_MAX_CACHE_ENTRIES) {
+                        UploadedEntry entry;
+                        memcpy(entry.bssid, key, sizeof(entry.bssid));
+                        uploadedCache.insert(uit, entry);
+                    }
                 }
             }
         }

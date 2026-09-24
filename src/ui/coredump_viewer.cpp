@@ -1,6 +1,6 @@
-// Crash Viewer Menu implementation
+// CoreDump Viewer Menu implementation
 
-#include "crash_viewer.h"
+#include "coredump_viewer.h"
 #include "display.h"
 #include "../core/config.h"
 #include "../core/sd_layout.h"
@@ -16,23 +16,23 @@ static void formatTimeLine(time_t t, char* out, size_t len);
 
 static const size_t MAX_CRASH_FILES = 32;
 
-bool CrashViewer::active = false;
-std::vector<CrashViewer::CrashEntry> CrashViewer::crashFiles;
-std::vector<CrashViewer::LogLine> CrashViewer::fileLines;
-uint16_t CrashViewer::listScroll = 0;
-uint16_t CrashViewer::fileScroll = 0;
-uint16_t CrashViewer::totalLines = 0;
-uint8_t CrashViewer::selectedIndex = 0;
-bool CrashViewer::fileViewActive = false;
-bool CrashViewer::nukeConfirmActive = false;
-bool CrashViewer::keyWasPressed = false;
-char CrashViewer::activeFile[64] = {0};
+bool CoreDumpViewer::active = false;
+std::vector<CoreDumpViewer::CrashEntry> CoreDumpViewer::crashFiles;
+std::vector<CoreDumpViewer::LogLine> CoreDumpViewer::fileLines;
+uint16_t CoreDumpViewer::listScroll = 0;
+uint16_t CoreDumpViewer::fileScroll = 0;
+uint16_t CoreDumpViewer::totalLines = 0;
+uint8_t CoreDumpViewer::selectedIndex = 0;
+bool CoreDumpViewer::fileViewActive = false;
+bool CoreDumpViewer::nukeConfirmActive = false;
+bool CoreDumpViewer::keyWasPressed = false;
+char CoreDumpViewer::activeFile[64] = {0};
 
 static const uint16_t MAX_LOG_LINES = 120;
 static const uint8_t VISIBLE_LINES = 9;
 static const uint8_t LINE_HEIGHT = 11;
 
-void CrashViewer::init() {
+void CoreDumpViewer::init() {
     crashFiles.clear();
     fileLines.clear();
     listScroll = 0;
@@ -44,7 +44,7 @@ void CrashViewer::init() {
     activeFile[0] = '\0';
 }
 
-void CrashViewer::scanCrashFiles() {
+void CoreDumpViewer::scanCrashFiles() {
     crashFiles.clear();
     crashFiles.reserve(MAX_CRASH_FILES);  // Cap at 32 — avoids unbounded growth
     selectedIndex = 0;
@@ -107,14 +107,14 @@ void CrashViewer::scanCrashFiles() {
     });
 }
 
-static void pushLogLine(std::vector<CrashViewer::LogLine>& lines, const char* text) {
-    CrashViewer::LogLine entry;
+static void pushLogLine(std::vector<CoreDumpViewer::LogLine>& lines, const char* text) {
+    CoreDumpViewer::LogLine entry;
     strncpy(entry.text, text, sizeof(entry.text) - 1);
     entry.text[sizeof(entry.text) - 1] = '\0';
     lines.push_back(entry);
 }
 
-void CrashViewer::loadCrashFile(const char* path) {
+void CoreDumpViewer::loadCrashFile(const char* path) {
     fileLines.clear();
     fileScroll = 0;
     totalLines = 0;
@@ -165,7 +165,7 @@ void CrashViewer::loadCrashFile(const char* path) {
     }
 }
 
-void CrashViewer::show() {
+void CoreDumpViewer::show() {
     active = true;
     keyWasPressed = true;
     fileViewActive = false;
@@ -175,7 +175,7 @@ void CrashViewer::show() {
     scanCrashFiles();
 }
 
-void CrashViewer::hide() {
+void CoreDumpViewer::hide() {
     active = false;
     crashFiles.clear();
     fileLines.clear();
@@ -187,7 +187,7 @@ void CrashViewer::hide() {
     Display::clearBottomOverlay();
 }
 
-void CrashViewer::nukeCrashFiles() {
+void CoreDumpViewer::nukeCrashFiles() {
     const char* crashDir = SDLayout::crashDir();
     if (!SD.exists(crashDir)) {
         return;
@@ -231,7 +231,7 @@ void CrashViewer::nukeCrashFiles() {
     dir.close();
 }
 
-void CrashViewer::drawList(M5Canvas& canvas) {
+void CoreDumpViewer::drawList(M5Canvas& canvas) {
     canvas.fillSprite(COLOR_BG);
     canvas.setTextColor(COLOR_FG, COLOR_BG);
     canvas.setTextSize(1);
@@ -284,7 +284,7 @@ void CrashViewer::drawList(M5Canvas& canvas) {
     }
 }
 
-void CrashViewer::drawFile(M5Canvas& canvas) {
+void CoreDumpViewer::drawFile(M5Canvas& canvas) {
     canvas.fillSprite(COLOR_BG);
     canvas.setTextColor(COLOR_FG, COLOR_BG);
     canvas.setTextSize(1);
@@ -318,7 +318,7 @@ void CrashViewer::drawFile(M5Canvas& canvas) {
     }
 }
 
-void CrashViewer::drawNukeConfirm(M5Canvas& canvas) {
+void CoreDumpViewer::drawNukeConfirm(M5Canvas& canvas) {
     const int boxW = 200;
     const int boxH = 70;
     const int boxX = (canvas.width() - boxW) / 2;
@@ -342,7 +342,7 @@ void CrashViewer::drawNukeConfirm(M5Canvas& canvas) {
     canvas.drawString("[Y] DO IT  [N] ABORT", centerX, boxY + 54);
 }
 
-void CrashViewer::update() {
+void CoreDumpViewer::update() {
     if (!active) return;
 
     if (!M5Cardputer.Keyboard.isPressed()) {
@@ -418,7 +418,7 @@ void CrashViewer::update() {
     }
 }
 
-void CrashViewer::draw(M5Canvas& canvas) {
+void CoreDumpViewer::draw(M5Canvas& canvas) {
     if (!active) return;
 
     if (fileViewActive) {
@@ -485,7 +485,7 @@ static void formatTimeLine(time_t t, char* out, size_t len) {
     strftime(out, len, "%b %d %H:%M", timeinfo);
 }
 
-void CrashViewer::getStatusLine(char* out, size_t len) {
+void CoreDumpViewer::getStatusLine(char* out, size_t len) {
     if (!out || len == 0) return;
     out[0] = '\0';
     if (!active) return;

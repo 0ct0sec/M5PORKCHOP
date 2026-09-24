@@ -85,6 +85,12 @@ enum class SpectrumFilter : uint8_t {
     HIDDEN     // Hidden SSIDs only
 };
 
+// Spectrum view band. 5GHz view renders data sourced from NetworkRecon (C5-injected scan results).
+enum class SpectrumBand : uint8_t {
+    BAND_24 = 0,
+    BAND_5  = 1
+};
+
 class SpectrumMode {
 public:
     static void init();
@@ -117,6 +123,14 @@ private:
     static float viewCenterMHz;      // Center of visible spectrum
     static float viewWidthMHz;       // Visible bandwidth
     static int selectedIndex;        // Currently highlighted network
+    static SpectrumBand viewBand;    // Which band is currently displayed
+    static float viewCenter24MHz;    // Stored center for 2.4GHz view
+    static float viewWidth24MHz;     // Stored width for 2.4GHz view
+    static float viewCenter5MHz;     // Stored center for 5GHz view
+    static float viewWidth5MHz;      // Stored width for 5GHz view
+    static int selectedC5Index;      // Selected entry index in JanusHog scan cache (5GHz view)
+    static uint8_t selectedC5Bssid[6];  // Selection stability across rescan swaps
+    static bool selectedC5Valid;
     static uint32_t lastUpdateTime;
     static bool keyWasPressed;
     static uint8_t currentChannel;   // Current hop channel
@@ -124,6 +138,17 @@ private:
     
     // Filter state
     static SpectrumFilter filter;    // Current filter mode
+    
+    // 5GHz action prompt (Enter on 5GHz selection)
+    static bool actionPromptActive;
+    static uint8_t actionBssid[6];
+    static char actionSsid[33];
+    static uint8_t actionChannel;
+    static int8_t actionRssi;
+    static wifi_auth_mode_t actionAuthmode;
+    static bool c5HandshakePending;
+    static uint32_t c5HandshakeStartMs;
+    static char c5HandshakeSsid[33];
     
     // Deferred logging for revealed SSIDs (avoid Serial in callback)
     static volatile bool pendingReveal;
@@ -168,22 +193,24 @@ private:
     static float dialPositionSmooth;         // Lerped display position (smooth)
     static uint32_t lastDialUpdate;          // Timing for lerp
     static uint32_t dialModeEntryTime;       // When dial mode was entered (debounce)
-    static volatile uint32_t ppsCounter;     // Packet counter (callback increments)
+    static std::atomic<uint32_t> ppsCounter;  // Packet counter (callback increments)
     static uint32_t displayPps;              // Displayed pps (updated per second)
     static uint32_t lastPpsUpdate;           // Last pps calculation time
     
     static void handleInput();
+    static void handleActionPromptInput();
     static void handleClientMonitorInput();  // Input when monitoring
-    static void drawSpectrum(M5Canvas& canvas);
-    static void drawClientOverlay(M5Canvas& canvas);  // Client list overlay
-    static void drawClientDetail(M5Canvas& canvas);   // Client detail popup
-    static void drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz, int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed);
-    static void drawAxis(M5Canvas& canvas);
-    static void drawChannelMarkers(M5Canvas& canvas);
-    static void drawFilterBar(M5Canvas& canvas);     // Filter indicator bar
-    static void drawDialInfo(M5Canvas& canvas);      // Dial mode info bar
-    static void drawNoiseFloor(M5Canvas& canvas);    // Animated noise at baseline
-    static void drawWaterfall(M5Canvas& canvas);     // Historical spectrum waterfall
+    static void drawActionPrompt(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawSpectrum(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz, int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed, uint16_t fg);
+    static void drawAxis(M5Canvas& canvas, uint16_t fg);
+    static void drawChannelMarkers(M5Canvas& canvas, uint16_t fg, uint16_t bg);
+    static void drawFilterBar(M5Canvas& canvas, uint16_t fg);
+    static void drawDialInfo(M5Canvas& canvas, uint16_t fg);
+    static void drawNoiseFloor(M5Canvas& canvas, uint16_t fg);
+    static void drawWaterfall(M5Canvas& canvas, uint16_t fg);  // Historical spectrum waterfall
     static void updateSpectrumBuffers();             // Populate buffers from network data
     static void updateWaterfall();                   // Push to waterfall history
     static void pruneStale();            // Remove networks not seen recently
@@ -215,6 +242,10 @@ private:
     static bool matchesFilter(const SpectrumNetwork& net);  // Check if network passes filter
     static bool matchesFilterRender(const SpectrumRenderNet& net);
     static void updateRenderSnapshot();
+    static bool has5GHzScanData();
+    static void setViewBand(SpectrumBand band);
+    static int findC5IndexByBssid(const uint8_t* bssid);
+    static int findNextC5Index(int startIndex, int direction);
     
     // Packet callback for visualization (called by NetworkRecon)
     static void promiscuousCallback(const wifi_promiscuous_pkt_t* pkt, wifi_promiscuous_pkt_type_t type);

@@ -1,6 +1,6 @@
 // Piggy Blues Mode implementation - BLE Notification Spam
 
-#include "piggyblues.h"
+#include "piggy_blues.h"
 #include "../core/config.h"
 #include "../core/xp.h"
 #include "../core/wifi_utils.h"
@@ -590,8 +590,10 @@ void PiggyBluesMode::start() {
     // Stop NetworkRecon before disabling WiFi (BLE needs exclusive radio)
     NetworkRecon::stop();
     
-    // Disable WiFi to improve BLE performance (shared antenna)
-    WiFi.mode(WIFI_OFF);
+    // Stop WiFi radio but keep driver initialized (shared antenna for BLE)
+    // WiFi.mode(WIFI_OFF) calls esp_wifi_deinit() which causes RX buffer allocation
+    // failures on restart — use esp_wifi_stop() to keep buffers allocated
+    WiFi.disconnect(true);
     delay(BLE_OP_DELAY_MS);
     
     // Initialize NimBLE only if not already initialized
@@ -654,7 +656,8 @@ void PiggyBluesMode::stop() {
     setAdvertisingNow(false);
     
     Avatar::setGrassMoving(false);
-    Avatar::resetGrassPattern();
+    Avatar::resetGrass();
+    Avatar::waveRipple(WaveMode::NONE);
     
     bool doReboot = (random(0, 100) < REBOOT_CHANCE_PERCENT);
     if (doReboot) {
@@ -805,6 +808,7 @@ void PiggyBluesMode::sendAppleJuice() {
     
     // Start advertising
     if (pAdvertising->start()) {
+        Avatar::waveRipple(WaveMode::OUTGOING);
         totalPackets++;
         appleCount++;
         XP::addXP(XPEvent::BLE_APPLE);  // +3 XP

@@ -39,12 +39,6 @@ namespace WiFiUtils {
     bool ensureTlsReserve(size_t bytes);
     
     /**
-     * @brief Acquires the TLS memory reserve for use
-     * @return true if successful, false otherwise
-     */
-    bool acquireTlsReserve();
-    
-    /**
      * @brief Restores the TLS memory reserve after use
      * @return true if successful, false otherwise
      */

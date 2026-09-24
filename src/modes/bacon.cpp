@@ -306,6 +306,7 @@ void BaconMode::updateAsyncScan() {
 
             bool alreadyAdded = false;
             uint8_t* bssid = WiFi.BSSID(j);
+            if (!bssid) continue;
             for (int k = 0; k < apCount; k++) {
                 if (memcmp(apFingerprint[k].bssid, bssid, 6) == 0) {
                     alreadyAdded = true;
@@ -321,6 +322,7 @@ void BaconMode::updateAsyncScan() {
 
         if (maxIdx >= 0) {
             uint8_t* bssid = WiFi.BSSID(maxIdx);
+            if (!bssid) continue;
             memcpy(apFingerprint[apCount].bssid, bssid, 6);
             apFingerprint[apCount].rssi = WiFi.RSSI(maxIdx);
             apFingerprint[apCount].channel = WiFi.channel(maxIdx);
@@ -515,7 +517,10 @@ void BaconMode::draw(M5Canvas& canvas) {
     // === STANDARD LAYOUT: Avatar + Mood (XP shows in top bar on gain) ===
     Avatar::draw(canvas);
     Mood::draw(canvas);
-    
+
+    // Draw ambient birds between avatar and clouds
+    Weather::drawBirds(canvas, COLOR_FG);
+
     // Draw clouds above stars/pig before rain
     Weather::drawClouds(canvas, COLOR_FG);
 

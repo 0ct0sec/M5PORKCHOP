@@ -26,6 +26,7 @@ static constexpr const char* kNewScreenshots = "/m5porkchop/screenshots";
 static constexpr const char* kNewDiagnostics = "/m5porkchop/diagnostics";
 static constexpr const char* kNewWpaSec = "/m5porkchop/wpa-sec";
 static constexpr const char* kNewWigle = "/m5porkchop/wigle";
+static constexpr const char* kNewWdgWars = "/m5porkchop/wdgwars";
 static constexpr const char* kNewXp = "/m5porkchop/xp";
 static constexpr const char* kNewMisc = "/m5porkchop/misc";
 static constexpr const char* kNewConfig = "/m5porkchop/config";
@@ -38,6 +39,7 @@ static constexpr const char* kLegacyWpasecUploaded = "/wpasec_uploaded.txt";
 static constexpr const char* kLegacyWpasecSent = "/wpasec_sent.txt";
 static constexpr const char* kLegacyWigleUploaded = "/wigle_uploaded.txt";
 static constexpr const char* kLegacyWigleStats = "/wigle_stats.json";
+static constexpr const char* kLegacyWdgWarsUploaded = "/wdgwars_uploaded.txt";
 static constexpr const char* kLegacyXpBackup = "/xp_backup.bin";
 static constexpr const char* kLegacyXpAwardedWpa = "/xp_awarded_wpa.txt";
 static constexpr const char* kLegacyXpAwardedWigle = "/xp_awarded_wigle.txt";
@@ -46,6 +48,7 @@ static constexpr const char* kLegacyHeapLog = "/heap_log.txt";
 static constexpr const char* kLegacyHeapWatermarks = "/heap_wm.bin";
 static constexpr const char* kLegacyWpasecKey = "/wpasec_key.txt";
 static constexpr const char* kLegacyWigleKey = "/wigle_key.txt";
+static constexpr const char* kLegacyWdgWarsKey = "/wdgwars_key.txt";
 static constexpr const char* kLegacyConfigBin = "/porkchop.dat";
 
 static constexpr const char* kNewConfigPath = "/m5porkchop/config/porkchop.conf";
@@ -55,6 +58,7 @@ static constexpr const char* kNewWpasecUploaded = "/m5porkchop/wpa-sec/wpasec_up
 static constexpr const char* kNewWpasecSent = "/m5porkchop/wpa-sec/wpasec_sent.txt";
 static constexpr const char* kNewWigleUploaded = "/m5porkchop/wigle/wigle_uploaded.txt";
 static constexpr const char* kNewWigleStats = "/m5porkchop/wigle/wigle_stats.json";
+static constexpr const char* kNewWdgWarsUploaded = "/m5porkchop/wdgwars/uploaded.txt";
 static constexpr const char* kNewXpBackup = "/m5porkchop/xp/xp_backup.bin";
 static constexpr const char* kNewXpAwardedWpa = "/m5porkchop/xp/xp_awarded_wpa.txt";
 static constexpr const char* kNewXpAwardedWigle = "/m5porkchop/xp/xp_awarded_wigle.txt";
@@ -63,6 +67,7 @@ static constexpr const char* kNewHeapLog = "/m5porkchop/diagnostics/heap_log.txt
 static constexpr const char* kNewHeapWatermarks = "/m5porkchop/diagnostics/heap_wm.bin";
 static constexpr const char* kNewWpasecKey = "/m5porkchop/wpa-sec/wpasec_key.txt";
 static constexpr const char* kNewWigleKey = "/m5porkchop/wigle/wigle_key.txt";
+static constexpr const char* kNewWdgWarsKey = "/m5porkchop/wdgwars/wdgwars_key.txt";
 static constexpr const char* kNewConfigBin = "/m5porkchop/config/porkchop.dat";
 
 // Use mutex to protect shared state
@@ -70,8 +75,8 @@ static portMUX_TYPE layoutMutex = portMUX_INITIALIZER_UNLOCKED;
 static bool g_useNewLayout = false;
 
 struct MoveOp {
-    String from;
-    String to;
+    char from[128];
+    char to[128];
 };
 
 static const char* basenameFromPath(const char* path) {
@@ -228,29 +233,38 @@ static bool copyPathRecursive(const char* src, const char* dst, int depth = 0) {
 
 static bool isDiagFile(const char* name) {
     if (!name) return false;
-    String nameStr(name);
-    return nameStr.startsWith("diag_") && nameStr.endsWith(".txt");
+    if (strncmp(name, "diag_", 5) != 0) return false;
+    size_t len = strlen(name);
+    return len > 4 && strcmp(name + len - 4, ".txt") == 0;
 }
 
-static void collectDiagFiles(std::vector<String>& out) {
+static constexpr int kMaxDiagFiles = 10;
+
+struct DiagFileList {
+    char paths[kMaxDiagFiles][128];
+    int count = 0;
+};
+
+static void collectDiagFiles(DiagFileList& out) {
+    out.count = 0;
     File root = SD.open("/");
     if (!root || !root.isDirectory()) {
         if (root) root.close();
         return;
     }
     File entry = root.openNextFile();
-    int fileCount = 0; // Prevent infinite loops on corrupted filesystems
-    
+    int fileCount = 0;
+
     while (entry) {
         const char* name = basenameFromPath(entry.name());
         bool isFile = !entry.isDirectory();
         entry.close();
-        if (isFile && isDiagFile(name)) {
-            out.push_back(String("/") + String(name));
+        if (isFile && isDiagFile(name) && out.count < kMaxDiagFiles) {
+            snprintf(out.paths[out.count], sizeof(out.paths[0]), "/%s", name);
+            out.count++;
         }
         entry = root.openNextFile();
         fileCount++;
-        // Yield periodically to prevent WDT resets
         if (fileCount % 10 == 0) {
             yield();
         }
@@ -282,12 +296,9 @@ static bool hasLegacyData() {
     if (SD.exists(kLegacyWigleKey)) return true;
     if (SD.exists(kLegacyConfigBin)) return true;
 
-    std::vector<String> diag;
-    // Reserve space to reduce allocations
-    diag.reserve(10);
+    DiagFileList diag;
     collectDiagFiles(diag);
-    bool result = !diag.empty();
-    return result;
+    return diag.count > 0;
 }
 
 static bool backupLegacy(const char* backupRoot) {
@@ -323,11 +334,12 @@ static bool backupLegacy(const char* backupRoot) {
 
     int failures = 0;
 
+    char dst[256];
     for (int i = 0; i < numDirs; i++) {
         const char* dir = legacyDirs[i];
         if (!SD.exists(dir)) continue;
-        String dst = String(backupRoot) + String(dir);
-        if (!copyPathRecursive(dir, dst.c_str())) {
+        snprintf(dst, sizeof(dst), "%s%s", backupRoot, dir);
+        if (!copyPathRecursive(dir, dst)) {
             Serial.printf("[MIGRATE] Backup failed for dir: %s (continuing)\n", dir);
             failures++;
         }
@@ -337,21 +349,20 @@ static bool backupLegacy(const char* backupRoot) {
     for (int i = 0; i < numFiles; i++) {
         const char* file = legacyFiles[i];
         if (!SD.exists(file)) continue;
-        String dst = String(backupRoot) + String(file);
-        if (!copyFile(file, dst.c_str())) {
+        snprintf(dst, sizeof(dst), "%s%s", backupRoot, file);
+        if (!copyFile(file, dst)) {
             Serial.printf("[MIGRATE] Backup failed for file: %s (continuing)\n", file);
             failures++;
         }
         yield();
     }
 
-    std::vector<String> diag;
-    diag.reserve(10);
+    DiagFileList diag;
     collectDiagFiles(diag);
-    for (const String& path : diag) {
-        String dst = String(backupRoot) + path;
-        if (!copyFile(path.c_str(), dst.c_str())) {
-            Serial.printf("[MIGRATE] Backup failed for diag: %s (continuing)\n", path.c_str());
+    for (int i = 0; i < diag.count; i++) {
+        snprintf(dst, sizeof(dst), "%s%s", backupRoot, diag.paths[i]);
+        if (!copyFile(diag.paths[i], dst)) {
+            Serial.printf("[MIGRATE] Backup failed for diag: %s (continuing)\n", diag.paths[i]);
             failures++;
         }
         yield();
@@ -375,7 +386,12 @@ static bool movePath(const char* src, const char* dst, std::vector<MoveOp>& move
 
     if (SD.rename(src, dst)) {
         if (moved.size() < 100) {
-            moved.push_back({String(src), String(dst)});
+            MoveOp op;
+            strncpy(op.from, src, sizeof(op.from) - 1);
+            op.from[sizeof(op.from) - 1] = '\0';
+            strncpy(op.to, dst, sizeof(op.to) - 1);
+            op.to[sizeof(op.to) - 1] = '\0';
+            moved.push_back(op);
         }
         return true;
     }
@@ -403,14 +419,19 @@ static bool movePath(const char* src, const char* dst, std::vector<MoveOp>& move
     // and risky mid-migration). The backup already preserves the data.
 
     if (moved.size() < 100) {
-        moved.push_back({String(src), String(dst)});
+        MoveOp op;
+        strncpy(op.from, src, sizeof(op.from) - 1);
+        op.from[sizeof(op.from) - 1] = '\0';
+        strncpy(op.to, dst, sizeof(op.to) - 1);
+        op.to[sizeof(op.to) - 1] = '\0';
+        moved.push_back(op);
     }
     return true;
 }
 
 static void rollbackMoves(const std::vector<MoveOp>& moved) {
     for (auto it = moved.rbegin(); it != moved.rend(); ++it) {
-        SD.rename(it->to.c_str(), it->from.c_str());
+        SD.rename(it->to, it->from);
     }
 }
 
@@ -437,6 +458,42 @@ const char* migrationMarkerPath() { return kMarker; }
 
 const char* handshakesDir() { return usingNewLayout() ? kNewHandshakes : kLegacyHandshakes; }
 const char* wardrivingDir() { return usingNewLayout() ? kNewWardriving : kLegacyWardriving; }
+const char* wardrivingReadDir() {
+    const char* preferred = wardrivingDir();
+    const char* fallback = usingNewLayout() ? kLegacyWardriving : kNewWardriving;
+
+    auto containsWigleCsv = [](const char* path) {
+        if (!SD.exists(path)) return false;
+        File dir = SD.open(path);
+        if (!dir || !dir.isDirectory()) {
+            if (dir) dir.close();
+            return false;
+        }
+        File entry = dir.openNextFile();
+        while (entry) {
+            if (!entry.isDirectory()) {
+                const char* name = basenameFromPath(entry.name());
+                size_t len = strlen(name);
+                if (len >= 10 && strcasecmp(name + len - 10, ".wigle.csv") == 0) {
+                    entry.close();
+                    dir.close();
+                    return true;
+                }
+            }
+            entry.close();
+            entry = dir.openNextFile();
+        }
+        dir.close();
+        return false;
+    };
+
+    if (containsWigleCsv(preferred)) return preferred;
+    if (containsWigleCsv(fallback)) {
+        Serial.printf("[SD] Wardriving read fallback: %s (preferred %s)\n", fallback, preferred);
+        return fallback;
+    }
+    return preferred;
+}
 const char* modelsDir() { return usingNewLayout() ? kNewModels : kLegacyModels; }
 const char* logsDir() { return usingNewLayout() ? kNewLogs : kLegacyLogs; }
 const char* crashDir() { return usingNewLayout() ? kNewCrash : kLegacyCrash; }
@@ -444,6 +501,7 @@ const char* screenshotsDir() { return usingNewLayout() ? kNewScreenshots : kLega
 const char* diagnosticsDir() { return usingNewLayout() ? kNewDiagnostics : "/"; }
 const char* wpaSecDir() { return usingNewLayout() ? kNewWpaSec : "/"; }
 const char* wigleDir() { return usingNewLayout() ? kNewWigle : "/"; }
+const char* wdgWarsDir() { return usingNewLayout() ? kNewWdgWars : "/"; }
 const char* xpDir() { return usingNewLayout() ? kNewXp : "/"; }
 const char* miscDir() { return usingNewLayout() ? kNewMisc : "/"; }
 const char* configDir() { return usingNewLayout() ? kNewConfig : "/"; }
@@ -456,6 +514,7 @@ const char* wpasecUploadedPath() { return usingNewLayout() ? kNewWpasecUploaded 
 const char* wpasecSentPath() { return usingNewLayout() ? kNewWpasecSent : kLegacyWpasecSent; }
 const char* wigleUploadedPath() { return usingNewLayout() ? kNewWigleUploaded : kLegacyWigleUploaded; }
 const char* wigleStatsPath() { return usingNewLayout() ? kNewWigleStats : kLegacyWigleStats; }
+const char* wdgWarsUploadedPath() { return usingNewLayout() ? kNewWdgWarsUploaded : kLegacyWdgWarsUploaded; }
 const char* xpBackupPath() { return usingNewLayout() ? kNewXpBackup : kLegacyXpBackup; }
 const char* xpAwardedWpaPath() { return usingNewLayout() ? kNewXpAwardedWpa : kLegacyXpAwardedWpa; }
 const char* xpAwardedWiglePath() { return usingNewLayout() ? kNewXpAwardedWigle : kLegacyXpAwardedWigle; }
@@ -464,11 +523,13 @@ const char* heapLogPath() { return usingNewLayout() ? kNewHeapLog : kLegacyHeapL
 const char* heapWatermarksPath() { return usingNewLayout() ? kNewHeapWatermarks : kLegacyHeapWatermarks; }
 const char* wpasecKeyPath() { return usingNewLayout() ? kNewWpasecKey : kLegacyWpasecKey; }
 const char* wigleKeyPath() { return usingNewLayout() ? kNewWigleKey : kLegacyWigleKey; }
+const char* wdgWarsKeyPath() { return usingNewLayout() ? kNewWdgWarsKey : kLegacyWdgWarsKey; }
 
 const char* legacyConfigPath() { return kLegacyConfig; }
 const char* legacyPersonalityPath() { return kLegacyPersonality; }
 const char* legacyWpasecKeyPath() { return kLegacyWpasecKey; }
 const char* legacyWigleKeyPath() { return kLegacyWigleKey; }
+const char* legacyWdgWarsKeyPath() { return kLegacyWdgWarsKey; }
 
 void sanitizeSsid(const char* ssid, char* out, size_t outLen) {
     if (!out || outLen == 0) return;
@@ -533,6 +594,7 @@ void ensureDirs() {
     ensureDir(kNewDiagnostics);
     ensureDir(kNewWpaSec);
     ensureDir(kNewWigle);
+    ensureDir(kNewWdgWars);
     ensureDir(kNewXp);
     ensureDir(kNewMisc);
     ensureDir(kNewConfig);
@@ -631,16 +693,15 @@ bool migrateIfNeeded() {
         }
         yield(); // Yield between operations
     }
-    std::vector<String> diag;
-    diag.reserve(10);
+    DiagFileList diag;
     collectDiagFiles(diag);
-    for (const String& path : diag) {
-        File f = SD.open(path, FILE_READ);
+    for (int i = 0; i < diag.count; i++) {
+        File f = SD.open(diag.paths[i], FILE_READ);
         if (f) {
             totalSize += f.size();
             f.close();
         }
-        yield(); // Yield between operations
+        yield();
     }
 
     uint64_t freeBytes = SD.totalBytes() - SD.usedBytes();
@@ -659,34 +720,31 @@ bool migrateIfNeeded() {
         return false;
     }
 
-    String backupDir;
+    char backupDir[64];
     time_t now = time(nullptr);
     struct tm* t = localtime(&now);
     if (t && t->tm_year >= 120) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "/backup/porkchop_%04d%02d%02d_%02d%02d%02d",
+        snprintf(backupDir, sizeof(backupDir), "/backup/porkchop_%04d%02d%02d_%02d%02d%02d",
                  t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
                  t->tm_hour, t->tm_min, t->tm_sec);
-        backupDir = buf;
     } else {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "/backup/porkchop_boot_%lu", (unsigned long)millis());
-        backupDir = buf;
+        snprintf(backupDir, sizeof(backupDir), "/backup/porkchop_boot_%lu", (unsigned long)millis());
     }
 
-    if (!ensureDir(backupDir.c_str())) {
+    if (!ensureDir(backupDir)) {
         Serial.println("[MIGRATE] Failed to create backup dir");
         setUseNewLayout(false);
         return false;
     }
 
-    Serial.printf("[MIGRATE] Backup to %s (size %llu)\n", backupDir.c_str(), (unsigned long long)totalSize);
-    backupLegacy(backupDir.c_str());
+    Serial.printf("[MIGRATE] Backup to %s (size %llu)\n", backupDir, (unsigned long long)totalSize);
+    backupLegacy(backupDir);
 
     ensureDir(kNewRoot);
     ensureDir(kNewConfig);
     ensureDir(kNewWpaSec);
     ensureDir(kNewWigle);
+    ensureDir(kNewWdgWars);
     ensureDir(kNewXp);
     ensureDir(kNewMisc);
     ensureDir(kNewDiagnostics);
@@ -719,14 +777,14 @@ bool migrateIfNeeded() {
     if (!movePath(kLegacyWpasecKey, kNewWpasecKey, moved)) { rollbackMoves(moved); setUseNewLayout(false); return false; }
     if (!movePath(kLegacyWigleKey, kNewWigleKey, moved)) { rollbackMoves(moved); setUseNewLayout(false); return false; }
 
-    std::vector<String> diag2;
-    diag2.reserve(10);
+    DiagFileList diag2;
     collectDiagFiles(diag2);
-    for (const String& path : diag2) {
-        String name = path;
-        if (name.startsWith("/")) name = name.substring(1);
-        String dest = String(kNewDiagnostics) + "/" + name;
-        if (!movePath(path.c_str(), dest.c_str(), moved)) { rollbackMoves(moved); setUseNewLayout(false); return false; }
+    for (int i = 0; i < diag2.count; i++) {
+        const char* path = diag2.paths[i];
+        const char* name = (path[0] == '/') ? path + 1 : path;
+        char dest[256];
+        snprintf(dest, sizeof(dest), "%s/%s", kNewDiagnostics, name);
+        if (!movePath(path, dest, moved)) { rollbackMoves(moved); setUseNewLayout(false); return false; }
     }
 
     File marker = SD.open(kMarker, FILE_WRITE);

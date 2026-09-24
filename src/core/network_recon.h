@@ -7,6 +7,8 @@
 #include <esp_wifi.h>
 #include <vector>
 
+#include "network_source.h"
+
 // Maximum networks to track
 #define MAX_RECON_NETWORKS 200
 
@@ -48,7 +50,7 @@ void stop();
 
 /**
  * @brief Release the networks vector memory entirely
- * Call after stop() when entering modes that don't use recon data (FILE_TRANSFER).
+ * Call after stop() when entering modes that don't use recon data (XFER).
  * start() will re-reserve and rescan on mode exit.
  */
 void freeNetworks();
@@ -219,6 +221,24 @@ using NewNetworkCallback = void(*)(wifi_auth_mode_t authmode, bool isHidden,
  * Pass nullptr to clear callback
  */
 void setNewNetworkCallback(NewNetworkCallback callback);
+
+// ============================================================================
+// External Network Injection (JanusHog / JANUS HOG)
+// ============================================================================
+
+/**
+ * @brief Inject a network from an external source (e.g. JanusHog 5GHz scan)
+ * Deduplicates by BSSID — updates existing entry if found, adds new if not.
+ * Thread-safe: acquires internal mutex.
+ * @param bssid 6-byte BSSID
+ * @param ssid Null-terminated SSID string
+ * @param rssi Signal strength (dBm)
+ * @param channel WiFi channel (1-14 for 2.4GHz, 36-165 for 5GHz)
+ * @param authmode WiFi authentication mode
+ * @param source NET_SOURCE_LOCAL=0, NET_SOURCE_C5=1
+ */
+void injectExternal(const uint8_t* bssid, const char* ssid, int8_t rssi,
+                    uint8_t channel, wifi_auth_mode_t authmode, uint8_t source);
 
 // ============================================================================
 // Thread Safety

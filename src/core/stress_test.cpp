@@ -2,7 +2,7 @@
 #include "stress_test.h"
 #include "../modes/spectrum.h"
 #include "../modes/oink.h"
-#include "../modes/donoham.h"
+#include "../modes/do_no_ham.h"
 #include "../ui/display.h"
 #include "heap_policy.h"
 #include <M5Cardputer.h>

@@ -87,6 +87,7 @@ public:
     static std::vector<UploadedEntry> uploadedCache;
 
     static const CrackedEntry* findCracked(const char* normalizedBssid);
+    static bool findUploaded(const char* normalizedBssid);
 
     // Helpers
     static bool loadUploadedList();

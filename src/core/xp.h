@@ -55,7 +55,11 @@ enum class XPEvent : uint8_t {
     DNH_PMKID_GHOST,        // +150 XP (vNext: very rare passive!)
     BOAR_BRO_ADDED,         // +5 XP - added network to BOAR BROS
     BOAR_BRO_MERCY,         // +15 XP - excluded mid-attack target
-    SMOKED_BACON            // +15 XP - rare upload bonus
+    SMOKED_BACON,           // +15 XP - rare upload bonus
+    // C5Lab / JanOS / JANUS HOG (v0.1.9+)
+    SAE_COMMIT_SENT,        // +2 XP - SAE flood burst sent
+    C5_CONNECTED,           // +25 XP - JanusHog board detected
+    C5_5GHZ_FOUND           // +5 XP - 5GHz network found via C5
 };
 
 // Achievement bitflags (uint64_t for 60 achievements)
@@ -270,7 +274,6 @@ public:
     
     // Session management
     static void startSession();
-    static void endSession();
     static void updateSessionTime();  // Check time-based bonuses
     
     // Distance tracking (call from WARHOG)

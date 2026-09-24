@@ -30,6 +30,7 @@ static uint32_t pendingToastMs = 0;
 static HeapPressureLevel pressureLevel = HeapPressureLevel::Normal;
 static uint32_t lastPressureChangeMs = 0;
 static uint8_t escalationCount = 0;
+static HeapPressureLevel escalationTarget = HeapPressureLevel::Normal;
 
 // Knuth's Rule metric: free_blocks / allocated_blocks
 static float knuthRatio = 0.0f;
@@ -142,7 +143,11 @@ void update() {
     HeapPressureLevel newLevel = computePressureLevel(freeHeap, fragRatio);
     if (newLevel != pressureLevel) {
         if (newLevel > pressureLevel) {
-            // Escalating: require 2 consecutive samples (except Critical = immediate)
+            // Escalating: require 2 consecutive samples at same target (except Critical = immediate)
+            if (newLevel != escalationTarget) {
+                escalationCount = 0;
+                escalationTarget = newLevel;
+            }
             escalationCount++;
             uint8_t threshold = (newLevel == HeapPressureLevel::Critical) ? 1 : 2;
             if (escalationCount >= threshold) {
@@ -151,8 +156,8 @@ void update() {
                 escalationCount = 0;
             }
         } else if ((now - lastPressureChangeMs) >= HeapPolicy::kPressureHysteresisMs) {
-            // De-escalating: only after hysteresis period
-            pressureLevel = newLevel;
+            // De-escalating: step down one level at a time after hysteresis
+            pressureLevel = (HeapPressureLevel)((uint8_t)pressureLevel - 1);
             lastPressureChangeMs = now;
             escalationCount = 0;
         }
