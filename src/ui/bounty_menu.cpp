@@ -1,18 +1,18 @@
-// Bounty Status Menu - View bounties to send to kid (Sirloin)
+// Bounty Menu - View bounties to send to kid (Sirloin)
 // Porkchop sends wardriven networks TO Sirloin for hunting
 // Refactored to match captures_menu/boar_bros_menu patterns
 
-#include "bounty_status_menu.h"
+#include "bounty_menu.h"
 #include <M5Cardputer.h>
 #include "display.h"
-#include "../modes/pigsync_client.h"
+#include "../modes/pigsync_mode.h"
 #include "../modes/warhog.h"
 
 // Static member initialization
-uint16_t BountyStatusMenu::selectedIndex = 0;
-uint16_t BountyStatusMenu::scrollOffset = 0;
-bool BountyStatusMenu::active = false;
-bool BountyStatusMenu::keyWasPressed = false;
+uint16_t BountyMenu::selectedIndex = 0;
+uint16_t BountyMenu::scrollOffset = 0;
+bool BountyMenu::active = false;
+bool BountyMenu::keyWasPressed = false;
 
 // Cached bounty list (refreshed each draw cycle to avoid 5x redundant calls)
 static std::vector<uint64_t> cachedBounties;
@@ -42,12 +42,12 @@ static void formatBSSID(uint64_t bssid, char* out, size_t len) {
              (uint8_t)(bssid));
 }
 
-void BountyStatusMenu::init() {
+void BountyMenu::init() {
     selectedIndex = 0;
     scrollOffset = 0;
 }
 
-void BountyStatusMenu::show() {
+void BountyMenu::show() {
     active = true;
     selectedIndex = 0;
     scrollOffset = 0;
@@ -57,7 +57,7 @@ void BountyStatusMenu::show() {
     refreshBountyCache(true);
 }
 
-void BountyStatusMenu::hide() {
+void BountyMenu::hide() {
     active = false;
     cachedBounties.clear();
     cachedBounties.shrink_to_fit();  // FIX: Return capacity to heap, avoid fragmentation
@@ -65,7 +65,7 @@ void BountyStatusMenu::hide() {
     lastCacheRefreshMs = 0;
 }
 
-void BountyStatusMenu::getSelectedInfo(char* out, size_t len) {
+void BountyMenu::getSelectedInfo(char* out, size_t len) {
     if (!out || len == 0) return;
     refreshBountyCache(false);
     size_t readyCount = cachedBounties.size();
@@ -79,12 +79,12 @@ void BountyStatusMenu::getSelectedInfo(char* out, size_t len) {
              (unsigned)readyCount, (unsigned)totalSynced, (unsigned)claimedCount);
 }
 
-void BountyStatusMenu::update() {
+void BountyMenu::update() {
     if (!active) return;
     handleInput();
 }
 
-void BountyStatusMenu::handleInput() {
+void BountyMenu::handleInput() {
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
     
     if (!anyPressed) {
@@ -123,7 +123,7 @@ void BountyStatusMenu::handleInput() {
     }
 }
 
-void BountyStatusMenu::draw(M5Canvas& canvas) {
+void BountyMenu::draw(M5Canvas& canvas) {
     canvas.fillSprite(COLOR_BG);
     canvas.setTextColor(COLOR_FG);
     canvas.setTextSize(1);
@@ -138,7 +138,7 @@ void BountyStatusMenu::draw(M5Canvas& canvas) {
     }
 }
 
-void BountyStatusMenu::drawList(M5Canvas& canvas) {
+void BountyMenu::drawList(M5Canvas& canvas) {
     // Uses cached bounties from draw()
     size_t count = cachedBounties.size();
     
@@ -189,7 +189,7 @@ void BountyStatusMenu::drawList(M5Canvas& canvas) {
     }
 }
 
-void BountyStatusMenu::drawEmpty(M5Canvas& canvas) {
+void BountyMenu::drawEmpty(M5Canvas& canvas) {
     // Toast-style empty state (centered rounded box, inverted colors)
     const int boxW = 180;
     const int boxH = 50;

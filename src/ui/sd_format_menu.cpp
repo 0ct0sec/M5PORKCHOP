@@ -6,7 +6,7 @@
 #include "display.h"
 #include "../core/config.h"
 #include "../core/network_recon.h"
-#include "../web/fileserver.h"
+#include "../web/xfer_server.h"
 #include <M5Cardputer.h>
 #include <WiFi.h>
 #include <esp_task_wdt.h>
@@ -119,9 +119,9 @@ const char* SdFormatMenu::getSelectedDescription() {
 void SdFormatMenu::stopEverything() {
     if (systemStopped) return;
     
-    // Stop FileServer if running
-    if (FileServer::isRunning()) {
-        FileServer::stop();
+    // Stop XferServer if running
+    if (XferServer::isRunning()) {
+        XferServer::stop();
     }
     
     // Stop background network reconnaissance

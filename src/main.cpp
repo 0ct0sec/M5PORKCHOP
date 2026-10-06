@@ -22,6 +22,7 @@
 #include "piglet/mood.h"
 #include "modes/oink.h"
 #include "modes/warhog.h"
+#include "core/janus_hog.h"
 #include "audio/sfx.h"
 
 Porkchop porkchop;
@@ -110,11 +111,14 @@ void setup() {
     // the fence to leave large contiguous space at the bottom.
     // Replaces the old 5-phase boot conditioning with a deterministic layout.
     setupHeapLayout();
+    yield();
 
     // Load configuration from SD
     if (!Config::init()) {
         Serial.println("[MAIN] Config init failed, using defaults");
     }
+    Serial.println("[BOOT] Config done");
+    yield();
 
     // Init SD logging (will be enabled via settings if user wants)
     SDLog::init();
@@ -126,6 +130,8 @@ void setup() {
 
     // Init display system
     Display::init();
+    Serial.println("[BOOT] Display done");
+    yield();
 
     // Init audio early so boot sound plays
     SFX::init();
@@ -139,6 +145,7 @@ void setup() {
     // Initialize piglet personality
     Avatar::init();
     Mood::init();
+    yield();
 
     // Initialize GPS (if enabled)
     if (Config::gps().enabled) {
@@ -163,11 +170,19 @@ void setup() {
             }
         }
     }
+    Serial.println("[BOOT] GPS done");
+    yield();
+
+    // Initialize JanusHog coprocessor (JANUS HOG) — before modes, after GPS
+    JanusHog::init();
+    Serial.println("[BOOT] C5 done");
+    yield();
 
     // Initialize modes
     OinkMode::init();
     WarhogMode::init();
     porkchop.init();
+    yield();
 
     Serial.println("=== PORKCHOP READY ===");
     Serial.printf("Piglet: %s\n", Config::personality().name);
@@ -246,6 +261,9 @@ void loop() {
     if (Config::gps().enabled) {
         GPS::update();
     }
+
+    // Update JanusHog coprocessor (non-blocking UART drain + state machine)
+    JanusHog::update();
 
     // Update mood system
     Mood::update();

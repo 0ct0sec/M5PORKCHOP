@@ -52,7 +52,29 @@ enum Event {
     
     // === SPECIAL ===
     SIREN,              // police siren effect (replaces flashSiren audio)
-    YOU_DIED            // Dark Souls style death sound
+    YOU_DIED,           // Dark Souls style death sound
+
+    // === UI FEEDBACK ===
+    MODE_ENTER,         // mode transition in - quick ascending pair
+    MODE_EXIT,          // mode transition out - quick descending pair
+    CONFIRM,            // positive confirmation (settings saved)
+    TYPING_KEY,         // ultra-short keystroke tick
+    BACK_NAV,           // back/escape navigation
+
+    // === PIG VOCALIZATIONS ===
+    OINK_HAPPY,         // nasal descending ~300-150Hz
+    OINK_GRUNT,         // low guttural burst ~120-100Hz
+    OINK_SQUEAL,        // high ascending ~800-1200Hz
+    OINK_CURIOUS,       // questioning upward ~400-600Hz
+
+    // === AMBIENT SCANNING ===
+    SONAR_PING,         // minimal single blip
+    RADAR_SWEEP,        // subtle rising sweep
+    SCAN_TICK,          // quiet periodic tick
+
+    // === AMBIENT BIRDS ===
+    BIRD_HIT,           // wave zaps bird - short electric zap
+    BIRD_IMPACT         // bird hits ground - low thud + crackle
 };
 
 // Initialize audio system (call once at startup)

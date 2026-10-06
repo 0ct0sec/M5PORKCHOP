@@ -5,6 +5,7 @@
 #include "config.h"
 #include "../ui/display.h"
 #include "../audio/sfx.h"
+#include "../piglet/avatar.h"
 #include <M5Unified.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
@@ -335,6 +336,7 @@ void Challenges::updateProgress(ChallengeType type, uint16_t delta) {
 
         // Rising tones for challenge complete - non-blocking
         SFX::play(SFX::CHALLENGE_COMPLETE);
+        Avatar::triggerTailWiggle();
 
         Serial.printf("[CHALLENGES] pig pleased. '%s' complete. +%d XP.\\n",
                       notices[i].name, notices[i].xpReward);
@@ -343,7 +345,7 @@ void Challenges::updateProgress(ChallengeType type, uint16_t delta) {
     // Check for full sweep bonus (all 3 completed)
     if (sweepNow) {
         // TRIPLE THREAT BONUS - pig respects dedication (scales with mastery)
-        const uint16_t BONUS_XP = 50 + (XP::getLevel() * 3);
+        const uint16_t BONUS_XP = 50 + (XP::getLevel() * 8);
         XP::addXPSilent(BONUS_XP);  // Silent add - sweep fanfare is the celebration
 
         Display::showToast("WORTHY. 115200 REMEMBERS.");

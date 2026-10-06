@@ -21,7 +21,7 @@
                          TABLE OF CONTENTS
 
     1. WHAT THE HELL IS THIS
-    2. MODES (what the pig does)
+    2. MODES (what the pig does, now in dual-band)
     3. THE PIGLET (mood, avatar, weather)
     4. THE FORBIDDEN CHEESE ECONOMY (XP, ranks, trophies)
     5. CLOUD HOOKUPS (WiGLE / WPA-SEC)
@@ -42,10 +42,10 @@
 ```
 +==============================================================+
 |                                                              |
-| [O] OINK MODE     - yoink handshakes. question ethics.       |
+| [O] OINK MODE     - yoink handshakes. dual-band fangs.       |
 | [D] DO NO HAM     - zero TX. passive recon. zen pig.         |
-| [W] WARHOG        - GPS wardriving. legs required.           |
-| [H] SPECTRUM      - RF analysis. client hunting. fangs.      |
+| [W] WARHOG        - dual-band wardriving. legs required.     |
+| [H] SPECTRUM      - 2.4 + 5GHz RF. sinc lobes. physics.      | 
 | [B] PIGGY BLUES   - BLE spam. YOU DIED. in that order.       |
 | [F] FILE XFER     - web UI. civilization achieved.           |
 | [*] BACON         - fake beacons. via MENU. worth the trip.  |
@@ -75,9 +75,10 @@
     PORKCHOP runs on M5Cardputer (ESP32-S3, 240MHz, 8MB flash).
     it turns a pocket keyboard into a WiFi pentesting companion with:
 
-    - promiscuous mode packet capture and EAPOL extraction
-    - GPS wardriving with WiGLE v1.6 export
-    - 2.4GHz spectrum analysis with client tracking
+    - dual-band (2.4 + 5GHz) packet capture via ESP32-C5 coprocessor
+    - EAPOL handshake + PMKID extraction (hashcat 22000 + PCAP)
+    - dual-band GPS wardriving with WiGLE v1.6 export
+    - 2.4 + 5GHz spectrum analysis with sinc-function RF rendering
     - BLE notification spam (Apple/Android/Samsung/Windows)
     - beacon injection with vendor IE fingerprinting
     - device-to-device sync via ESP-NOW (PigSync)
@@ -127,6 +128,10 @@
     Optional:
         - GPS module: AT6668/ATGM336H (Grove port G1/G2 or CapLoRa)
         - CapLoRa868 module (G15/G13 GPS, SX1262 LoRa shares SD SPI)
+        - M5MonsterC5 (ESP32-C5 WiFi 6 dual-band coprocessor):
+          Grove UART to Cardputer. runs JanOS/projectZero firmware.
+          the pig's 5GHz ear. plugs in. speaks 802.11ax.
+          optional onboard AT6668 GPS (forwarded over UART).
         - Cardputer ADV: BMI270 IMU enables dial mode in Spectrum
         - your legs, for wardriving. no judgment on wheels.
 
@@ -222,6 +227,21 @@
     max 200 networks tracked. the pig has limits.
     (200 is generous. the heap disagrees.)
 
+    JANUS HOG (ESP32-C5 COPROCESSOR):
+    the pig grew a second ear. the 5GHz one.
+    M5MonsterC5 board connected via Grove UART (115200 8N1).
+    runs JanOS/projectZero firmware. speaks scan, attack, monitor.
+    peripheral service like GPS -- runs every loop iteration,
+    zero heap allocations, all static BSS (~7KB total).
+    double-buffered scan cache (64 entries x2) prevents UI flicker.
+    5GHz networks injected into NetworkRecon transparently.
+    modes don't care WHERE the data came from. they just eat.
+    GPS forwarding from C5's onboard AT6668 when local GPS sleeps.
+    handshake file import via base64 framed transfer with CRC32.
+    the pig doesn't scan 5GHz. the pig DELEGATES 5GHz.
+    management is a skill. the pig has management skills now.
+    the horse would delegate too but the barn has no peripherals.
+
     BOOT GUARD:
     RTC memory tracks rapid reboots. 3 in 60 seconds = force IDLE.
     crash loops get the nuclear option. the pig learns from pain.
@@ -239,28 +259,42 @@
 ----[ 2.1 - OINK MODE (active hunt) [O]
 
     the pig goes rowdy. opinions about APs become actionable.
-    snout to the wire. tusks out.
+    snout to the wire. tusks out. both bands.
 
     CAPABILITIES:
-        - channel hop across 2.4GHz (13 channels, adaptive timing)
-        - promiscuous mode 802.11 frame capture
+        - dual-band hunting (2.4GHz local + 5GHz via JanusHog C5)
+        - 7-state auto-attack state machine:
+            SCANNING    = 5s network enumeration
+            PMKID_HUNT  = clientless probe sweep (10-30s adaptive)
+            NEXT_TARGET = composite scoring selects next victim
+            LOCKING     = channel hold, client discovery
+            ATTACKING   = 2-phase deauth (knock burst + maintenance drip)
+            WAITING     = 4.5s listen for M3/M4 after M1
+            BORED       = 30s cooldown when no targets available
+        - promiscuous mode 802.11 frame capture (2.4GHz)
         - EAPOL handshake extraction (M1-M4, validates sequence)
-        - PMKID extraction from RSN IE in M1 frames
-          (the AP just volunteers it. trust issues are real.)
-        - deauth (Reason 7) + disassoc (Reason 8) with jitter
-          (randomized inter-frame timing. less predictable to WIDS.
-           the pig appreciates subtlety. the timing appreciates rank.)
+        - PMKID hunting: clientless attack sweep across all APs.
+          auth + assoc per IEEE spec. 300ms timeout per AP.
+          64-bit bitset tracks probed networks. no re-probes.
+          (the AP just volunteers its PMKID. trust issues are real.)
+        - 5GHz background attacks: C5 coprocessor handles targets
+          on channels 36-165 in parallel. fire-and-forget dispatch.
+          45s timeout per target. the pig hunts two bands at once.
+        - deauth (Reason 7) + disassoc (Reason 8):
+          2-phase burst: knock (2 frames <3ms) + drip (1 frame/250ms)
+          bidirectional: AP->client AND client->AP
+          auto-pause on M1 observed (let the handshake happen)
         - PMF detection: Protected Management Frames networks
           get marked immune. the pig respects armor.
         - targeted client deauth (up to 20 clients per network)
         - broadcast disassoc alongside broadcast deauth
-          (some devices ignore deauth but fold to disassoc.
-           the pig covers all the exits.)
-        - hashcat 22000 export (.22000 files, zero preprocessing)
-        - PCAP export with radiotap headers (Wireshark-ready)
-        - auto-cooldown on targets (no spam, surgical precision)
-        - smart target selection (priority scoring: RSSI, activity,
-          client count, beacon stability)
+        - hashcat 22000 export (WPA*02 handshakes + WPA*01 PMKIDs)
+        - PCAP export with radiotap + full beacon frame (Wireshark-ready)
+        - smart target scoring: RSSI (EMA-smoothed), beacon interval,
+          client recency, auth type penalty, partial handshake retry bonus.
+          proximity bonus at RSSI >= -40dB. the pig rewards proximity.
+        - heap-gated capture: checks pressure, fragmentation, capacity
+          before allocation. the pig won't OOM chasing one more frame.
 
     LOCK-ON DISPLAY:
         target SSID (or <HIDDEN>), client count,
@@ -307,18 +341,25 @@
 
     the pig goes tactical. salutes things.
     starts talking about sectors and objectives.
+    now scans both bands. promotion deserved.
 
     CAPABILITIES:
-        - continuous AP scanning with GPS correlation
+        - dual-band AP scanning (2.4GHz local + 5GHz via C5)
+          C5 scan requests every 30s. 5GHz networks injected
+          into recon pipeline transparently. one CSV, two bands.
+        - GPS correlation with C5 fallback:
+          local GPS -> C5 GPS -> no GPS. pig tries every option.
+          haversine distance calculation for XP events.
+          jitter filter <5m, teleport rejection >1km.
         - WiGLE CSV v1.6 export (WigleWifi-1.6 format)
-        - internal CSV with extended fields
-        - dedup bloom filter (no duplicate entries.
-          the pig doesn't double-count. the pig has integrity.)
-        - distance tracking for XP (your legs = XP)
-        - capture marking for bounty system
-        - file rotation for session management
+        - Bloom filter dedup (4KB seen + 2KB captured):
+          no duplicate entries. the pig has integrity.
+          reservoir sampling for unclaimed bounty networks.
         - direct-to-disk writes (no entries[] accumulation.
           RAM is for living, not for hoarding.)
+        - 400KB file rotation for upload compatibility
+        - grass animation speed tied to GPS movement
+          (the pig walks, the grass moves. immersion.)
 
     BOUNTY SYSTEM: wardriven networks become targets for
     PigSync. your s3rloin companion can hunt what you found.
@@ -327,7 +368,8 @@
 
     FILES: /m5porkchop/wardriving/*.wigle.csv
 
-    no GPS? pig still logs. coordinates read 0.000000.
+    no GPS? C5 GPS? pig tries both. if neither:
+    coordinates read 0.000000.
     technically accurate. spiritually devastating.
     get GPS. the pig deserves latitude.
 
@@ -335,27 +377,51 @@
 ----[ 2.4 - HOG ON SPECTRUM (RF analysis) [H]
 
     pure concentration. the pig does math now.
+    real math. sinc functions. side lobes. both bands.
 
     CAPABILITIES:
-        - 2.4GHz spectrum visualization (channels 1-13)
-        - gaussian lobes per network (RSSI = height)
-        - noise floor animation at baseline
-        - waterfall display (historical spectrum, push per update)
-        - VULN indicator (WEP/OPEN networks. still? in the wild? respect.)
+        - dual-band spectrum visualization:
+          2.4GHz (channels 1-13, local promiscuous mode)
+          5GHz (channels 36-165, via JanusHog C5 scan cache)
+          [R] toggles band view. independent viewport per band.
+        - sinc-function RF carrier rendering (replaced Gaussian):
+          main lobe +/-11 MHz (actual 20MHz channel width)
+          two visible side lobes at +/-17 MHz and +/-22 MHz
+          activity-based jitter (2-5% amplitude modulation from PPS)
+          the pig renders physics. real spectrum analyzer energy.
+        - waterfall display: 22-row scrolling history (100ms/row)
+          dithered intensity mapping (8-200% shading)
+        - animated noise floor at baseline (randomized jitter)
+        - VULN indicator (WEP/OPEN networks. still? respect.)
         - BRO indicator (networks in boar_bros.txt)
         - filter modes: ALL / VULN / SOFT (no PMF) / HIDDEN
         - render snapshot buffer (64 networks, heap-safe)
-        - packet-per-second counter (callback-safe volatile)
+        - per-channel packet rate (PPS) displayed in top-right
+        - top-right info bar: CH, frequency (MHz), live PPS
+          5GHz: shows C5 packet monitor PPS when active
+
+    5GHZ ACTION PROMPT (press [ENTER] on 5GHz network):
+        when C5 is connected and you're viewing the 5GHz band:
+        - [H]andshake - capture via C5 (90s timeout, live status)
+        - [P]acket Monitor - channel traffic (PPS from C5)
+        - [B]oar Bros - exclude network
+        - [S]top - halt active C5 operation
+        the pig can't track 5GHz clients locally (no promisc).
+        but the pig can dispatch attacks. delegation is a virtue.
+        the horse delegates too, but to the barn. recursively.
 
     DIAL MODE (Cardputer ADV only):
         BMI270 IMU detected = tilt-to-tune channel selection.
         hold device upright, tilt to pan channels 1-13.
-        lerped smooth display. hysteresis for FLT/UPS detection.
+        fast jog: 25 MHz/s scroll speed (full sweep ~0.5s at max tilt).
+        lerped smooth display. hysteresis for posture detection.
         [SPACE] toggles channel lock in dial mode.
+        deactivates when device laid flat (|az| > 0.7g).
+        2.4GHz only (S3 can't tune 5GHz locally).
         (original Cardputer lacks IMU. dial mode auto-disables.
          the pig adapts to the hardware it's given.)
 
-    CLIENT MONITOR (press [ENTER] on selected network):
+    CLIENT MONITOR (press [ENTER] on 2.4GHz network):
         - channel locks. the hunt begins.
         - connected clients: MAC, vendor (OUI database),
           RSSI, freshness timer, proximity arrows
@@ -378,7 +444,8 @@
         [,] [/]     pan frequency view left/right
         [;] [.]     cycle selected network
         [F]         cycle filter (ALL/VULN/SOFT/HIDDEN)
-        [ENTER]     enter client monitor
+        [R]         toggle band (2.4GHz / 5GHz)
+        [ENTER]     client monitor (2.4) / action prompt (5G)
         [SPACE]     toggle dial lock (in dial mode)
 
 
@@ -469,6 +536,78 @@
     the pig recharges. the pig recovers. the pig is patient.
     you should try all three. the pig recommends starting with sleep.
 
+
+----[ 2.9 - JANUS HOG (the 5GHz ear) [via MENU]
+
+    the pig could only hear 2.4GHz. now the pig hears everything.
+    the pig plugged in a second brain. the brain has WiFi 6.
+    the horse had opinions about this. the barn overruled them.
+
+    WHAT IT IS:
+        ESP32-C5 coprocessor (M5MonsterC5) running JanOS/projectZero.
+        connected via Grove UART. the pig's 5GHz peripheral.
+        always-on background service -- not a mode you "enter".
+        runs every loop iteration. zero heap allocations.
+        if the C5 is plugged in, the pig just... hears more.
+
+    WHAT IT DOES:
+        - 5GHz network scanning (channels 36-165, WiFi 6)
+        - 5GHz handshake capture (WPA2 + WPA3/SAE flood)
+        - channel utilization view (2.4 + 5GHz combined)
+        - packet monitoring (PPS per 5GHz channel)
+        - GPS forwarding (C5's onboard AT6668 over UART)
+        - handshake file import (base64 framed, CRC32 verified)
+          captures on C5 SD auto-import to Porkchop SD.
+
+    HOW IT CONNECTS:
+        plug MonsterC5 into Cardputer Grove port. enable in settings.
+        the pig pings every 2s. C5 responds. connection established.
+        capabilities probed automatically (pork_caps handshake).
+        GPS forwarding starts if C5 has onboard GPS module.
+        if local GPS shares the same pins, it sleeps gracefully.
+
+    CONNECTION STATES:
+        OFF          config disabled or not initialized
+        DISCONNECTED probing (ping every 2s, 30s timeout)
+        CONNECTED    ready. scan/attack/monitor available.
+        SCANNING     5GHz scan in progress
+        ATTACKING    handshake or SAE flood running on C5
+        MONITORING   channel view or packet monitor active
+        TRANSFERRING file import from C5 SD card
+        ERROR        exponential backoff (5s -> 10s -> 20s -> 30s max)
+
+    HOW MODES USE IT:
+        OINK:     dispatches 5GHz targets to C5. parallel hunting.
+        SPECTRUM: renders 5GHz band. dispatches attacks via prompt.
+        WARHOG:   logs 5GHz networks. C5 GPS fallback.
+        DONOHAM:  5GHz networks appear in recon transparently.
+        all modes benefit. none required to change.
+        the pig's ecosystem grew. the pig's API stayed clean.
+
+    MEMORY:
+        ~7KB static BSS (scan caches, line buffer, state).
+        zero dynamic allocations. the pig learned nothing new
+        about heap management. it already knew everything.
+
+    HARDWARE SETUP:
+        Cardputer Grove      MonsterC5 Grove
+        Black (GND)   ----   Black (GND)
+        Red (5V)      ----   Red (5V)
+        Yellow (G2)   ----   White (RX)    TX/RX crossover
+        White (G1)    ----   Yellow (TX)   TX/RX crossover
+
+    FIRMWARE:
+        C5 runs JanOS/projectZero (github.com/C5Lab/projectZero).
+        optional patch: projectZero_pork_caps_file_get.patch
+        enables handshake file transfer from C5 to Porkchop.
+        without patch: scan + attack still work. import doesn't.
+        the pig adapts to what the C5 offers.
+
+    the pig had one ear for 2.4GHz.
+    now the pig has two ears and opinions about both bands.
+    the horse had zero ears and somehow still heard the barn.
+    we don't question the horse. we question the heap.
+
 ------------------------------------------------------------------------
 
 --[ 3 - THE PIGLET (mood, avatar, weather)
@@ -507,34 +646,54 @@
     more animation frames than most AAA loading screens:
 
         - 7 states: NEUTRAL, HAPPY, EXCITED, HUNTING, SLEEPY, SAD, ANGRY
-        - blink animation (intensity-modulated by mood)
-        - ear wiggle, nose sniff, cute jump on captures
-        - directional facing (left/right)
-        - walk transitions (smooth slide across screen)
-        - attack shake (visual feedback on captures)
-        - grass animation at bottom (scrolling binary pattern,
-          direction tracks pig movement, configurable speed)
+        - blink animation (intensity-modulated by mood -100 to +100)
+        - ear wiggle, nose sniff on idle events
+        - cute jump: 400ms celebratory bounce (8px height) on captures
+        - attack hop: 3-5 sequential pounce hops (250ms each) for
+          handshake captures. the pig earns its frames.
+        - wave ripple system: INCOMING (converging toward nose) for
+          received packets, OUTGOING (radiating from nose) for TX.
+          1500ms burst priority. the pig visualizes radio activity.
+        - thunder flash: inverts avatar colors during weather storms
+        - directional facing (left/right) with positional queries
+        - walk transitions (smooth slide with windup coast-back)
+        - attack shake (visual feedback, strong/weak modes)
+        - grass animation: 30 procedural blades, scrolling parallax,
+          wind direction + speed control, movement tied to wardriving.
+          the grass knows when the pig is walking. the grass cares.
 
     NIGHT MODE (20:00-06:00 local time):
-        15 stars appear with fade-in effects. twinkling.
-        RTC-governed vigil. the pig respects circadian rhythms.
+        15 stars with fade-in effects. twinkling.
+        procedural placement (y:20-100). RTC-governed vigil.
+        the pig respects circadian rhythms.
         the pig goes to bed on time. the pig is not like you.
 
 
 ----[ 3.3 - WEATHER SYSTEM
 
     mood-reactive atmospheric effects layered on screen.
-    no formal weather enum -- four independent state machines
-    stack and overlap based on mood tier:
+    four independent state machines stack and overlap
+    based on mood tier (not raw mood -- hysteresis-gated):
 
-    CLOUDS       = always drifting in parallax. slow. atmospheric.
-    RAIN         = 25 particles. low mood triggers it. fast updates (30ms).
-    THUNDER      = lightning flash inverts screen colors. 50-90s interval
-                   (adjusts with mood). multiple flashes per storm.
+    CLOUDS       = 8 max. procedural puff shapes (3-5 circles per cloud).
+                   scale animation (0-255). drift parallax every 6 grass
+                   shifts. density scales with mood (-80 = 8 clouds,
+                   +50 = clear skies). atmospheric pressure simulator
+                   for a device that can't measure atmospheric pressure.
+    RAIN         = 25 particles. tier-gated activation (not raw mood).
+                   30ms update rate. drops fall with conviction.
+    THUNDER      = multi-flash sequences. 50-90s intervals (mood-scaled).
+                   color inversion via Avatar::thunderFlash().
+                   the pig flinches. the pig is correct to flinch.
     WIND         = 6 directional particles in gusts. 15-30s between gusts.
+                   spawn height randomized. particle lifespan 180-280px.
+                   left/right direction control. the ether has opinions.
 
-    mood level drives rain/storm probability via tiered thresholds.
-    the pig's emotional state affects the entire display.
+    MOOD-WEATHER COUPLING:
+        mood  50+ : sunny. zero clouds. the pig basks.
+        mood   0  : overcast. clouds drift. the pig broods.
+        mood -80  : stormy. 8 clouds + rain + wind + thunder.
+                    the pig's feelings are everyone's weather now.
 
     why? someone said "what if the pig had weather?" at 2am.
     nobody stopped us. weather shipped. particles rendered.
@@ -618,6 +777,8 @@
     particular philosophies may find the pig offers them
     names that reflect what they've become, rather than
     how far they've climbed. these are earned, not given.
+    three paths now carry names. the patient. the merciful.
+    the shadowed. the pig knows which road you're walking.
     the conditions are in xp.h. the patience is on you.
 
     CALLSIGN: custom handle. unlocked via... discovery.
@@ -638,12 +799,20 @@
         - distance walked is distance earned.
           your legs are XP generators. the pig respects cardio.
         - endurance pays compound interest.
-          the session timer knows who stayed.
+          the session timer knows who stayed. rewards scale with tier.
         - clutch plays under pressure are honored.
           capture at low battery and the pig notices.
         - mercy is its own reward. literally.
           protecting networks from attack mid-battle earns more
           than you'd think.
+        - absence makes the pig grow fonder.
+          been away? the pig noticed. the pig missed you.
+          the pig has a way of showing it.
+        - hot streaks compound. consecutive captures build momentum.
+          the pig respects flow state. the math respects it more.
+        - the pig speaks 5GHz now. the C5 coprocessor has its own
+          economy. connecting it, finding 5GHz networks --
+          the ledger has new columns for both bands.
 
     the numbers themselves? in the source. xp.cpp, line 52.
     we could list them here but then you'd optimize
@@ -663,8 +832,9 @@
 ----[ 4.3 - THE TROPHY CASE (achievements)
 
     64 bits. one uint64_t. each bit a question the pig asked
-    and you answered. efficient as a slaughterhouse. elegant
-    as the animal that escaped one.
+    and you answered. the grid is full now. all 64 occupied.
+    efficient as a slaughterhouse. elegant as the animal
+    that escaped one.
 
     the grid in RANK > BADGES shows your progress.
     names are in l33t-speak. conditions are not explained.
@@ -931,7 +1101,8 @@
         TRANSFR      - web file manager
 
     SYSTEM:
-        SETTINGS     - Personality, WiFi, GPS, BLE, Display, Boot Mode, G0
+        SETTINGS     - Personality, WiFi, GPS, BLE, Display, Boot Mode, G0,
+                       JANUS HOG (C5 enable, UART pins, baud, scan interval)
         BOARBROS     - whitelist management (BSSID + SSID)
         COREDUMP     - browse/delete core dumps
         DIAGDATA     - heap status, WiFi reset, garbage collection
@@ -1012,10 +1183,18 @@
         [,] [/]     pan frequency
         [;] [.]     cycle network
         [F]         cycle filter
-        [ENTER]     enter client monitor
+        [R]         toggle band (2.4GHz / 5GHz)
+        [ENTER]     client monitor (2.4) / action prompt (5G)
         [SPACE]     toggle dial lock (ADV only)
 
-    SPECTRUM CLIENT MONITOR:
+    SPECTRUM 5GHZ ACTION PROMPT:
+        [H]         handshake capture via C5
+        [P]         packet monitor on channel
+        [B]         add to boar bros
+        [S]         stop active C5 operation
+        [`]         cancel prompt
+
+    SPECTRUM CLIENT MONITOR (2.4GHz only):
         [;] [.]     navigate clients
         [ENTER]     deauth selected client
         [W]         reveal mode (broadcast deauth)
@@ -1344,7 +1523,7 @@
 
     you, for reading past the legal section.
     actually reading documentation is rare.
-    reading 1300+ lines of it is clinical.
+    reading 1500+ lines of it is clinical.
     the pig appreciates you. the horse might.
     but the horse is the barn and barns lack
     mechanisms for appreciation. barns settle.

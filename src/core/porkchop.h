@@ -7,30 +7,42 @@
 
 // Operating modes
 enum class PorkchopMode : uint8_t {
-    IDLE = 0,       // Main screen, piglet idle
-    OINK_MODE,      // Deauth + sniff mode
-    DNH_MODE,       // DO NO HAM - passive recon (no attacks)
-    WARHOG_MODE,    // Wardriving mode
-    PIGGYBLUES_MODE,// BLE notification spam
-    SPECTRUM_MODE,  // WiFi spectrum analyzer
-    MENU,           // Menu navigation
-    SETTINGS,       // Settings screen
-    CAPTURES,       // View captured handshakes
-    ACHIEVEMENTS,   // View achievements
-    ABOUT,          // About screen
-    FILE_TRANSFER,  // WiFi file transfer mode
-    CRASH_VIEWER,     // Crash viewer
-    DIAGNOSTICS,    // System diagnostics
-    SWINE_STATS,    // Lifetime stats and buffs overlay
-    BOAR_BROS,      // Manage excluded networks
-    WIGLE_MENU,     // WiGLE file uploads
-    UNLOCKABLES,    // Secret challenges menu
-    BOUNTY_STATUS,  // View active bounties
-    PIGSYNC_DEVICE_SELECT, // PigSync device selection
-    PIGSYNC_CALL, // PigSync active call
-    BACON_MODE,     // Hide and seek beacon broadcaster
-    SD_FORMAT,      // SD card format utility
-    CHARGING        // Low power charging mode
+    IDLE = 0,              // Main screen, piglet idle
+    OINK_MODE = 1,         // Deauth + sniff mode
+    DNH_MODE = 2,          // DO NO HAM - passive recon (no attacks)
+    WARHOG_MODE = 3,       // Wardriving mode
+    PIGGYBLUES_MODE = 4,   // BLE notification spam
+    SPECTRUM_MODE = 5,     // WiFi spectrum analyzer
+    MENU = 6,              // Menu navigation
+    SETTINGS = 7,          // Settings screen
+    HASHES = 8,            // View captured handshakes / PMKIDs
+    BADGES = 9,            // View achievements (UI: BADGES)
+    ABOUT = 10,            // About screen
+    XFER = 11,             // WiFi file transfer mode (UI: TRANSFR/XFER)
+    COREDUMP = 12,         // Crash/coredump viewer
+    DIAGDATA = 13,         // System diagnostics snapshot
+    FLEXES = 14,           // Lifetime stats and buffs overlay
+    BOAR_BROS = 15,        // Manage excluded networks
+    TRACKS = 16,           // WiGLE tracks/uploads
+    UNLOCKABLES = 17,      // Secret challenges menu
+    BOUNTY = 18,           // View active bounties
+    PIGSYNC_DEVICE_SELECT = 19, // PigSync device selection
+    PIGSYNC_CALL = 20,     // PigSync active call
+    BACON_MODE = 21,       // Hide and seek beacon broadcaster
+    JANUS_HOG_MODE = 22,   // Janus Hog (ESP32-C5) UART coprocessor status
+    SD_FORMAT = 23,        // SD card format utility
+    CHARGING = 24,         // Low power charging mode
+
+    // Legacy aliases (deprecated; remove in v0.2.0)
+    CAPTURES = HASHES,
+    ACHIEVEMENTS = BADGES,
+    FILE_TRANSFER = XFER,
+    CRASH_VIEWER = COREDUMP,
+    DIAGNOSTICS = DIAGDATA,
+    SWINE_STATS = FLEXES,
+    WIGLE_MENU = TRACKS,
+    BOUNTY_STATUS = BOUNTY,
+    MONSTER_C5_MODE = JANUS_HOG_MODE
 };
 
 // Events for async callbacks

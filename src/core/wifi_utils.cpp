@@ -10,6 +10,7 @@
 #include "heap_health.h"
 #include "heap_policy.h"
 #include "heap_gates.h"
+#include "network_recon.h"
 
 namespace WiFiUtils {
 
@@ -87,39 +88,6 @@ bool ensureTlsReserve(size_t bytes) {
     tlsReserveReleased = !ok;
     xSemaphoreGive(reserveMutex);
     return ok;
-}
-
-bool acquireTlsReserve() {
-    ensureInitialized(); // Make sure all mutexes are initialized
-    
-    if (!reserveMutex) return false;
-    
-    // Use timeout to prevent indefinite blocking
-    if (xSemaphoreTake(reserveMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-        return false;
-    }
-
-    if ((!tlsReserve || tlsReserveReleased) && tlsReserveSize > 0) {
-        tlsReserve = heap_caps_malloc(tlsReserveSize, MALLOC_CAP_8BIT);
-        if (!tlsReserve) {
-            xSemaphoreGive(reserveMutex);
-            return false;
-        }
-        tlsReserveReleased = false;
-    }
-
-    if (!tlsReserve || tlsReserveSize == 0 || tlsReserveReleased) {
-        xSemaphoreGive(reserveMutex);
-        return false;
-    }
-
-    // Return the pointer to the caller - don't free it here
-    void* acquiredPtr = tlsReserve;
-    tlsReserve = nullptr;
-    tlsReserveReleased = true;
-    
-    xSemaphoreGive(reserveMutex);
-    return acquiredPtr != nullptr;
 }
 
 bool restoreTlsReserve() {
@@ -255,7 +223,7 @@ void shutdown() {
 
 // Cooldown guard for manual conditionHeapForTLS() callers.
 // The auto-brew path (maybeAutoConditionHeap) has its own 5-layer protection,
-// but manual callers (WiGLE, WPA-SEC, FileServer) bypass those layers.
+// but manual callers (WiGLE, WPA-SEC, XferServer) bypass those layers.
 // This timestamp prevents any caller from brewing more often than the
 // policy minimum, protecting against accidental loop patterns.
 static uint32_t lastManualConditionMs = 0;
@@ -308,6 +276,15 @@ size_t conditionHeapForTLS() {
                       heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     }
     
+    // Pause NetworkRecon if running — we override the promiscuous callback below
+    bool wasReconRunning = NetworkRecon::isRunning();
+    if (wasReconRunning) {
+        NetworkRecon::pause();
+    }
+
+    // Save WiFi STA connection state — brewing requires disconnect + promiscuous
+    bool wasConnected = (WiFi.status() == WL_CONNECTED);
+
     // Phase 2: "Heap Brewing" - WiFi promiscuous cycle with dwell time
     // The OINK bounce effect requires the WiFi driver's internal task to run
     // for ~2-3 seconds to reorganize its buffers. Key observations:
@@ -391,7 +368,8 @@ size_t conditionHeapForTLS() {
     // Step 4: Clean shutdown (same as OINK stop)
     esp_wifi_set_promiscuous(false);
     esp_wifi_set_promiscuous_rx_cb(nullptr);
-    WiFi.disconnect(false, true);
+    // Preserve AP config (eraseap=false) so callers can reconnect after brewing
+    WiFi.disconnect(false, false);
     WiFi.mode(WIFI_STA);
     delay(HeapPolicy::kWiFiShutdownDelayMs);
     
@@ -413,6 +391,28 @@ size_t conditionHeapForTLS() {
                   finalFree, freedBytes, finalLargest, contiguousGain);
     HeapHealth::resetPeaks(true);
     lastManualConditionMs = millis();  // Cooldown starts from brew completion
+
+    // Restore WiFi STA connection if it was active before brewing
+    if (wasConnected) {
+        Serial.println("[HEAP] Reconnecting WiFi after conditioning...");
+        WiFi.reconnect();
+        uint32_t reconStart = millis();
+        while (WiFi.status() != WL_CONNECTED && (millis() - reconStart) < 10000) {
+            delay(100);
+            yield();
+        }
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.printf("[HEAP] WiFi reconnected: %s\n", WiFi.localIP().toString().c_str());
+        } else {
+            Serial.println("[HEAP] WiFi reconnect failed (caller should retry)");
+        }
+    }
+
+    // Resume NetworkRecon if it was running before conditioning
+    if (wasReconRunning) {
+        NetworkRecon::resume();
+    }
+
     return finalLargest;
 }
 

@@ -4,6 +4,7 @@
 #include "settings_menu.h"
 #include "display.h"
 #include "../core/config.h"
+#include "../core/janus_hog.h"
 #include "../core/xp.h"
 #include "../core/sd_layout.h"
 #include "../core/sdlog.h"
@@ -20,6 +21,7 @@ enum GroupId : uint8_t {
     GROUP_RADIO,
     GROUP_GPS,
     GROUP_BLE,
+    GROUP_C5,
     GROUP_LOG
 };
 
@@ -59,6 +61,11 @@ enum SettingId : uint8_t {
     SET_GPS_TZ,
     SET_BLE_BURST,
     SET_BLE_ADV,
+    SET_C5_ENABLED,
+    SET_C5_TX_PIN,
+    SET_C5_RX_PIN,
+    SET_C5_BAUD,
+    SET_C5_SCAN_INTV,
     SET_SD_LOG,
     SET_CALLSIGN
 };
@@ -85,7 +92,7 @@ struct EntryData {
 static const EntryData kDirectEntries[] = {
     {SET_THEME, "THEME", SettingType::VALUE, 0, (int)THEME_COUNT - 1, 1, "", "CYCLE COLORS"},
     {SET_BRIGHTNESS, "BRIGHTNESS", SettingType::VALUE, 10, 100, 10, "%", "SCREEN GLOW LEVEL"},
-    {SET_SOUND, "SOUND", SettingType::TOGGLE, 0, 1, 1, "", "BEEPS AND BOOPS"},
+    {SET_SOUND, "SOUND", SettingType::VALUE, 0, 5, 1, "", "0=OFF 1-5=VOLUME"},
     {SET_DIM_AFTER, "DIM AFTER", SettingType::VALUE, 0, 300, 10, "S", "0 = NEVER DIM"},
     {SET_DIM_LEVEL, "DIM LEVEL", SettingType::VALUE, 0, 50, 5, "%", "0 = SCREEN OFF"},
     {SET_G0_ACTION, "G0 ACTION", SettingType::VALUE, 0, (int)G0_ACTION_COUNT - 1, 1, "", "G0 HOTKEY"},
@@ -96,7 +103,7 @@ static const EntryData kDirectEntries[] = {
 static const RootEntry kRootEntries[] = {
     {"THEME", "CYCLE COLORS", false, GROUP_NONE, SET_THEME},
     {"BRIGHTNESS", "SCREEN GLOW LEVEL", false, GROUP_NONE, SET_BRIGHTNESS},
-    {"SOUND", "BEEPS AND BOOPS", false, GROUP_NONE, SET_SOUND},
+    {"SOUND", "0=OFF 1-5=VOLUME", false, GROUP_NONE, SET_SOUND},
     {"DIM AFTER", "0 = NEVER DIM", false, GROUP_NONE, SET_DIM_AFTER},
     {"DIM LEVEL", "0 = SCREEN OFF", false, GROUP_NONE, SET_DIM_LEVEL},
     {"G0 ACTION", "G0 HOTKEY", false, GROUP_NONE, SET_G0_ACTION},
@@ -106,7 +113,8 @@ static const RootEntry kRootEntries[] = {
     {"INTEGRATION", "API KEYS", true, GROUP_INTEG, SET_THEME},
     {"RADIO", "WIFI SCAN/ATTACK TIMING", true, GROUP_RADIO, SET_THEME},
     {"GPS", "GPS MODULE SETTINGS", true, GROUP_GPS, SET_THEME},
-    {"BLE", "BLE ATTACK TUNING", true, GROUP_BLE, SET_THEME}
+    {"BLE", "BLE ATTACK TUNING", true, GROUP_BLE, SET_THEME},
+    {"JANUS HOG", "ESP32-C5 5GHZ BOARD", true, GROUP_C5, SET_THEME}
 };
 static const EntryData kNetEntries[] = {
     {SET_WIFI_SSID, "WIFI SSID", SettingType::TEXT, 0, 0, 0, "", "NETWORK FOR FILE XFER"},
@@ -115,10 +123,10 @@ static const EntryData kNetEntries[] = {
 
 static const EntryData kIntegEntries[] = {
     {SET_WPASEC_STATUS, "WPA-SEC", SettingType::TEXT, 0, 0, 0, "", "WPA-SEC.STANEV.ORG KEY"},
-    {SET_WPASEC_LOAD, "KEY LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WPASEC_KEY.TXT"},
+    {SET_WPASEC_LOAD, "KEY LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WPASEC_KEY.TXT (ROOT|M5PORKCHOP)"},
     {SET_WIGLE_NAME_STATUS, "WGL NAME", SettingType::TEXT, 0, 0, 0, "", "WIGLE.NET API NAME"},
     {SET_WIGLE_TOKEN_STATUS, "WGL TKN", SettingType::TEXT, 0, 0, 0, "", "WIGLE.NET API TOKEN"},
-    {SET_WIGLE_LOAD, "WGL LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WIGLE_KEY.TXT"}
+    {SET_WIGLE_LOAD, "WGL LOAD", SettingType::ACTION, 0, 0, 0, "", "READ /WIGLE_KEY.TXT (ROOT|M5PORKCHOP)"}
 };
 
 static const EntryData kRadioEntries[] = {
@@ -149,6 +157,15 @@ static const EntryData kGpsEntries[] = {
 static const EntryData kBleEntries[] = {
     {SET_BLE_BURST, "BLE BURST", SettingType::VALUE, 50, 500, 50, "MS", "ATTACK SPEED"},
     {SET_BLE_ADV, "ADV TIME", SettingType::VALUE, 50, 200, 25, "MS", "PER-PACKET DURATION"}
+};
+
+static const EntryData kC5Entries[] = {
+    {SET_C5_ENABLED, "C5 BOARD", SettingType::TOGGLE, 0, 1, 1, "", "JANUS HOG 5GHZ LINK"},
+    {SET_C5_TX_PIN, "C5 TX PIN", SettingType::VALUE, 1, 46, 1, "", "G2=GROVE DEFAULT"},
+    {SET_C5_RX_PIN, "C5 RX PIN", SettingType::VALUE, 1, 46, 1, "", "G1=GROVE DEFAULT"},
+    {SET_C5_BAUD, "C5 BAUD", SettingType::VALUE, 0, 3, 1, "", "UART SPEED"},
+    // NOTE: Stored as uint16_t milliseconds (Config::c5().scanIntervalMs), so cap at 65s to avoid overflow.
+    {SET_C5_SCAN_INTV, "SCAN INTV", SettingType::VALUE, 0, 65, 5, "S", "0 = MANUAL ONLY"}
 };
 
 // ML entries removed for heap savings
@@ -223,6 +240,11 @@ static bool isConfigSetting(SettingId id) {
         case SET_GPS_TZ:
         case SET_BLE_BURST:
         case SET_BLE_ADV:
+        case SET_C5_ENABLED:
+        case SET_C5_TX_PIN:
+        case SET_C5_RX_PIN:
+        case SET_C5_BAUD:
+        case SET_C5_SCAN_INTV:
             return true;
         default:
             return false;
@@ -255,6 +277,9 @@ static const EntryData* getGroupEntries(GroupId group, size_t* count) {
         case GROUP_BLE:
             *count = sizeof(kBleEntries) / sizeof(kBleEntries[0]);
             return kBleEntries;
+        case GROUP_C5:
+            *count = sizeof(kC5Entries) / sizeof(kC5Entries[0]);
+            return kC5Entries;
         case GROUP_LOG:
             *count = sizeof(kLogEntries) / sizeof(kLogEntries[0]);
             return kLogEntries;
@@ -276,6 +301,8 @@ static const char* getGroupLabel(GroupId group) {
             return "GPS";
         case GROUP_BLE:
             return "BLE";
+        case GROUP_C5:
+            return "JANUS HOG";
         case GROUP_LOG:
             return "LOG";
         default:
@@ -297,6 +324,22 @@ static uint32_t getGpsBaudForIndex(int index) {
     if (index < 0) index = 0;
     if (index > 3) index = 3;
     return kGpsBaudRates[index];
+}
+
+static const uint32_t kC5BaudRates[] = {9600, 38400, 57600, 115200};
+
+static int getC5BaudIndex() {
+    uint32_t baud = Config::c5().baudRate;
+    for (int i = 0; i < 4; ++i) {
+        if (baud == kC5BaudRates[i]) return i;
+    }
+    return 3; // default 115200
+}
+
+static uint32_t getC5BaudForIndex(int index) {
+    if (index < 0) index = 0;
+    if (index > 3) index = 3;
+    return kC5BaudRates[index];
 }
 
 static void formatWpaSecStatus(char* out, size_t len) {
@@ -490,7 +533,7 @@ static int getSettingValue(SettingId id) {
         case SET_BRIGHTNESS:
             return Config::personality().brightness;
         case SET_SOUND:
-            return Config::personality().soundEnabled ? 1 : 0;
+            return Config::personality().soundLevel;
         case SET_DIM_AFTER:
             return Config::personality().dimTimeout;
         case SET_DIM_LEVEL:
@@ -541,6 +584,16 @@ static int getSettingValue(SettingId id) {
             return Config::ble().burstInterval;
         case SET_BLE_ADV:
             return Config::ble().advDuration;
+        case SET_C5_ENABLED:
+            return Config::c5().enabled ? 1 : 0;
+        case SET_C5_TX_PIN:
+            return Config::c5().uartTxPin;
+        case SET_C5_RX_PIN:
+            return Config::c5().uartRxPin;
+        case SET_C5_BAUD:
+            return getC5BaudIndex();
+        case SET_C5_SCAN_INTV:
+            return (int)(Config::c5().scanIntervalMs / 1000);
         case SET_SD_LOG:
             return SDLog::isEnabled() ? 1 : 0;
         default:
@@ -565,9 +618,10 @@ static bool setSettingValue(SettingId id, int value) {
             return true;
         }
         case SET_SOUND: {
-            bool enabled = value != 0;
-            if (Config::personality().soundEnabled == enabled) return false;
-            Config::personality().soundEnabled = enabled;
+            uint8_t level = static_cast<uint8_t>(value);
+            if (level > 5) level = 5;
+            if (Config::personality().soundLevel == level) return false;
+            Config::personality().soundLevel = level;
             return true;
         }
         case SET_DIM_AFTER: {
@@ -753,6 +807,38 @@ static bool setSettingValue(SettingId id, int value) {
             Config::ble().advDuration = newVal;
             return true;
         }
+        case SET_C5_ENABLED: {
+            bool enabled = value != 0;
+            if (Config::c5().enabled == enabled) return false;
+            Config::c5().enabled = enabled;
+            return true;
+        }
+        case SET_C5_TX_PIN: {
+            uint8_t newVal = static_cast<uint8_t>(value);
+            if (Config::c5().uartTxPin == newVal) return false;
+            Config::c5().uartTxPin = newVal;
+            return true;
+        }
+        case SET_C5_RX_PIN: {
+            uint8_t newVal = static_cast<uint8_t>(value);
+            if (Config::c5().uartRxPin == newVal) return false;
+            Config::c5().uartRxPin = newVal;
+            return true;
+        }
+        case SET_C5_BAUD: {
+            uint32_t newBaud = getC5BaudForIndex(value);
+            if (Config::c5().baudRate == newBaud) return false;
+            Config::c5().baudRate = newBaud;
+            return true;
+        }
+        case SET_C5_SCAN_INTV: {
+            uint32_t ms = (value <= 0) ? 0u : (uint32_t)value * 1000u;
+            if (ms > 65535u) ms = 65535u;
+            uint16_t newMs = (uint16_t)ms;
+            if (Config::c5().scanIntervalMs == newMs) return false;
+            Config::c5().scanIntervalMs = newMs;
+            return true;
+        }
         case SET_SD_LOG: {
             bool enabled = value != 0;
             if (SDLog::isEnabled() == enabled) return false;
@@ -821,6 +907,10 @@ uint8_t SettingsMenu::origGpsRxPin = 0;
 uint8_t SettingsMenu::origGpsTxPin = 0;
 uint32_t SettingsMenu::origGpsBaud = 0;
 uint8_t SettingsMenu::origGpsSource = 0;
+bool    SettingsMenu::origC5Enabled = false;
+uint8_t SettingsMenu::origC5TxPin = 0;
+uint8_t SettingsMenu::origC5RxPin = 0;
+uint32_t SettingsMenu::origC5Baud = 0;
 
 void SettingsMenu::init() {
     active = false;
@@ -848,6 +938,10 @@ void SettingsMenu::show() {
     origGpsTxPin = Config::gps().txPin;
     origGpsBaud = Config::gps().baudRate;
     origGpsSource = static_cast<uint8_t>(Config::gps().source);
+    origC5Enabled = Config::c5().enabled;
+    origC5TxPin = Config::c5().uartTxPin;
+    origC5RxPin = Config::c5().uartRxPin;
+    origC5Baud = Config::c5().baudRate;
 }
 
 void SettingsMenu::hide() {
@@ -904,6 +998,29 @@ void SettingsMenu::saveIfDirty(bool showToast) {
                 }
                 if (showToast) {
                     Display::notify(NoticeKind::STATUS, "GPS REINIT");
+                }
+            }
+        }
+
+        // C5 reinit on config change (like GPS pattern)
+        bool c5Changed = (Config::c5().enabled != origC5Enabled) ||
+                         (Config::c5().uartTxPin != origC5TxPin) ||
+                         (Config::c5().uartRxPin != origC5RxPin) ||
+                         (Config::c5().baudRate != origC5Baud);
+        if (c5Changed) {
+            origC5Enabled = Config::c5().enabled;
+            origC5TxPin = Config::c5().uartTxPin;
+            origC5RxPin = Config::c5().uartRxPin;
+            origC5Baud = Config::c5().baudRate;
+            if (Config::c5().enabled) {
+                JanusHog::reinit();
+                if (showToast) {
+                    Display::notify(NoticeKind::STATUS, "C5 REINIT");
+                }
+            } else {
+                JanusHog::shutdown();
+                if (showToast) {
+                    Display::notify(NoticeKind::STATUS, "C5 DISABLED");
                 }
             }
         }
@@ -1068,7 +1185,8 @@ void SettingsMenu::handleInput() {
                         } else if (!Config::isSDAvailable()) {
                             Display::notify(NoticeKind::WARNING, "NO SD CARD");
                         } else if (!SD.exists(SDLayout::wpasecKeyPath()) &&
-                                   !SD.exists(SDLayout::legacyWpasecKeyPath())) {
+                                   !SD.exists(SDLayout::legacyWpasecKeyPath()) &&
+                                   !SD.exists("/m5porkchop/wpa-sec/wpasec_key.txt")) {
                             Display::notify(NoticeKind::WARNING, "NO KEY FILE");
                         } else {
                             Display::notify(NoticeKind::WARNING, "INVALID KEY");
@@ -1079,7 +1197,8 @@ void SettingsMenu::handleInput() {
                         } else if (!Config::isSDAvailable()) {
                             Display::notify(NoticeKind::WARNING, "NO SD CARD");
                         } else if (!SD.exists(SDLayout::wigleKeyPath()) &&
-                                   !SD.exists(SDLayout::legacyWigleKeyPath())) {
+                                   !SD.exists(SDLayout::legacyWigleKeyPath()) &&
+                                   !SD.exists("/m5porkchop/wigle/wigle_key.txt")) {
                             Display::notify(NoticeKind::WARNING, "NO KEY FILE");
                         } else {
                             Display::notify(NoticeKind::WARNING, "INVALID FORMAT");
@@ -1311,11 +1430,12 @@ void SettingsMenu::draw(M5Canvas& canvas) {
         }
 
         canvas.setTextColor(COLOR_BG);
-        canvas.setTextDatum(top_center);
         if (rootScroll > 0) {
-            canvas.drawString("^", DISPLAY_W / 2, 0);
+            canvas.setTextDatum(top_right);
+            canvas.drawString("^", DISPLAY_W - 2, 2);
         }
         if (rootScroll + VISIBLE_ROOT_ITEMS < rootCount) {
+            canvas.setTextDatum(top_center);
             canvas.drawString("v", DISPLAY_W / 2, MAIN_H - 10);
         }
         return;
@@ -1393,9 +1513,10 @@ void SettingsMenu::draw(M5Canvas& canvas) {
             valBuf[sizeof(valBuf) - 1] = '\0';
         } else if (entry.type == SettingType::VALUE) {
             int value = getSettingValue(entry.id);
-            if (entry.id == SET_GPS_BAUD) {
+            if (entry.id == SET_GPS_BAUD || entry.id == SET_C5_BAUD) {
                 char baudBuf[12];
-                snprintf(baudBuf, sizeof(baudBuf), "%lu", (unsigned long)getGpsBaudForIndex(value));
+                uint32_t baud = (entry.id == SET_C5_BAUD) ? getC5BaudForIndex(value) : getGpsBaudForIndex(value);
+                snprintf(baudBuf, sizeof(baudBuf), "%lu", (unsigned long)baud);
                 if (selected && editing) {
                     snprintf(valBuf, sizeof(valBuf), "[%s]", baudBuf);
                 } else {

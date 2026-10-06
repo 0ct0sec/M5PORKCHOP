@@ -49,4 +49,8 @@ namespace HeapGates {
     // Fragmentation-aware growth gate.
     bool canGrow(const HeapSnapshot& status, size_t minFreeHeap, float minFragRatio);
     bool canGrow(size_t minFreeHeap, float minFragRatio);
+
+    // Wait for LWIP async TCP cleanup after TLS connection close.
+    // Polls heap metrics until they stabilize or timeout (500ms max).
+    void waitForLwipCleanup();
 }

@@ -1,11 +1,11 @@
 /**
- * PigSync ESP-NOW Client (Porkchop/POPS side)
- * 
+ * PigSync Mode (Porkchop/POPS side)
+ *
  * SON OF A PIG - Reliable sync with Sirloin devices
  */
 
-#ifndef PIGSYNC_CLIENT_H
-#define PIGSYNC_CLIENT_H
+#ifndef PIGSYNC_MODE_H
+#define PIGSYNC_MODE_H
 
 #include <Arduino.h>
 #include <vector>
@@ -232,4 +232,4 @@ private:
     static bool saveHandshake(const uint8_t* data, uint16_t len);
 };
 
-#endif // PIGSYNC_CLIENT_H
+#endif // PIGSYNC_MODE_H

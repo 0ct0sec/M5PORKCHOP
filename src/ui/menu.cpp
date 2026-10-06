@@ -147,6 +147,11 @@ static const char* const H_CHARGING[] = {
     "BATTERY REST. SERVICES CEASED.",
     "CHARGING VIBES. MAX CHILL."
 };
+static const char* const H_JANUS[] = {
+    "TWO FACES. ALL BANDS. JANUS HOG.",
+    "C5 COPROCESSOR LINK STATUS.",
+    "5GHZ RECON VIA MONSTERC5."
+};
 
 // Root menu items
 const RootItem Menu::ROOT_ITEMS[] = {
@@ -186,7 +191,8 @@ const uint8_t Menu::GROUP_LOOT_SIZE = sizeof(GROUP_LOOT) / sizeof(GROUP_LOOT[0])
 const MenuItem Menu::GROUP_COMMS[] = {
     {"@)", "PIGSYNC",    16, H_SYNC,    (uint8_t)(sizeof(H_SYNC)/sizeof(H_SYNC[0]))},
     {"))", "BACONTX", 18, H_BACONTX, (uint8_t)(sizeof(H_BACONTX)/sizeof(H_BACONTX[0]))},
-    {"FX", "TRANSFR",    3,  H_XFIL,    (uint8_t)(sizeof(H_XFIL)/sizeof(H_XFIL[0]))}
+    {"FX", "TRANSFR",    3,  H_XFIL,    (uint8_t)(sizeof(H_XFIL)/sizeof(H_XFIL[0]))},
+    {"5G", "JANUSHG",   22, H_JANUS,   (uint8_t)(sizeof(H_JANUS)/sizeof(H_JANUS[0]))}
 };
 const uint8_t Menu::GROUP_COMMS_SIZE = sizeof(GROUP_COMMS) / sizeof(GROUP_COMMS[0]);
 

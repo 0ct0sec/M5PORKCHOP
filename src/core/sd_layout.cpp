@@ -70,8 +70,8 @@ static portMUX_TYPE layoutMutex = portMUX_INITIALIZER_UNLOCKED;
 static bool g_useNewLayout = false;
 
 struct MoveOp {
-    String from;
-    String to;
+    char from[128];
+    char to[128];
 };
 
 static const char* basenameFromPath(const char* path) {
@@ -228,29 +228,38 @@ static bool copyPathRecursive(const char* src, const char* dst, int depth = 0) {
 
 static bool isDiagFile(const char* name) {
     if (!name) return false;
-    String nameStr(name);
-    return nameStr.startsWith("diag_") && nameStr.endsWith(".txt");
+    if (strncmp(name, "diag_", 5) != 0) return false;
+    size_t len = strlen(name);
+    return len > 4 && strcmp(name + len - 4, ".txt") == 0;
 }
 
-static void collectDiagFiles(std::vector<String>& out) {
+static constexpr int kMaxDiagFiles = 10;
+
+struct DiagFileList {
+    char paths[kMaxDiagFiles][128];
+    int count = 0;
+};
+
+static void collectDiagFiles(DiagFileList& out) {
+    out.count = 0;
     File root = SD.open("/");
     if (!root || !root.isDirectory()) {
         if (root) root.close();
         return;
     }
     File entry = root.openNextFile();
-    int fileCount = 0; // Prevent infinite loops on corrupted filesystems
-    
+    int fileCount = 0;
+
     while (entry) {
         const char* name = basenameFromPath(entry.name());
         bool isFile = !entry.isDirectory();
         entry.close();
-        if (isFile && isDiagFile(name)) {
-            out.push_back(String("/") + String(name));
+        if (isFile && isDiagFile(name) && out.count < kMaxDiagFiles) {
+            snprintf(out.paths[out.count], sizeof(out.paths[0]), "/%s", name);
+            out.count++;
         }
         entry = root.openNextFile();
         fileCount++;
-        // Yield periodically to prevent WDT resets
         if (fileCount % 10 == 0) {
             yield();
         }
@@ -282,12 +291,9 @@ static bool hasLegacyData() {
     if (SD.exists(kLegacyWigleKey)) return true;
     if (SD.exists(kLegacyConfigBin)) return true;
 
-    std::vector<String> diag;
-    // Reserve space to reduce allocations
-    diag.reserve(10);
+    DiagFileList diag;
     collectDiagFiles(diag);
-    bool result = !diag.empty();
-    return result;
+    return diag.count > 0;
 }
 
 static bool backupLegacy(const char* backupRoot) {
@@ -323,11 +329,12 @@ static bool backupLegacy(const char* backupRoot) {
 
     int failures = 0;
 
+    char dst[256];
     for (int i = 0; i < numDirs; i++) {
         const char* dir = legacyDirs[i];
         if (!SD.exists(dir)) continue;
-        String dst = String(backupRoot) + String(dir);
-        if (!copyPathRecursive(dir, dst.c_str())) {
+        snprintf(dst, sizeof(dst), "%s%s", backupRoot, dir);
+        if (!copyPathRecursive(dir, dst)) {
             Serial.printf("[MIGRATE] Backup failed for dir: %s (continuing)\n", dir);
             failures++;
         }
@@ -337,21 +344,20 @@ static bool backupLegacy(const char* backupRoot) {
     for (int i = 0; i < numFiles; i++) {
         const char* file = legacyFiles[i];
         if (!SD.exists(file)) continue;
-        String dst = String(backupRoot) + String(file);
-        if (!copyFile(file, dst.c_str())) {
+        snprintf(dst, sizeof(dst), "%s%s", backupRoot, file);
+        if (!copyFile(file, dst)) {
             Serial.printf("[MIGRATE] Backup failed for file: %s (continuing)\n", file);
             failures++;
         }
         yield();
     }
 
-    std::vector<String> diag;
-    diag.reserve(10);
+    DiagFileList diag;
     collectDiagFiles(diag);
-    for (const String& path : diag) {
-        String dst = String(backupRoot) + path;
-        if (!copyFile(path.c_str(), dst.c_str())) {
-            Serial.printf("[MIGRATE] Backup failed for diag: %s (continuing)\n", path.c_str());
+    for (int i = 0; i < diag.count; i++) {
+        snprintf(dst, sizeof(dst), "%s%s", backupRoot, diag.paths[i]);
+        if (!copyFile(diag.paths[i], dst)) {
+            Serial.printf("[MIGRATE] Backup failed for diag: %s (continuing)\n", diag.paths[i]);
             failures++;
         }
         yield();
@@ -375,7 +381,12 @@ static bool movePath(const char* src, const char* dst, std::vector<MoveOp>& move
 
     if (SD.rename(src, dst)) {
         if (moved.size() < 100) {
-            moved.push_back({String(src), String(dst)});
+            MoveOp op;
+            strncpy(op.from, src, sizeof(op.from) - 1);
+            op.from[sizeof(op.from) - 1] = '\0';
+            strncpy(op.to, dst, sizeof(op.to) - 1);
+            op.to[sizeof(op.to) - 1] = '\0';
+            moved.push_back(op);
         }
         return true;
     }
@@ -403,14 +414,19 @@ static bool movePath(const char* src, const char* dst, std::vector<MoveOp>& move
     // and risky mid-migration). The backup already preserves the data.
 
     if (moved.size() < 100) {
-        moved.push_back({String(src), String(dst)});
+        MoveOp op;
+        strncpy(op.from, src, sizeof(op.from) - 1);
+        op.from[sizeof(op.from) - 1] = '\0';
+        strncpy(op.to, dst, sizeof(op.to) - 1);
+        op.to[sizeof(op.to) - 1] = '\0';
+        moved.push_back(op);
     }
     return true;
 }
 
 static void rollbackMoves(const std::vector<MoveOp>& moved) {
     for (auto it = moved.rbegin(); it != moved.rend(); ++it) {
-        SD.rename(it->to.c_str(), it->from.c_str());
+        SD.rename(it->to, it->from);
     }
 }
 
@@ -631,16 +647,15 @@ bool migrateIfNeeded() {
         }
         yield(); // Yield between operations
     }
-    std::vector<String> diag;
-    diag.reserve(10);
+    DiagFileList diag;
     collectDiagFiles(diag);
-    for (const String& path : diag) {
-        File f = SD.open(path, FILE_READ);
+    for (int i = 0; i < diag.count; i++) {
+        File f = SD.open(diag.paths[i], FILE_READ);
         if (f) {
             totalSize += f.size();
             f.close();
         }
-        yield(); // Yield between operations
+        yield();
     }
 
     uint64_t freeBytes = SD.totalBytes() - SD.usedBytes();
@@ -659,29 +674,25 @@ bool migrateIfNeeded() {
         return false;
     }
 
-    String backupDir;
+    char backupDir[64];
     time_t now = time(nullptr);
     struct tm* t = localtime(&now);
     if (t && t->tm_year >= 120) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "/backup/porkchop_%04d%02d%02d_%02d%02d%02d",
+        snprintf(backupDir, sizeof(backupDir), "/backup/porkchop_%04d%02d%02d_%02d%02d%02d",
                  t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
                  t->tm_hour, t->tm_min, t->tm_sec);
-        backupDir = buf;
     } else {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "/backup/porkchop_boot_%lu", (unsigned long)millis());
-        backupDir = buf;
+        snprintf(backupDir, sizeof(backupDir), "/backup/porkchop_boot_%lu", (unsigned long)millis());
     }
 
-    if (!ensureDir(backupDir.c_str())) {
+    if (!ensureDir(backupDir)) {
         Serial.println("[MIGRATE] Failed to create backup dir");
         setUseNewLayout(false);
         return false;
     }
 
-    Serial.printf("[MIGRATE] Backup to %s (size %llu)\n", backupDir.c_str(), (unsigned long long)totalSize);
-    backupLegacy(backupDir.c_str());
+    Serial.printf("[MIGRATE] Backup to %s (size %llu)\n", backupDir, (unsigned long long)totalSize);
+    backupLegacy(backupDir);
 
     ensureDir(kNewRoot);
     ensureDir(kNewConfig);
@@ -719,14 +730,14 @@ bool migrateIfNeeded() {
     if (!movePath(kLegacyWpasecKey, kNewWpasecKey, moved)) { rollbackMoves(moved); setUseNewLayout(false); return false; }
     if (!movePath(kLegacyWigleKey, kNewWigleKey, moved)) { rollbackMoves(moved); setUseNewLayout(false); return false; }
 
-    std::vector<String> diag2;
-    diag2.reserve(10);
+    DiagFileList diag2;
     collectDiagFiles(diag2);
-    for (const String& path : diag2) {
-        String name = path;
-        if (name.startsWith("/")) name = name.substring(1);
-        String dest = String(kNewDiagnostics) + "/" + name;
-        if (!movePath(path.c_str(), dest.c_str(), moved)) { rollbackMoves(moved); setUseNewLayout(false); return false; }
+    for (int i = 0; i < diag2.count; i++) {
+        const char* path = diag2.paths[i];
+        const char* name = (path[0] == '/') ? path + 1 : path;
+        char dest[256];
+        snprintf(dest, sizeof(dest), "%s/%s", kNewDiagnostics, name);
+        if (!movePath(path, dest, moved)) { rollbackMoves(moved); setUseNewLayout(false); return false; }
     }
 
     File marker = SD.open(kMarker, FILE_WRITE);

@@ -44,7 +44,7 @@ private:
 
     static void handleInput();
     static void startFormat();
-    static void stopEverything();     // Stop NetworkRecon, FileServer, WiFi
+    static void stopEverything();     // Stop NetworkRecon, XferServer, WiFi
     static void doReboot();           // Reboot with countdown
     static void drawConfirmEntry(M5Canvas& canvas);
     static void drawSelect(M5Canvas& canvas);

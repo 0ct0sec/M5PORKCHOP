@@ -10,7 +10,7 @@
 #include "../core/network_recon.h"
 #include "../gps/gps.h"
 #include "../ui/display.h"
-#include "../ui/swine_stats.h"
+#include "../ui/flexes_screen.h"
 #include "../modes/oink.h"
 #include "../audio/sfx.h"
 #include <Preferences.h>
@@ -849,7 +849,7 @@ enum class PhraseCategory : uint8_t {
     HAPPY, EXCITED, HUNTING, SLEEPY, SAD, WARHOG, WARHOG_FOUND,
     PIGGYBLUES_TARGETED, PIGGYBLUES_STATUS, PIGGYBLUES_IDLE,
     DEAUTH, DEAUTH_SUCCESS, PMKID, SNIFFING, PASSIVE_RECON, MENU_IDLE, RARE, RARE_LORE, DYNAMIC,
-    BORED,
+    BORED, BIRD_KILL,
     // Situational awareness categories
     SA_HEAP, SA_TIME, SA_DENSITY, SA_CHALLENGE, SA_GPS, SA_FATIGUE, SA_ENCRYPT, SA_BUFF, SA_CHARGING, SA_WEATHER,
     COUNT  // Must be last
@@ -1144,6 +1144,25 @@ const char* PHRASES_WARHOG_FOUND[] = {
     "position marked sir"
 };
 
+// Bird kill phrases - pig celebrates shooting down a bird
+static const char* const PHRASES_BIRD_KILL[] = {
+    "BIRD DOWN I REPEAT",
+    "THE BIIRD IS DOWN",
+    "have u heard?",
+    "bird is the word",
+    "ba ba ba bird bird",
+    "fowl play heh",
+    "air defense active",
+    "no fly zone enforced",
+    "piggies cant fly either",
+    "skeet skeet",
+    "PULL!",
+    "duck season",
+    "target neutralized sir",
+    "angry birds irl"
+};
+static const int PHRASES_BIRD_KILL_COUNT = 14;
+
 // Piggy Blues BLE spam phrases - RuPaul drag queen eleganza
 // All phrases use %s=vendor and %d=rssi
 const char* PHRASES_PIGGYBLUES_TARGETED[] = {
@@ -1239,7 +1258,13 @@ const char* PHRASES_RARE[] = {
     "horse vibin hard",
     "miss u horse",
     "horse WAS the barn",
-    "check on da horse"
+    "check on da horse",
+    "valleytech sent u here?",
+    "khal would rate this mid",
+    "sas left footprints here",
+    "pig believes in sas",
+    "squirrel in ur tree",
+    "squirrel in ur tree. notorious."
 };
 
 void Mood::init() {
@@ -1456,16 +1481,13 @@ void Mood::onHandshakeCaptured(const char* apName) {
     happiness = min(happiness + 10, 100);  // Smaller permanent boost
     applyMomentumBoost(30);  // Big temporary excitement!
     lastActivityTime = millis();
-    
-    // Sniff animation - caught something big!
+
+    // Screen shake + sniff + multi-hop pounce + tail wiggle celebration!
+    Display::triggerScreenShake(4, 250);
     Avatar::sniff();
-    
-    // Cute jump celebration!
-    Avatar::cuteJump();
-    
-    // Phase 2: Attack shake - strong shake for captures!
-    Avatar::setAttackShake(true, true);
-    
+    Avatar::attackHop();
+    Avatar::triggerTailWiggle();
+
     // Award XP for handshake capture
     XP::addXP(XPEvent::HANDSHAKE_CAPTURED);
     
@@ -1531,7 +1553,8 @@ void Mood::onHandshakeCaptured(const char* apName) {
     lastPhraseChange = millis();
     queuePhrases(buf2, buf3);
 
-    // Celebratory beep for handshake capture - non-blocking via SFX engine
+    // Pig squeals with excitement, then victory arpeggio confirms the capture
+    SFX::play(SFX::OINK_SQUEAL);
     SFX::play(SFX::HANDSHAKE);
     
     // Force mood peek to show EXCITED face regardless of threshold
@@ -1542,16 +1565,13 @@ void Mood::onPMKIDCaptured(const char* apName) {
     happiness = min(happiness + 15, 100);  // Slightly bigger permanent boost
     applyMomentumBoost(40);  // Even more temporary excitement!
     lastActivityTime = millis();
-    
-    // Sniff animation - stealthy capture!
+
+    // Screen shake + sniff + multi-hop pounce + tail wiggle celebration!
+    Display::triggerScreenShake(5, 300);
     Avatar::sniff();
-    
-    // Cute jump celebration!
-    Avatar::cuteJump();
-    
-    // Phase 2: Attack shake - strong shake for captures!
-    Avatar::setAttackShake(true, true);
-    
+    Avatar::attackHop();
+    Avatar::triggerTailWiggle();
+
     // Award XP for PMKID capture
     // If in DO NO HAM mode, award the rare ghost PMKID XP (100 XP!)
     if (porkchop.getMode() == PorkchopMode::DNH_MODE) {
@@ -1616,11 +1636,10 @@ void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     lastActivityTime = millis();
     isBoredState = false;  // Clear bored state - found something!
     
-    // Audio feedback - soft blip for new network
-    SFX::play(SFX::NETWORK_NEW);
-    
-    // Sniff animation - found a truffle!
+    // Perk up + sniff animation - found a truffle!
+    Avatar::perkUp();
     Avatar::sniff();
+    SFX::play(SFX::OINK_CURIOUS);   // Pig sniffs the air — what's that?
     
     // Award XP for network discovery
     // Check if in DO NO HAM mode for different XP event
@@ -2128,12 +2147,14 @@ bool Mood::pickEncryptionPhraseIfDue(uint32_t now) {
     if (now - lastEncryptionPhraseMs < 300000) return false;  // Max 1 per 5 min
 
     // Scan current networks for notable encryption types
+    // Safe: runs from main loop only, same task as NetworkRecon::update()/cleanup
     auto& nets = NetworkRecon::getNetworks();
+    size_t netCount = nets.size();  // snapshot size to avoid callback-pushed growth mid-loop
     uint8_t openCount = 0;
     bool hasWEP = false;
     bool hasWPA3 = false;
 
-    for (size_t i = 0; i < nets.size(); i++) {
+    for (size_t i = 0; i < netCount; i++) {
         if (nets[i].authmode == WIFI_AUTH_OPEN) openCount++;
         if (nets[i].authmode == WIFI_AUTH_WEP) hasWEP = true;
         if (nets[i].authmode == WIFI_AUTH_WPA3_PSK ||
@@ -2176,7 +2197,7 @@ bool Mood::pickBuffPhraseIfDue(uint32_t now) {
     if (now - lastBuffCheckMs < 10000) return false;
     lastBuffCheckMs = now;
 
-    BuffState bs = SwineStats::calculateBuffs();
+    BuffState bs = FlexesScreen::calculateBuffs();
 
     bool triggered = false;
 
@@ -2587,7 +2608,7 @@ void Mood::updateAvatarState() {
             }
             break;
             
-        case PorkchopMode::FILE_TRANSFER:
+        case PorkchopMode::XFER:
             // File transfer: stay happy unless very sad
             if (effectiveMood > MOOD_PEEK_HIGH_THRESHOLD) {
                 Avatar::setState(AvatarState::EXCITED);
@@ -2658,7 +2679,7 @@ void Mood::draw(M5Canvas& canvas) {
     int bubbleH = 8 + (numLines * lineHeight);  // Padding + actual lines
     
     // Cap bubble height to fit above grass (y=91)
-    if (bubbleH > 88) bubbleH = 88;
+    if (bubbleH > 103) bubbleH = 103;
     
     // Determine bubble mode based on pigX thresholds (matches Sirloin)
     enum class BubbleMode { LEFT_EDGE, CENTER_TOP, RIGHT_EDGE };
@@ -2674,12 +2695,12 @@ void Mood::draw(M5Canvas& canvas) {
         // Pig at left edge → bubble floats to RIGHT of pig (horizontal arrow pointing left)
         mode = BubbleMode::LEFT_EDGE;
         bubbleX = pigX + 108 + 6;  // Right of pig body + 6px gap
-        bubbleY = 23;  // At pig ear level
+        bubbleY = 38;  // At pig ear level
     } else if (atRightEdge) {
         // Pig at right edge → bubble floats to LEFT of pig (horizontal arrow pointing right)
         mode = BubbleMode::RIGHT_EDGE;
         bubbleX = pigX - bubbleW - 6;  // Left of pig + 6px gap
-        bubbleY = 23;  // At pig ear level
+        bubbleY = 38;  // At pig ear level
     } else {
         // Pig in center → bubble floats ABOVE pig but not too far
         // Position bubble so it doesn't cover pig's face but stays close
@@ -2689,8 +2710,8 @@ void Mood::draw(M5Canvas& canvas) {
         // Pig head at Y=23, ears start there
         // Arrow tip should point at pig's ear area (Y ~20)
         // Bubble should not float too far from head - min Y = 2 (near top)
-        int arrowTipY = 20;  // Point at pig's ear area
-        int bubbleBottom = arrowTipY - ARROW_LENGTH;  // Y = 12
+        int arrowTipY = 35;  // Point at pig's ear area
+        int bubbleBottom = arrowTipY - ARROW_LENGTH;  // Y = 27
         bubbleY = bubbleBottom - bubbleH;
         
         // Clamp bubbleY to minimum of 2 (near top) - taller bubbles stay close to head
@@ -2737,7 +2758,7 @@ void Mood::draw(M5Canvas& canvas) {
         canvas.fillTriangle(arrowTipX, arrowY, arrowBaseX, arrowY - 6, arrowBaseX, arrowY + 6, COLOR_FG);
     } else {
         // Center mode → vertical arrow pointing DOWN toward pig's head
-        int arrowTipY = 20;  // Point at pig's ear area (updated for new head Y)
+        int arrowTipY = 35;  // Point at pig's ear area (updated for new head Y)
         int arrowBaseY = arrowTipY - ARROW_LENGTH;
         int arrowLeftX = pigHeadCenterX - 6;
         int arrowRightX = pigHeadCenterX + 6;
@@ -2962,6 +2983,12 @@ void Mood::onBored(uint16_t networkCount) {
     }
     lastPhraseChange = millis();
     
+    // Occasional grunt + paw scratch when bored (30% chance)
+    if (random(0, 100) < 30) {
+        SFX::play(SFX::OINK_GRUNT);
+        Avatar::pawScratch();
+    }
+
     // Set avatar to sleepy/bored state (will be maintained by updateAvatarState)
     Avatar::setState(AvatarState::SLEEPY);
 }
@@ -2983,11 +3010,22 @@ void Mood::onWarhogFound(const char* apName, uint8_t channel) {
     
     // Sniff animation - found a truffle!
     Avatar::sniff();
-    
+    SFX::play(SFX::OINK_HAPPY);     // Found a truffle while wardriving!
+
     // XP awarded in warhog.cpp when network is logged (authoritative source)
     
     int idx = pickPhraseIdx(PhraseCategory::WARHOG_FOUND, sizeof(PHRASES_WARHOG_FOUND) / sizeof(PHRASES_WARHOG_FOUND[0]));
     SET_PHRASE(currentPhrase, PHRASES_WARHOG_FOUND[idx]);
+    lastPhraseChange = millis();
+}
+
+void Mood::onBirdKill() {
+    happiness = min(happiness + 2, 100);
+    applyMomentumBoost(8);
+    lastActivityTime = millis();
+
+    int idx = pickPhraseIdx(PhraseCategory::BIRD_KILL, PHRASES_BIRD_KILL_COUNT);
+    SET_PHRASE(currentPhrase, PHRASES_BIRD_KILL[idx]);
     lastPhraseChange = millis();
 }
 
@@ -3009,22 +3047,8 @@ void Mood::onPiggyBluesUpdate(const char* vendor, int8_t rssi, uint8_t targetCou
         bleFirstTargetSniffed = true;
     }
     
-    // Award XP for BLE spam (vendor-specific tracking for achievements)
-    if (vendor != nullptr) {
-        if (strcmp(vendor, "Apple") == 0) {
-            XP::addXP(XPEvent::BLE_APPLE);
-        } else if (strcmp(vendor, "Android") == 0) {
-            XP::addXP(XPEvent::BLE_ANDROID);
-        } else if (strcmp(vendor, "Samsung") == 0) {
-            XP::addXP(XPEvent::BLE_SAMSUNG);
-        } else if (strcmp(vendor, "Windows") == 0) {
-            XP::addXP(XPEvent::BLE_WINDOWS);
-        } else {
-            XP::addXP(XPEvent::BLE_BURST);
-        }
-    } else {
-        XP::addXP(XPEvent::BLE_BURST);
-    }
+    // XP already awarded by sendAppleJuice/sendAndroidFastPair/etc per packet.
+    // Don't double-award here in the mood callback.
     
     char buf[48];
     

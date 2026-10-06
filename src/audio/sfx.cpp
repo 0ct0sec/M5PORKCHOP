@@ -61,13 +61,13 @@ static const Note SND_TERM_TICK_C[] = {
 static const Note SND_TERM_TICK_D[] = {
     {220, 14, 2},
     {460, 3, 2},
-    {140, 10, 0},
+    {220, 10, 0},
     {0, 0, 0}
 };
 static const Note SND_TERM_TICK_E[] = {
     {300, 10, 2},
     {620, 3, 2},
-    {160, 12, 0},
+    {250, 12, 0},
     {0, 0, 0}
 };
 
@@ -83,9 +83,11 @@ static const Note SND_CLIENT_FOUND[] = {
     {0, 0, 0}
 };
 
-// DEAUTH: Low punch - impactful, visceral "kick"
+// DEAUTH: TX pulse — soft descending pip (the pig pokes the airwaves)
+// Short + warm interval (~perfect 4th) = pleasant at high repetition
 static const Note SND_DEAUTH[] = {
-    {400, 70, 0},
+    {700, 18, 0},     // bright onset
+    {520, 14, 0},     // warm resolve (descending = energy going "out")
     {0, 0, 0}
 };
 
@@ -159,42 +161,42 @@ static const Note SND_SYNC_COMPLETE[] = {
 
 // ERROR: Soft low double tap
 static const Note SND_ERROR[] = {
-    {240, 50, 20},
-    {180, 60, 0},
+    {330, 50, 20},
+    {250, 60, 0},
     {0, 0, 0}
 };
 
 // BOOT: Nostromo-style long boot sequence (2-3s)
 static const Note SND_BOOT[] = {
-    {140, 650, 140},  // low hum pulse
+    {250, 650, 140},  // low hum pulse
     {600, 12, 30},
     {700, 12, 30},
     {520, 12, 60},
-    {120, 180, 80},  // tape thud
+    {240, 180, 80},  // tape thud
     {800, 12, 30},
     {640, 12, 30},
     {500, 12, 60},
     {900, 10, 30},
     {700, 10, 30},
     {850, 10, 60},
-    {170, 230, 70},  // tape thud
-    {210, 320, 90},
-    {240, 360, 0},
+    {280, 230, 70},  // tape thud
+    {310, 320, 90},
+    {360, 360, 0},
     {0, 0, 0}
 };
 
 // PIGSYNC_BOOT: Shorter wake sequence for FA/TH/ER
 static const Note SND_PIGSYNC_BOOT[] = {
-    {160, 480, 140},
+    {270, 480, 140},
     {540, 12, 40},
     {660, 12, 40},
     {560, 12, 80},
-    {120, 160, 70},  // tape thud
+    {240, 160, 70},  // tape thud
     {820, 10, 40},
     {700, 10, 60},
-    {190, 210, 70},
-    {220, 220, 70},
-    {180, 240, 0},
+    {310, 210, 70},
+    {340, 220, 70},
+    {280, 240, 0},
     {0, 0, 0}
 };
 
@@ -252,23 +254,180 @@ static const Note SND_CHALLENGE_SWEEP[] = {
 // YOU_DIED: "Dark Souls" style death sound
 // Impact (43Hz), then F3 wobble (172/178), with dissonant B3/Eb4, fading to sub
 static const Note SND_YOU_DIED[] = {
-    {43, 200, 20},   // Impact F1 (Sub-bass thud)
-    {172, 80, 0},    // F3 wobble 1
-    {178, 80, 0},    // F3 wobble 1
-    {172, 80, 0},    // F3 wobble 2
-    {178, 80, 0},    // F3 wobble 2
-    {247, 60, 0},    // B3 (poison/dissonance)
-    {172, 80, 0},    // F3 wobble 3
-    {178, 80, 0},    // F3 wobble 3
-    {311, 60, 0},    // Eb4 (metallic edge)
-    {174, 400, 0},   // F3 sustain (The "Doom Tone")
-    {87, 400, 0},    // F2 drop
-    {43, 800, 0},    // F1 - tail (Sub-bass fade)
+    {220, 200, 20},  // Impact (was 43Hz sub-bass, raised to audible)
+    {344, 80, 0},    // F4 wobble 1
+    {356, 80, 0},    // F4 wobble 1
+    {344, 80, 0},    // F4 wobble 2
+    {356, 80, 0},    // F4 wobble 2
+    {494, 60, 0},    // B4 (poison/dissonance)
+    {344, 80, 0},    // F4 wobble 3
+    {356, 80, 0},    // F4 wobble 3
+    {622, 60, 0},    // Eb5 (metallic edge)
+    {348, 400, 0},   // F4 sustain (The "Doom Tone")
+    {260, 400, 0},   // Drop
+    {220, 800, 0},   // Tail fade
+    {0, 0, 0}
+};
+
+// ==[ UI FEEDBACK SOUNDS ]==
+
+// MODE_ENTER: Quick ascending pair - entering new mode
+static const Note SND_MODE_ENTER[] = {
+    {700, 30, 10},
+    {1000, 40, 0},
+    {0, 0, 0}
+};
+
+// MODE_EXIT: Quick descending pair - leaving mode
+static const Note SND_MODE_EXIT[] = {
+    {900, 30, 10},
+    {600, 40, 0},
+    {0, 0, 0}
+};
+
+// CONFIRM: Warm double tap - settings saved, action confirmed
+static const Note SND_CONFIRM[] = {
+    {800, 40, 15},
+    {1100, 50, 0},
+    {0, 0, 0}
+};
+
+// TYPING_KEY: Ultra-short keystroke tick
+static const Note SND_TYPING_KEY[] = {
+    {1200, 4, 0},
+    {0, 0, 0}
+};
+
+// BACK_NAV: Soft descending - going back
+static const Note SND_BACK_NAV[] = {
+    {800, 25, 0},
+    {0, 0, 0}
+};
+
+// ==[ PIG VOCALIZATIONS ]==
+// Stepped pitch descent creates nasal "oink" quality (bfxr-inspired)
+
+// OINK_HAPPY: Satisfied pig snuffle — nasal wobble with breathy descent
+static const Note SND_OINK_HAPPY[] = {
+    {320, 30, 0},     // nasal onset
+    {280, 25, 5},     // wobble down + breath gap
+    {310, 20, 0},     // pitch instability (pigs aren't pitch-perfect)
+    {240, 30, 0},     // settle lower
+    {200, 25, 0},     // snuffle tail
+    {0, 0, 0}
+};
+
+// OINK_GRUNT: Deep guttural burst — low as the piezo can handle
+// Cardputer piezo rolls off hard below ~300Hz, so 300-450Hz is our "bass"
+static const Note SND_OINK_GRUNT[] = {
+    {420, 40, 0},     // guttural attack (low as audible)
+    {340, 35, 0},     // drop into rumble
+    {400, 20, 5},     // brief push up (vocal wobble)
+    {300, 40, 0},     // settle into chest tone
+    {0, 0, 0}
+};
+
+// OINK_SQUEAL: Alarmed pig — rapid ascending with vibrato
+static const Note SND_OINK_SQUEAL[] = {
+    {700, 25, 0},     // alarm onset
+    {900, 25, 0},     // rapid rise
+    {850, 20, 0},     // wobble back (vocal instability)
+    {1100, 30, 0},    // peak alarm
+    {1200, 35, 0},    // sustain high
+    {0, 0, 0}
+};
+
+// OINK_CURIOUS: Questioning sniff — upward with micro-pauses (sniffing air)
+static const Note SND_OINK_CURIOUS[] = {
+    {350, 25, 12},    // sniff
+    {380, 20, 10},    // sniff (slightly higher — interest building)
+    {500, 35, 5},     // question rise
+    {580, 40, 0},     // hold the question (rising intonation = curiosity)
+    {0, 0, 0}
+};
+
+// ==[ AMBIENT SCANNING SOUNDS ]==
+
+// SONAR_PING: Minimal single blip - periodic scan feedback
+static const Note SND_SONAR_PING[] = {
+    {1000, 20, 0},
+    {0, 0, 0}
+};
+
+// RADAR_SWEEP: Subtle rising sweep - longer scan feedback
+static const Note SND_RADAR_SWEEP[] = {
+    {280, 30, 0},
+    {350, 30, 0},
+    {500, 30, 0},
+    {700, 40, 0},
+    {0, 0, 0}
+};
+
+// SCAN_TICK: Quiet periodic tick - background scanning
+static const Note SND_SCAN_TICK[] = {
+    {600, 8, 0},
+    {0, 0, 0}
+};
+
+// ==[ AMBIENT BIRD SOUNDS ]==
+
+// BIRD_HIT: Short electric zap - wave hits bird
+static const Note SND_BIRD_HIT[] = {
+    {1400, 25, 0},
+    {900, 35, 0},
+    {600, 20, 0},
+    {0, 0, 0}
+};
+
+// BIRD_IMPACT: Low thud + crackle - bird hits ground
+static const Note SND_BIRD_IMPACT[] = {
+    {220, 60, 0},
+    {350, 25, 10},
+    {280, 20, 0},
     {0, 0, 0}
 };
 
 // ==[ MORSE REMOVED ]==
 // Morse GG was too long (600ms+), replaced with warm resolve in HANDSHAKE
+
+// ==[ PER-SOUND VOLUME SCALING ]==
+// Frequent/ambient sounds play quieter than celebrations.
+// Schultz (1997): predicted events → subdued feedback; rare events → full punch.
+static uint8_t currentVolumeScale = 100;  // 0-100%, set before each sound
+
+static uint8_t eventVolumeScale(Event e) {
+    switch (e) {
+        // AMBIENT (35%) — below conscious attention threshold
+        case BIRD_HIT:
+        case BIRD_IMPACT:
+        case SCAN_TICK:
+        case SONAR_PING:
+            return 35;
+        // FREQUENT (50%) — acknowledged but not alarming
+        case TERMINAL_TICK:
+        case NETWORK_NEW:
+        case CLIENT_FOUND:
+        case RADAR_SWEEP:
+        case CLICK:
+        case DEAUTH:
+            return 50;
+        // FULL (100%) — celebrations, captures, UI, pig voices
+        default:
+            return 100;
+    }
+}
+
+// ==[ VOLUME MAPPING ]==
+static void applyVolume() {
+    // Cardputer piezo is LOUD — keep the whole curve low.
+    // Level 1 = whisper (stealth), 3 = comfortable, 5 = noisy room.
+    static const uint8_t kVolMap[] = {0, 20, 45, 80, 140, 210};
+    uint8_t lvl = Config::personality().soundLevel;
+    if (lvl > 5) lvl = 5;
+    uint16_t vol = kVolMap[lvl];
+    vol = (vol * currentVolumeScale) / 100;
+    M5.Speaker.setVolume((uint8_t)vol);
+}
 
 // ==[ STATE MACHINE ]==
 static const Note* currentSequence = nullptr;
@@ -298,7 +457,7 @@ void init() {
 }
 
 void play(Event event) {
-    if (!Config::personality().soundEnabled) return;
+    if (Config::personality().soundLevel == 0) return;
     if (event == NONE) return;
     
     // Priority events (captures/celebrations) interrupt anything else
@@ -334,7 +493,10 @@ static void startSequence(const Note* seq) {
     currentStep = 0;
     stepStartTime = millis();
     inNote = true;
-    
+
+    // Apply current volume before starting playback
+    applyVolume();
+
     // Start first note
     if (seq[0].freq > 0 && seq[0].duration > 0) {
         M5.Speaker.tone(seq[0].freq, seq[0].duration);
@@ -343,7 +505,7 @@ static void startSequence(const Note* seq) {
 
 bool update() {
     // Skip if sound disabled
-    if (!Config::personality().soundEnabled) {
+    if (Config::personality().soundLevel == 0) {
         // Clear any queued events
         taskENTER_CRITICAL(&queueMutex);
         queueHead = queueTail;
@@ -363,6 +525,7 @@ bool update() {
     taskEXIT_CRITICAL(&queueMutex);
     
     if (hasEvents) {
+        currentVolumeScale = eventVolumeScale(e);
         switch (e) {
             case DEAUTH:
                 startSequence(SND_DEAUTH);
@@ -448,6 +611,52 @@ bool update() {
             case YOU_DIED:
                 startSequence(SND_YOU_DIED);
                 break;
+            // UI feedback
+            case MODE_ENTER:
+                startSequence(SND_MODE_ENTER);
+                break;
+            case MODE_EXIT:
+                startSequence(SND_MODE_EXIT);
+                break;
+            case CONFIRM:
+                startSequence(SND_CONFIRM);
+                break;
+            case TYPING_KEY:
+                startSequence(SND_TYPING_KEY);
+                break;
+            case BACK_NAV:
+                startSequence(SND_BACK_NAV);
+                break;
+            // Pig vocalizations
+            case OINK_HAPPY:
+                startSequence(SND_OINK_HAPPY);
+                break;
+            case OINK_GRUNT:
+                startSequence(SND_OINK_GRUNT);
+                break;
+            case OINK_SQUEAL:
+                startSequence(SND_OINK_SQUEAL);
+                break;
+            case OINK_CURIOUS:
+                startSequence(SND_OINK_CURIOUS);
+                break;
+            // Ambient scanning
+            case SONAR_PING:
+                startSequence(SND_SONAR_PING);
+                break;
+            case RADAR_SWEEP:
+                startSequence(SND_RADAR_SWEEP);
+                break;
+            case SCAN_TICK:
+                startSequence(SND_SCAN_TICK);
+                break;
+            // Ambient birds
+            case BIRD_HIT:
+                startSequence(SND_BIRD_HIT);
+                break;
+            case BIRD_IMPACT:
+                startSequence(SND_BIRD_IMPACT);
+                break;
             default:
                 break;
         }
@@ -528,7 +737,8 @@ void stop() {
 }
 
 void tone(uint16_t freq, uint16_t duration) {
-    if (!Config::personality().soundEnabled) return;
+    if (Config::personality().soundLevel == 0) return;
+    applyVolume();
     M5.Speaker.tone(freq, duration);
 }
 

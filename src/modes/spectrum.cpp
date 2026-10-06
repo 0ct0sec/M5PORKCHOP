@@ -13,6 +13,7 @@
 #include "../core/heap_policy.h"
 #include "../core/xp.h"
 #include "../ui/display.h"
+#include "../piglet/mood.h"
 #include <M5Cardputer.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -23,6 +24,7 @@
 #include <cmath>
 #include <ctype.h>
 #include <string.h>
+#include "../core/janus_hog.h"
 
 // Layout constants - spectrum + waterfall + channel labels + status bar
 const int SPECTRUM_LEFT = 20;       // Space for dB labels
@@ -44,13 +46,39 @@ const int8_t NOISE_FLOOR_DB = -92;  // Simulated noise floor level (future)
 // View defaults
 const float DEFAULT_CENTER_MHZ = 2437.0f;  // Channel 6
 const float DEFAULT_WIDTH_MHZ = 60.0f;     // ~12 channels visible
-const float MIN_CENTER_MHZ = 2412.0f;      // Channel 1
-const float MAX_CENTER_MHZ = 2472.0f;      // Channel 13
+const float MIN_CENTER_MHZ = 2412.0f;      // Channel 1 (2.4GHz)
+const float MAX_CENTER_MHZ = 2472.0f;      // Channel 13 (2.4GHz)
 const float BAND_MIN_MHZ = 2400.0f;        // 2.4GHz band edge (approx)
 const float BAND_MAX_MHZ = 2483.5f;        // 2.4GHz band edge (approx)
+// 5GHz view (rendered from JanusHog scan cache)
+const float DEFAULT_CENTER5_MHZ = 5500.0f; // Mid-band (seamless overview)
+const float DEFAULT_WIDTH5_MHZ  = 240.0f;  // Scrollable viewport (similar density to 2.4GHz view)
+const float MIN_CENTER5_MHZ = 5180.0f;     // Ch36
+const float MAX_CENTER5_MHZ = 5825.0f;     // Ch165
+const float BAND5_MIN_MHZ = 5150.0f;       // Display start (approx UNII-1 lower)
+const float BAND5_MAX_MHZ = 5850.0f;       // Display end (approx UNII-3 upper)
 const float LOBE_HALF_WIDTH_MHZ = 15.0f;   // Gaussian half-width
 const float LOBE_STEP_MHZ = 0.5f;          // Frequency step for lobe drawing
-const float PAN_STEP_MHZ = 5.0f;           // One channel per pan
+const float PAN_STEP_MHZ = 5.0f;           // 2.4GHz pan step (MHz)
+const float PAN_STEP5_MHZ = 20.0f;         // 5GHz pan step (MHz) ~ 20MHz channel
+
+static inline float clampCenter5GHz(float centerMHz, float widthMHz) {
+    // Keep the viewport fully inside the displayed 5GHz band. If the viewport is wider
+    // than the band, pin to mid-band so the display stays seamless.
+    if (widthMHz <= 0.01f) {
+        return (BAND5_MIN_MHZ + BAND5_MAX_MHZ) * 0.5f;
+    }
+
+    float half = widthMHz * 0.5f;
+    float minCenter = BAND5_MIN_MHZ + half;
+    float maxCenter = BAND5_MAX_MHZ - half;
+    if (minCenter > maxCenter) {
+        return (BAND5_MIN_MHZ + BAND5_MAX_MHZ) * 0.5f;
+    }
+    if (centerMHz < minCenter) return minCenter;
+    if (centerMHz > maxCenter) return maxCenter;
+    return centerMHz;
+}
 
 // Timing
 const uint32_t UPDATE_INTERVAL_MS = 100;   // 10 FPS update rate
@@ -107,6 +135,24 @@ static const uint32_t WATERFALL_UPDATE_MS = 100;        // 10 FPS waterfall scro
 // Noise floor randomization seed (for animated noise)
 static uint16_t noiseState = 0xACE1;
 
+// 64-entry sine LUT in flash (0 bytes RAM). Values = round(127 * sin(2*pi*i/64)).
+// Max error ~1.5% vs sinf(), visually indistinguishable for jitter/flutter animation.
+static const int8_t FAST_SIN_64[64] PROGMEM = {
+      0,  12,  25,  37,  49,  60,  71,  81,
+     90,  98, 106, 112, 117, 122, 125, 126,
+    127, 126, 125, 122, 117, 112, 106,  98,
+     90,  81,  71,  60,  49,  37,  25,  12,
+      0, -12, -25, -37, -49, -60, -71, -81,
+    -90, -98,-106,-112,-117,-122,-125,-126,
+   -127,-126,-125,-122,-117,-112,-106, -98,
+    -90, -81, -71, -60, -49, -37, -25, -12
+};
+
+// O(1) sine lookup: phase64 in [0,63] wrapping, returns [-127, +127] (Q0.7)
+static inline int8_t fastSinQ7(uint8_t phase64) {
+    return FAST_SIN_64[phase64 & 63];
+}
+
 // Simple PRNG for noise floor animation
 static inline uint8_t fastNoise() {
     noiseState ^= noiseState << 7;
@@ -150,11 +196,28 @@ SpectrumRenderMonitor SpectrumMode::renderMonitor = {};
 float SpectrumMode::viewCenterMHz = DEFAULT_CENTER_MHZ;
 float SpectrumMode::viewWidthMHz = DEFAULT_WIDTH_MHZ;
 int SpectrumMode::selectedIndex = -1;
+SpectrumBand SpectrumMode::viewBand = SpectrumBand::BAND_24;
+float SpectrumMode::viewCenter24MHz = DEFAULT_CENTER_MHZ;
+float SpectrumMode::viewWidth24MHz = DEFAULT_WIDTH_MHZ;
+float SpectrumMode::viewCenter5MHz = DEFAULT_CENTER5_MHZ;
+float SpectrumMode::viewWidth5MHz = DEFAULT_WIDTH5_MHZ;
+int SpectrumMode::selectedC5Index = -1;
+uint8_t SpectrumMode::selectedC5Bssid[6] = {0};
+bool SpectrumMode::selectedC5Valid = false;
 uint32_t SpectrumMode::lastUpdateTime = 0;
 bool SpectrumMode::keyWasPressed = false;
 uint8_t SpectrumMode::currentChannel = 1;
 uint32_t SpectrumMode::startTime = 0;
 SpectrumFilter SpectrumMode::filter = SpectrumFilter::ALL;
+bool SpectrumMode::actionPromptActive = false;
+uint8_t SpectrumMode::actionBssid[6] = {0};
+char SpectrumMode::actionSsid[33] = {0};
+uint8_t SpectrumMode::actionChannel = 0;
+int8_t SpectrumMode::actionRssi = 0;
+wifi_auth_mode_t SpectrumMode::actionAuthmode = WIFI_AUTH_OPEN;
+bool SpectrumMode::c5HandshakePending = false;
+uint32_t SpectrumMode::c5HandshakeStartMs = 0;
+char SpectrumMode::c5HandshakeSsid[33] = {0};
 volatile bool SpectrumMode::pendingReveal = false;
 char SpectrumMode::pendingRevealSSID[33] = {0};
 std::atomic<bool> SpectrumMode::pendingNetworkAdd{false};
@@ -190,7 +253,7 @@ float SpectrumMode::dialPositionTarget = 7.0f;
 float SpectrumMode::dialPositionSmooth = 7.0f;
 uint32_t SpectrumMode::lastDialUpdate = 0;
 uint32_t SpectrumMode::dialModeEntryTime = 0;
-volatile uint32_t SpectrumMode::ppsCounter = 0;
+std::atomic<uint32_t> SpectrumMode::ppsCounter{0};
 uint32_t SpectrumMode::displayPps = 0;
 uint32_t SpectrumMode::lastPpsUpdate = 0;
 
@@ -231,9 +294,17 @@ void SpectrumMode::init() {
     memset(renderNets, 0, sizeof(renderNets));
     memset(&renderSelected, 0, sizeof(renderSelected));
     memset(&renderMonitor, 0, sizeof(renderMonitor));
-    viewCenterMHz = DEFAULT_CENTER_MHZ;
-    viewWidthMHz = DEFAULT_WIDTH_MHZ;
+    viewBand = SpectrumBand::BAND_24;
+    viewCenter24MHz = DEFAULT_CENTER_MHZ;
+    viewWidth24MHz = DEFAULT_WIDTH_MHZ;
+    viewCenter5MHz = DEFAULT_CENTER5_MHZ;
+    viewWidth5MHz = DEFAULT_WIDTH5_MHZ;
+    viewCenterMHz = viewCenter24MHz;
+    viewWidthMHz = viewWidth24MHz;
     selectedIndex = -1;
+    selectedC5Index = -1;
+    memset(selectedC5Bssid, 0, sizeof(selectedC5Bssid));
+    selectedC5Valid = false;
     keyWasPressed = false;
     currentChannel = 1;
     startTime = 0;
@@ -243,7 +314,16 @@ void SpectrumMode::init() {
     pendingNetworkAdd.store(false);
     memset(&pendingNetwork, 0, sizeof(pendingNetwork));
     filter = SpectrumFilter::ALL;
-    
+    actionPromptActive = false;
+    memset(actionBssid, 0, sizeof(actionBssid));
+    actionSsid[0] = 0;
+    actionChannel = 0;
+    actionRssi = 0;
+    actionAuthmode = WIFI_AUTH_OPEN;
+    c5HandshakePending = false;
+    c5HandshakeStartMs = 0;
+    c5HandshakeSsid[0] = 0;
+
     // Reset client monitoring state
     monitoringNetwork = false;
     monitoredNetworkIndex = -1;
@@ -315,7 +395,15 @@ void SpectrumMode::start() {
     running = true;
     lastUpdateTime = millis();
     startTime = millis();
-    
+
+    // Request 5GHz data from C5 if available
+    if (JanusHog::isConnected()) {
+        // Trigger scan if no C5 data yet (auto-scan may not have fired)
+        if (JanusHog::getScanCount() == 0 && JanusHog::getCurrentOp() == C5Op::NONE) {
+            JanusHog::requestScan();
+        }
+    }
+
     Display::setWiFiStatus(true);
     Serial.printf("[SPECTRUM] Running - %d networks from recon\n", NetworkRecon::getNetworkCount());
 }
@@ -342,9 +430,20 @@ void SpectrumMode::stop() {
     // Clear spectrum-specific sweep override
     NetworkRecon::clearHopIntervalOverride();
     
+    // Stop any continuous C5 monitors or in-progress handshake attacks.
+    if (c5HandshakePending) {
+        JanusHog::requestStop();
+        JanusHog::clearHandshakeResult();
+        c5HandshakePending = false;
+    } else if (JanusHog::getCurrentOp() == C5Op::CHANNEL_VIEW ||
+               JanusHog::getCurrentOp() == C5Op::PACKET_MONITOR) {
+        JanusHog::requestStop();
+    }
+    actionPromptActive = false;
+
     running = false;
     Display::setWiFiStatus(false);
-    
+
     // FIX: Release vector capacity to recover heap
     networks.clear();
     networks.shrink_to_fit();
@@ -364,8 +463,7 @@ void SpectrumMode::update() {
 
     // ==[ PPS UPDATE ]== once per second
     if (now - lastPpsUpdate >= 1000) {
-        displayPps = ppsCounter;
-        ppsCounter = 0;
+        displayPps = ppsCounter.exchange(0, std::memory_order_relaxed);
         lastPpsUpdate = now;
     }
     
@@ -464,7 +562,18 @@ void SpectrumMode::update() {
     currentChannel = NetworkRecon::getCurrentChannel();
     
     // Update dial mode (tilt-to-tune when upright)
-    updateDialChannel();
+    if (viewBand == SpectrumBand::BAND_24) {
+        updateDialChannel();
+    } else {
+        // Dial mode is 2.4GHz-only (S3 can't tune 5GHz). Ensure we don't lock channels in 5GHz view.
+        if (dialMode) {
+            dialMode = false;
+            dialLocked = false;
+            if (NetworkRecon::isChannelLocked()) {
+                NetworkRecon::unlockChannel();
+            }
+        }
+    }
     
     // Channel hopping is handled by NetworkRecon; Spectrum only locks when needed.
     
@@ -521,6 +630,13 @@ void SpectrumMode::update() {
         }
     }
 
+    // If user is viewing 5GHz but C5 link is gone, drop back to 2.4GHz view.
+    // Note: lack of scan data is normal before the first scan completes.
+    if (viewBand == SpectrumBand::BAND_5 && !JanusHog::isConnected()) {
+        setViewBand(SpectrumBand::BAND_24);
+        Display::showToast("C5 5G LOST");
+    }
+
     // Build render snapshot (heap-safe, avoids vector pointer races during draw)
     updateRenderSnapshot();
     
@@ -528,6 +644,32 @@ void SpectrumMode::update() {
     if (!monitoringNetwork) {
         updateSpectrumBuffers();
         updateWaterfall();
+    }
+
+    // Handle C5 handshake result if started from Spectrum action prompt.
+    if (c5HandshakePending) {
+        if (millis() - c5HandshakeStartMs > 90000) {
+            JanusHog::requestStop();
+            JanusHog::clearHandshakeResult();
+            c5HandshakePending = false;
+            Display::showToast("HANDSHAKE TIMEOUT");
+        } else if (!JanusHog::isConnected()) {
+            Display::showToast("C5 LINK LOST");
+            JanusHog::clearHandshakeResult();
+            c5HandshakePending = false;
+        } else {
+            HandshakeResult r = JanusHog::getHandshakeResult();
+            if (r == HandshakeResult::CAPTURED) {
+                Mood::onHandshakeCaptured(c5HandshakeSsid[0] ? c5HandshakeSsid : "5G");
+                Display::showLoot(c5HandshakeSsid[0] ? c5HandshakeSsid : "5G");
+                JanusHog::clearHandshakeResult();
+                c5HandshakePending = false;
+            } else if (r == HandshakeResult::FAILED) {
+                Display::showToast("HANDSHAKE FAILED");
+                JanusHog::clearHandshakeResult();
+                c5HandshakePending = false;
+            }
+        }
     }
 }
 
@@ -542,6 +684,108 @@ void SpectrumMode::updateRenderSnapshot() {
     uint32_t staleMs = Config::wifi().spectrumStaleMs;
     if (staleMs < 1000) staleMs = 1000;
     if (staleMs > 60000) staleMs = 60000;
+
+    // 5GHz view: build render snapshot from NetworkRecon (C5-injected networks).
+    if (viewBand == SpectrumBand::BAND_5) {
+        // Collapse-by-SSID is currently 2.4GHz-only.
+        mergeSsidCount = 0;
+        collapse = false;
+
+        size_t count = 0;
+        {
+            // Copy out a snapshot while holding the recon vector lock. This makes 5GHz display
+            // stable across scans and avoids depending on JanusHog's "last scan only" cache.
+            NetworkRecon::CriticalSection lock;
+            const auto& recon = NetworkRecon::getNetworks();
+            for (size_t i = 0; i < recon.size(); i++) {
+                const DetectedNetwork& net = recon[i];
+                if (net.channel <= 14) continue;
+                if (net.rssi < minRssi) continue;
+                if (count >= MAX_SPECTRUM_NETWORKS) break;
+
+                SpectrumRenderNet& out = renderNets[count];
+                memcpy(out.bssid, net.bssid, 6);
+                out.channel = net.channel;
+                out.rssi = net.rssi;
+                out.authmode = net.authmode;
+                // C5 scan output doesn't expose PMF reliably; be conservative.
+                out.hasPMF = true;
+                out.isHidden = net.isHidden || (net.ssid[0] == '\0');
+                out.displayFreqMHz = channelToFreq(net.channel);
+                count++;
+            }
+        }
+        renderCount = (uint16_t)count;
+
+        // Maintain selection by BSSID across snapshot rebuilds.
+        if (selectedC5Valid) {
+            int idx = findC5IndexByBssid(selectedC5Bssid);
+            if (idx >= 0) {
+                selectedC5Index = idx;
+            } else {
+                selectedC5Valid = false;
+                selectedC5Index = -1;
+                memset(selectedC5Bssid, 0, sizeof(selectedC5Bssid));
+            }
+        }
+
+        // If no selection, pick strongest matching entry so the UI has a sane default.
+        if (!selectedC5Valid) {
+            int bestIdx = -1;
+            int8_t bestRssi = -127;
+            for (uint16_t i = 0; i < renderCount; i++) {
+                const SpectrumRenderNet& n = renderNets[i];
+                if (!matchesFilterRender(n)) continue;
+                if (bestIdx < 0 || n.rssi > bestRssi) {
+                    bestIdx = (int)i;
+                    bestRssi = n.rssi;
+                }
+            }
+            if (bestIdx >= 0) {
+                selectedC5Index = bestIdx;
+                memcpy(selectedC5Bssid, renderNets[bestIdx].bssid, 6);
+                selectedC5Valid = true;
+                // Center view on the default selection.
+                viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[bestIdx].channel), viewWidthMHz);
+                viewCenter5MHz = viewCenterMHz;
+            }
+        }
+
+        // Selected snapshot for status bar + highlight
+        renderSelected.valid = false;
+        if (selectedC5Valid && selectedC5Index >= 0 && selectedC5Index < (int)renderCount) {
+            DetectedNetwork dn = {};
+            if (NetworkRecon::findNetwork(selectedC5Bssid, &dn) && dn.channel > 14) {
+                renderSelected.valid = true;
+                memcpy(renderSelected.bssid, dn.bssid, 6);
+                strncpy(renderSelected.ssid, dn.ssid, 32);
+                renderSelected.ssid[32] = 0;
+                renderSelected.channel = dn.channel;
+                renderSelected.rssi = dn.rssi;
+                renderSelected.authmode = dn.authmode;
+                renderSelected.hasPMF = true;
+                renderSelected.wasRevealed = false;
+            } else {
+                // Fallback: still allow highlighting the selected lobe even if metadata lookup fails.
+                const SpectrumRenderNet& rn = renderNets[selectedC5Index];
+                renderSelected.valid = true;
+                memcpy(renderSelected.bssid, rn.bssid, 6);
+                renderSelected.ssid[0] = 0;
+                renderSelected.channel = rn.channel;
+                renderSelected.rssi = rn.rssi;
+                renderSelected.authmode = rn.authmode;
+                renderSelected.hasPMF = true;
+                renderSelected.wasRevealed = false;
+            }
+        }
+
+        // No client overlay in 5GHz view.
+        renderMonitor.valid = false;
+        renderMonitor.clientCount = 0;
+
+        busy = false;
+        return;
+    }
 
     if (collapse && mergeSsidCount > 0) {
         for (uint16_t i = 0; i < mergeSsidCount; ) {
@@ -669,10 +913,90 @@ void SpectrumMode::updateRenderSnapshot() {
     busy = false;
 }
 
+bool SpectrumMode::has5GHzScanData() {
+    if (!JanusHog::isConnected()) return false;
+    NetworkRecon::CriticalSection lock;
+    const auto& recon = NetworkRecon::getNetworks();
+    for (size_t i = 0; i < recon.size(); i++) {
+        if (recon[i].channel > 14) return true;
+    }
+    return false;
+}
+
+void SpectrumMode::setViewBand(SpectrumBand band) {
+    if (viewBand == band) return;
+
+    // Persist current viewport for the band we're leaving.
+    if (viewBand == SpectrumBand::BAND_24) {
+        viewCenter24MHz = viewCenterMHz;
+        viewWidth24MHz = viewWidthMHz;
+    } else {
+        viewCenter5MHz = viewCenterMHz;
+        viewWidth5MHz = viewWidthMHz;
+    }
+
+    viewBand = band;
+    if (viewBand == SpectrumBand::BAND_24) {
+        viewCenterMHz = viewCenter24MHz;
+        viewWidthMHz = viewWidth24MHz;
+        // Ensure 2.4GHz bounds are sane.
+        viewCenterMHz = constrain(viewCenterMHz, MIN_CENTER_MHZ, MAX_CENTER_MHZ);
+    } else {
+        viewCenterMHz = viewCenter5MHz;
+        viewWidthMHz = viewWidth5MHz;
+        // Clamp center so the viewport stays within the displayed 5GHz band.
+        viewCenterMHz = clampCenter5GHz(viewCenterMHz, viewWidthMHz);
+        viewCenter5MHz = viewCenterMHz;
+        viewWidth5MHz = viewWidthMHz;
+    }
+
+    // Any modal prompt should close on band switch.
+    actionPromptActive = false;
+}
+
+int SpectrumMode::findC5IndexByBssid(const uint8_t* bssid) {
+    if (!bssid) return -1;
+    for (uint16_t i = 0; i < renderCount; i++) {
+        if (memcmp(renderNets[i].bssid, bssid, 6) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+int SpectrumMode::findNextC5Index(int startIndex, int direction) {
+    int total = (int)renderCount;
+    if (total <= 0) return -1;
+    if (direction == 0) return -1;
+    direction = (direction > 0) ? 1 : -1;
+
+    int idx = startIndex;
+    if (idx < 0 || idx >= total) {
+        idx = (direction > 0) ? -1 : total;
+    }
+
+    for (int step = 0; step < total; step++) {
+        idx += direction;
+        if (idx < 0) idx = total - 1;
+        if (idx >= total) idx = 0;
+
+        const SpectrumRenderNet& net = renderNets[idx];
+        if (!matchesFilterRender(net)) continue;
+        return idx;
+    }
+
+    return -1;
+}
+
 void SpectrumMode::handleInput() {
     // [P11] Single state check at TOP - no fall-through!
     if (monitoringNetwork) {
         handleClientMonitorInput();
+        return;
+    }
+
+    if (actionPromptActive) {
+        handleActionPromptInput();
         return;
     }
     
@@ -689,75 +1013,343 @@ void SpectrumMode::handleInput() {
     Display::resetDimTimer();
     
     auto keys = M5Cardputer.Keyboard.keysState();
+    bool has5G = has5GHzScanData();
     
     // Pan spectrum with , (left) and / (right)
     if (M5Cardputer.Keyboard.isKeyPressed(',')) {
-        viewCenterMHz = fmax(MIN_CENTER_MHZ, viewCenterMHz - PAN_STEP_MHZ);
+        if (viewBand == SpectrumBand::BAND_24) {
+            viewCenterMHz = fmax(MIN_CENTER_MHZ, viewCenterMHz - PAN_STEP_MHZ);
+            viewCenter24MHz = viewCenterMHz;
+        } else {
+            float half = viewWidthMHz * 0.5f;
+            float leftEdge = viewCenterMHz - half;
+            if (leftEdge <= (BAND5_MIN_MHZ + 0.01f)) {
+                // Wrap from 5GHz → 2.4GHz (seamless band scroll)
+                setViewBand(SpectrumBand::BAND_24);
+                viewCenterMHz = MAX_CENTER_MHZ;
+                viewCenter24MHz = viewCenterMHz;
+                Display::showToast("2.4GHZ");
+            } else {
+                viewCenterMHz = clampCenter5GHz(viewCenterMHz - PAN_STEP5_MHZ, viewWidthMHz);
+                viewCenter5MHz = viewCenterMHz;
+            }
+        }
     }
     if (M5Cardputer.Keyboard.isKeyPressed('/')) {
-        viewCenterMHz = fmin(MAX_CENTER_MHZ, viewCenterMHz + PAN_STEP_MHZ);
+        if (viewBand == SpectrumBand::BAND_24) {
+            float next = viewCenterMHz + PAN_STEP_MHZ;
+            if (next > MAX_CENTER_MHZ) {
+                if (JanusHog::isConnected()) {
+                    // Wrap from 2.4GHz → 5GHz (scan-backed)
+                    setViewBand(SpectrumBand::BAND_5);
+                    // Start at the left edge of the 5GHz band, respecting viewport width.
+                    viewCenterMHz = clampCenter5GHz(BAND5_MIN_MHZ + viewWidthMHz * 0.5f, viewWidthMHz);
+                    viewCenter5MHz = viewCenterMHz;
+                    Display::showToast("5GHZ");
+                    // Ensure we kick off a scan if none has happened yet.
+                    if (!has5G && JanusHog::getScanCount() == 0 && JanusHog::getCurrentOp() == C5Op::NONE) {
+                        JanusHog::requestScan();
+                    }
+                } else {
+                    viewCenterMHz = MAX_CENTER_MHZ;
+                    viewCenter24MHz = viewCenterMHz;
+                }
+            } else {
+                viewCenterMHz = fmin(MAX_CENTER_MHZ, next);
+                viewCenter24MHz = viewCenterMHz;
+            }
+        } else {
+            viewCenterMHz = clampCenter5GHz(viewCenterMHz + PAN_STEP5_MHZ, viewWidthMHz);
+            viewCenter5MHz = viewCenterMHz;
+        }
     }
     
     // F key: cycle filter mode
     if (M5Cardputer.Keyboard.isKeyPressed('f') || M5Cardputer.Keyboard.isKeyPressed('F')) {
         filter = static_cast<SpectrumFilter>((static_cast<int>(filter) + 1) % 4);
-        // If selected network no longer matches filter, find first matching
-        if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
-            if (!matchesFilter(networks[selectedIndex])) {
-                selectedIndex = -1;
-                for (size_t i = 0; i < networks.size(); i++) {
-                    if (matchesFilter(networks[i])) {
-                        selectedIndex = (int)i;
-                        viewCenterMHz = channelToFreq(networks[i].channel);
-                        break;
+        if (viewBand == SpectrumBand::BAND_24) {
+            // If selected network no longer matches filter, find first matching
+            if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
+                if (!matchesFilter(networks[selectedIndex])) {
+                    selectedIndex = -1;
+                    for (size_t i = 0; i < networks.size(); i++) {
+                        if (matchesFilter(networks[i])) {
+                            selectedIndex = (int)i;
+                            viewCenterMHz = channelToFreq(networks[i].channel);
+                            viewCenter24MHz = viewCenterMHz;
+                            break;
+                        }
                     }
+                }
+            }
+        } else {
+            // 5GHz selection: keep selection if it still matches, otherwise pick next match.
+            bool keepSelection = false;
+            if (selectedC5Valid) {
+                int idx = findC5IndexByBssid(selectedC5Bssid);
+                if (idx >= 0) {
+                    selectedC5Index = idx;
+                    keepSelection = matchesFilterRender(renderNets[idx]);
+                } else {
+                    selectedC5Valid = false;
+                    selectedC5Index = -1;
+                    memset(selectedC5Bssid, 0, sizeof(selectedC5Bssid));
+                }
+            }
+
+            if (!keepSelection) {
+                int next = findNextC5Index(selectedC5Index, +1);
+                if (next >= 0) {
+                    selectedC5Index = next;
+                    memcpy(selectedC5Bssid, renderNets[next].bssid, 6);
+                    selectedC5Valid = true;
+                    viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[next].channel), viewWidthMHz);
+                    viewCenter5MHz = viewCenterMHz;
+                } else {
+                    selectedC5Valid = false;
+                    selectedC5Index = -1;
+                    memset(selectedC5Bssid, 0, sizeof(selectedC5Bssid));
                 }
             }
         }
     }
     
     // Cycle through matching networks with ; and .
-    if (M5Cardputer.Keyboard.isKeyPressed(';') && !networks.empty()) {
-        int startIdx = selectedIndex;
-        int count = 0;
-        do {
-            selectedIndex = (selectedIndex - 1 + (int)networks.size()) % (int)networks.size();
-            count++;
-        } while (!matchesFilter(networks[selectedIndex]) && count < (int)networks.size());
-        
-        if (!matchesFilter(networks[selectedIndex])) {
-            selectedIndex = startIdx;  // No match found, stay put
-        } else if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
-            viewCenterMHz = channelToFreq(networks[selectedIndex].channel);
+    if (M5Cardputer.Keyboard.isKeyPressed(';')) {
+        if (viewBand == SpectrumBand::BAND_24 && !networks.empty()) {
+            int startIdx = selectedIndex;
+            int count = 0;
+            do {
+                selectedIndex = (selectedIndex - 1 + (int)networks.size()) % (int)networks.size();
+                count++;
+            } while (!matchesFilter(networks[selectedIndex]) && count < (int)networks.size());
+            
+            if (!matchesFilter(networks[selectedIndex])) {
+                selectedIndex = startIdx;  // No match found, stay put
+            } else if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
+                viewCenterMHz = channelToFreq(networks[selectedIndex].channel);
+                viewCenter24MHz = viewCenterMHz;
+            }
+        } else if (viewBand == SpectrumBand::BAND_5) {
+            int next = findNextC5Index(selectedC5Index, -1);
+            if (next >= 0) {
+                selectedC5Index = next;
+                memcpy(selectedC5Bssid, renderNets[next].bssid, 6);
+                selectedC5Valid = true;
+                viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[next].channel), viewWidthMHz);
+                viewCenter5MHz = viewCenterMHz;
+            }
         }
     }
-    if (M5Cardputer.Keyboard.isKeyPressed('.') && !networks.empty()) {
-        int startIdx = selectedIndex;
-        int count = 0;
-        do {
-            selectedIndex = (selectedIndex + 1) % (int)networks.size();
-            count++;
-        } while (!matchesFilter(networks[selectedIndex]) && count < (int)networks.size());
-        
-        if (!matchesFilter(networks[selectedIndex])) {
-            selectedIndex = startIdx;  // No match found, stay put
-        } else if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
-            viewCenterMHz = channelToFreq(networks[selectedIndex].channel);
+    if (M5Cardputer.Keyboard.isKeyPressed('.')) {
+        if (viewBand == SpectrumBand::BAND_24 && !networks.empty()) {
+            int startIdx = selectedIndex;
+            int count = 0;
+            do {
+                selectedIndex = (selectedIndex + 1) % (int)networks.size();
+                count++;
+            } while (!matchesFilter(networks[selectedIndex]) && count < (int)networks.size());
+            
+            if (!matchesFilter(networks[selectedIndex])) {
+                selectedIndex = startIdx;  // No match found, stay put
+            } else if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
+                viewCenterMHz = channelToFreq(networks[selectedIndex].channel);
+                viewCenter24MHz = viewCenterMHz;
+            }
+        } else if (viewBand == SpectrumBand::BAND_5) {
+            int next = findNextC5Index(selectedC5Index, +1);
+            if (next >= 0) {
+                selectedC5Index = next;
+                memcpy(selectedC5Bssid, renderNets[next].bssid, 6);
+                selectedC5Valid = true;
+                viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[next].channel), viewWidthMHz);
+                viewCenter5MHz = viewCenterMHz;
+            }
         }
     }
     
     // Enter: start monitoring selected network
-    if (keys.enter && !networks.empty()) {
-        if (selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
-            enterClientMonitor();
+    if (keys.enter) {
+        if (viewBand == SpectrumBand::BAND_24) {
+            if (!networks.empty() && selectedIndex >= 0 && selectedIndex < (int)networks.size()) {
+                enterClientMonitor();
+            }
+        } else {
+            if (!has5G) {
+                Display::showToast("NO 5G DATA");
+                return;
+            }
+
+            // Ensure we have a valid selection.
+            if (selectedC5Valid) {
+                int idx = findC5IndexByBssid(selectedC5Bssid);
+                if (idx >= 0) {
+                    selectedC5Index = idx;
+                } else {
+                    selectedC5Valid = false;
+                    selectedC5Index = -1;
+                    memset(selectedC5Bssid, 0, sizeof(selectedC5Bssid));
+                }
+            }
+            if (!selectedC5Valid) {
+                int idx = findNextC5Index(-1, +1);
+                if (idx >= 0) {
+                    selectedC5Index = idx;
+                    memcpy(selectedC5Bssid, renderNets[idx].bssid, 6);
+                    selectedC5Valid = true;
+                    viewCenterMHz = clampCenter5GHz(channelToFreq(renderNets[idx].channel), viewWidthMHz);
+                    viewCenter5MHz = viewCenterMHz;
+                }
+            }
+
+            if (selectedC5Valid && selectedC5Index >= 0 && selectedC5Index < (int)renderCount) {
+                const SpectrumRenderNet& rn = renderNets[selectedC5Index];
+                memcpy(actionBssid, rn.bssid, 6);
+
+                // Pull SSID and latest metadata from recon (scan cache may not include all persisted nets).
+                DetectedNetwork dn = {};
+                if (NetworkRecon::findNetwork(rn.bssid, &dn) && dn.channel > 14) {
+                    strncpy(actionSsid, dn.ssid, 32);
+                    actionSsid[32] = 0;
+                    actionChannel = dn.channel;
+                    actionRssi = dn.rssi;
+                    actionAuthmode = dn.authmode;
+                } else {
+                    actionSsid[0] = 0;
+                    actionChannel = rn.channel;
+                    actionRssi = rn.rssi;
+                    actionAuthmode = rn.authmode;
+                }
+                actionPromptActive = true;
+            } else {
+                Display::showToast("NO 5G NETS");
+            }
         }
     }
     
     // Space: toggle dial lock when in dial mode
-    if (M5Cardputer.Keyboard.isKeyPressed(' ') && dialMode) {
+    if (M5Cardputer.Keyboard.isKeyPressed(' ') && dialMode && viewBand == SpectrumBand::BAND_24) {
         dialLocked = !dialLocked;
         SFX::play(SFX::CLICK);
     }
+}
+
+void SpectrumMode::handleActionPromptInput() {
+    bool anyPressed = M5Cardputer.Keyboard.isPressed();
+    if (!anyPressed) {
+        keyWasPressed = false;
+        return;
+    }
+    if (keyWasPressed) return;
+    keyWasPressed = true;
+
+    Display::resetDimTimer();
+    auto keys = M5Cardputer.Keyboard.keysState();
+
+    // Backspace or Enter: close prompt
+    if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE) || keys.enter) {
+        actionPromptActive = false;
+        return;
+    }
+
+    if (M5Cardputer.Keyboard.isKeyPressed('h') || M5Cardputer.Keyboard.isKeyPressed('H')) {
+        actionPromptActive = false;
+        if (!JanusHog::isConnected()) {
+            Display::showToast("C5 OFFLINE");
+            return;
+        }
+        // Start handshake capture on C5.
+        if (JanusHog::requestHandshake(actionBssid)) {
+            c5HandshakePending = true;
+            c5HandshakeStartMs = millis();
+            strncpy(c5HandshakeSsid, actionSsid, 32);
+            c5HandshakeSsid[32] = 0;
+            Display::notify(NoticeKind::STATUS, "C5 HANDSHAKE", 2000, NoticeChannel::TOP_BAR);
+        } else {
+            Display::showToast("C5 BUSY");
+        }
+        return;
+    }
+
+    if (M5Cardputer.Keyboard.isKeyPressed('p') || M5Cardputer.Keyboard.isKeyPressed('P')) {
+        actionPromptActive = false;
+        if (!JanusHog::isConnected()) {
+            Display::showToast("C5 OFFLINE");
+            return;
+        }
+        if (JanusHog::requestPacketMonitor(actionChannel)) {
+            Display::notify(NoticeKind::STATUS, "C5 PKT MON", 2000, NoticeChannel::TOP_BAR);
+        } else {
+            Display::showToast("C5 BUSY");
+        }
+        return;
+    }
+
+    if (M5Cardputer.Keyboard.isKeyPressed('b') || M5Cardputer.Keyboard.isKeyPressed('B')) {
+        actionPromptActive = false;
+        bool ok = OinkMode::excludeNetworkByBSSID(actionBssid, actionSsid);
+        Display::showToast(ok ? "BOAR BRO" : "ALREADY BRO");
+        return;
+    }
+
+    if (M5Cardputer.Keyboard.isKeyPressed('s') || M5Cardputer.Keyboard.isKeyPressed('S')) {
+        actionPromptActive = false;
+        if (JanusHog::isConnected()) {
+            JanusHog::requestStop();
+            Display::showToast("C5 STOP");
+        } else {
+            Display::showToast("C5 OFFLINE");
+        }
+        return;
+    }
+
+    // Any other key closes prompt (avoids modal trap).
+    actionPromptActive = false;
+}
+
+void SpectrumMode::drawActionPrompt(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
+    const int boxX = 6;
+    const int boxW = canvas.width() - (boxX * 2);
+    const int lineH = 10;
+    const int boxH = (lineH * 4) + 10;
+    const int boxY = canvas.height() - boxH - 4;
+
+    canvas.fillRect(boxX, boxY, boxW, boxH, bg);
+    canvas.drawRect(boxX, boxY, boxW, boxH, fg);
+
+    canvas.setTextSize(1);
+    canvas.setTextColor(fg);
+
+    // Title (SSID)
+    char title[34];
+    if (actionSsid[0]) {
+        strncpy(title, actionSsid, 32);
+        title[32] = 0;
+    } else {
+        strncpy(title, "<HIDDEN>", sizeof(title) - 1);
+        title[sizeof(title) - 1] = 0;
+    }
+    // Uppercase for readability
+    for (uint8_t i = 0; title[i]; i++) {
+        title[i] = (char)toupper((unsigned char)title[i]);
+    }
+    if (strlen(title) > 22) {
+        title[22] = 0;
+        title[20] = '.';
+        title[21] = '.';
+    }
+
+    canvas.setTextDatum(top_left);
+    const int textX = boxX + 6;
+    const int textY = boxY + 4;
+    canvas.drawString(title, textX, textY);
+
+    char meta[32];
+    snprintf(meta, sizeof(meta), "CH:%u %ddB %s", actionChannel, actionRssi, authModeToShortString(actionAuthmode));
+    canvas.drawString(meta, textX, textY + lineH);
+
+    canvas.drawString("[H]HS  [P]MON  [B]BRO", textX, textY + (lineH * 2));
+    canvas.drawString("[S]STOP  [BK]EXIT", textX, textY + (lineH * 3));
 }
 
 // Handle input when in client monitor overlay [P11] [P13] [P14]
@@ -855,29 +1447,33 @@ void SpectrumMode::handleClientMonitorInput() {
 }
 
 void SpectrumMode::draw(M5Canvas& canvas) {
-    canvas.fillSprite(COLOR_BG);
-    
+    // Cache theme colors once per frame (eliminates ~19K redundant function calls in worst case)
+    const uint16_t fg = getColorFG();
+    const uint16_t bg = getColorBG();
+
+    canvas.fillSprite(bg);
+
     // Draw client overlay when monitoring, otherwise spectrum
     if (monitoringNetwork) {
-        drawClientOverlay(canvas);
+        drawClientOverlay(canvas, fg, bg);
     } else {
         // Draw spectrum visualization
-        drawAxis(canvas);
-        drawNoiseFloor(canvas);     // Animated noise at baseline
-        drawSpectrum(canvas);
-        drawWaterfall(canvas);      // Historical spectrum scrolling down
-        drawChannelMarkers(canvas);
-        drawFilterBar(canvas);
-        
+        drawAxis(canvas, fg);
+        drawNoiseFloor(canvas, fg);
+        drawSpectrum(canvas, fg, bg);
+        drawWaterfall(canvas, fg);
+        drawChannelMarkers(canvas, fg, bg);
+        drawFilterBar(canvas, fg);
+
         // Draw dial mode info (when device upright)
-        drawDialInfo(canvas);
-        
+        drawDialInfo(canvas, fg);
+
         // Draw status indicators if network is selected
         if (renderSelected.valid) {
             canvas.setTextSize(1);
-            canvas.setTextColor(COLOR_FG);
+            canvas.setTextColor(fg);
             canvas.setTextDatum(top_left);
-            
+
             // Build status string without heap churn
             char status[24];
             size_t pos = 0;
@@ -895,114 +1491,184 @@ void SpectrumMode::draw(M5Canvas& canvas) {
                 canvas.drawString(status, SPECTRUM_LEFT + 2, SPECTRUM_TOP);
             }
         }
+
+        if (actionPromptActive) {
+            drawActionPrompt(canvas, fg, bg);
+        }
     }
-    
+
     // XP now shows in top bar on gain (Option B)
 }
 
-void SpectrumMode::drawAxis(M5Canvas& canvas) {
+void SpectrumMode::drawAxis(M5Canvas& canvas, uint16_t fg) {
     // Y-axis line
-    canvas.drawFastVLine(SPECTRUM_LEFT - 2, SPECTRUM_TOP, SPECTRUM_BOTTOM - SPECTRUM_TOP, COLOR_FG);
-    
+    canvas.drawFastVLine(SPECTRUM_LEFT - 2, SPECTRUM_TOP, SPECTRUM_BOTTOM - SPECTRUM_TOP, fg);
+
     // dB labels on left
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
+    canvas.setTextColor(fg);
     canvas.setTextDatum(middle_right);
-    
+
     for (int8_t rssi = -30; rssi >= -90; rssi -= 20) {
         int y = rssiToY(rssi);
-        // Shift label down if it would be cut off by top bar (font height ~8px, so 4px minimum)
         int labelY = (y < 6) ? 6 : y;
-        canvas.drawFastHLine(SPECTRUM_LEFT - 4, y, 3, COLOR_FG);
+        canvas.drawFastHLine(SPECTRUM_LEFT - 4, y, 3, fg);
         char rssiLabel[6];
         snprintf(rssiLabel, sizeof(rssiLabel), "%d", rssi);
         canvas.drawString(rssiLabel, SPECTRUM_LEFT - 5, labelY);
     }
-    
+
     // Baseline
-    canvas.drawFastHLine(SPECTRUM_LEFT, SPECTRUM_BOTTOM, SPECTRUM_RIGHT - SPECTRUM_LEFT, COLOR_FG);
+    canvas.drawFastHLine(SPECTRUM_LEFT, SPECTRUM_BOTTOM, SPECTRUM_RIGHT - SPECTRUM_LEFT, fg);
 }
 
-void SpectrumMode::drawChannelMarkers(M5Canvas& canvas) {
+void SpectrumMode::drawChannelMarkers(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
+    canvas.setTextColor(fg);
     canvas.setTextDatum(top_center);
-    
-    // ==[ DIAL MODE: SLIDING HIGHLIGHT BOX ]==
-    // Draw BEFORE channel numbers so numbers appear inverted on top
-    if (dialMode) {
-        // Calculate X position from smooth dial position
-        // Map channel position (1-13) to X coordinate
-        float clampedPos = constrain(dialPositionSmooth, 1.0f, 13.0f);
-        float freq = 2412.0f + (clampedPos - 1.0f) * 5.0f;
-        int xCenter = freqToX(freq);
-        
-        int boxW = 14;
-        int boxH = 10;
-        int boxY = CHANNEL_LABEL_Y - 1;
-        int boxX = xCenter - boxW / 2;
-        
-        // Draw filled highlight box
-        canvas.fillRect(boxX, boxY, boxW, boxH, COLOR_FG);
-        
-        // Lock indicator: thicker border when locked
-        if (dialLocked) {
-            canvas.drawRect(boxX - 1, boxY - 1, boxW + 2, boxH + 2, COLOR_FG);
-        }
-    }
-    
-    // Draw channel numbers for visible channels
-    for (uint8_t ch = 1; ch <= 13; ch++) {
-        float freq = channelToFreq(ch);
-        int x = freqToX(freq);
-        
-        // Only draw if in visible area
-        if (x >= SPECTRUM_LEFT && x <= SPECTRUM_RIGHT) {
-            // Tick mark
-            canvas.drawFastVLine(x, SPECTRUM_BOTTOM, 3, COLOR_FG);
-            
-            // In dial mode: invert the channel number that's under the highlight box
-            bool isDialSelected = dialMode && (fabsf(dialPositionSmooth - (float)ch) < 0.6f);
-            if (isDialSelected) {
-                canvas.setTextColor(COLOR_BG);  // inverted for selected channel
-            } else {
-                canvas.setTextColor(COLOR_FG);
+
+    if (viewBand == SpectrumBand::BAND_24) {
+        // ==[ DIAL MODE: SLIDING HIGHLIGHT BOX ]==
+        // Draw BEFORE channel numbers so numbers appear inverted on top
+        if (dialMode) {
+            // Calculate X position from smooth dial position
+            float clampedPos = constrain(dialPositionSmooth, 1.0f, 13.0f);
+            float freq = 2412.0f + (clampedPos - 1.0f) * 5.0f;
+            int xCenter = freqToX(freq);
+
+            int boxW = 14;
+            int boxH = 10;
+            int boxY = CHANNEL_LABEL_Y - 1;
+            int boxX = xCenter - boxW / 2;
+
+            canvas.fillRect(boxX, boxY, boxW, boxH, fg);
+            if (dialLocked) {
+                canvas.drawRect(boxX - 1, boxY - 1, boxW + 2, boxH + 2, fg);
             }
-            
-            // Channel number
+        }
+
+        // Draw channel numbers for visible channels
+        for (uint8_t ch = 1; ch <= 13; ch++) {
+            float freq = channelToFreq(ch);
+            int x = freqToX(freq);
+            if (x < SPECTRUM_LEFT || x > SPECTRUM_RIGHT) continue;
+
+            canvas.drawFastVLine(x, SPECTRUM_BOTTOM, 3, fg);
+
+            bool isDialSelected = dialMode && (fabsf(dialPositionSmooth - (float)ch) < 0.6f);
+            canvas.setTextColor(isDialSelected ? bg : fg);
+
             char chLabel[4];
             snprintf(chLabel, sizeof(chLabel), "%u", ch);
             canvas.drawString(chLabel, x, CHANNEL_LABEL_Y);
         }
+        canvas.setTextColor(fg);
+        
+        // Scroll indicators (2.4GHz panning)
+        float leftEdge = viewCenterMHz - viewWidthMHz / 2;
+        float rightEdge = viewCenterMHz + viewWidthMHz / 2;
+        canvas.setTextDatum(middle_left);
+        if (leftEdge > 2407) {
+            canvas.drawString("<", 2, SPECTRUM_BOTTOM / 2);
+        }
+        canvas.setTextDatum(middle_right);
+        if (rightEdge < 2477) {
+            canvas.drawString(">", SPECTRUM_RIGHT + 1, SPECTRUM_BOTTOM / 2);
+        }
+    } else {
+        // 5GHz band ticks (common 20MHz centers)
+        static const uint8_t ch5List[] = {
+            36, 40, 44, 48, 52, 56, 60, 64,
+            100, 104, 108, 112, 116, 120, 124, 128,
+            132, 136, 140, 144, 149, 153, 157, 161, 165
+        };
+        
+        int lastLabelX = -9999;
+        for (uint8_t i = 0; i < sizeof(ch5List); i++) {
+            uint8_t ch = ch5List[i];
+            float freq = channelToFreq(ch);
+            int x = freqToX(freq);
+            if (x < SPECTRUM_LEFT || x > SPECTRUM_RIGHT) continue;
+            
+            canvas.drawFastVLine(x, SPECTRUM_BOTTOM, 3, fg);
+
+            // Label only when there's space to avoid overlap.
+            if ((x - lastLabelX) >= 24 || ch == 165) {
+                char lbl[4];
+                snprintf(lbl, sizeof(lbl), "%u", ch);
+                canvas.drawString(lbl, x, CHANNEL_LABEL_Y);
+                lastLabelX = x;
+            }
+        }
+        
+        float leftEdge = viewCenterMHz - viewWidthMHz / 2;
+        float rightEdge = viewCenterMHz + viewWidthMHz / 2;
+        canvas.setTextDatum(middle_left);
+        if (leftEdge > BAND5_MIN_MHZ) {
+            canvas.drawString("<", 2, SPECTRUM_BOTTOM / 2);
+        }
+        canvas.setTextDatum(middle_right);
+        if (rightEdge < BAND5_MAX_MHZ) {
+            canvas.drawString(">", SPECTRUM_RIGHT + 1, SPECTRUM_BOTTOM / 2);
+        }
     }
-    canvas.setTextColor(COLOR_FG);  // reset
     
-    // Scroll indicators
-    float leftEdge = viewCenterMHz - viewWidthMHz / 2;
-    float rightEdge = viewCenterMHz + viewWidthMHz / 2;
-    
-    canvas.setTextDatum(middle_left);
-    if (leftEdge > 2407) {  // More channels to the left
-        canvas.drawString("<", 2, SPECTRUM_BOTTOM / 2);
-    }
-    canvas.setTextDatum(middle_right);
-    if (rightEdge < 2477) {  // More channels to the right
-        canvas.drawString(">", SPECTRUM_RIGHT + 1, SPECTRUM_BOTTOM / 2);
-    }
+    canvas.setTextDatum(top_center);
 }
 
 // Draw filter indicator bar at Y=91 (old XP bar area)
-void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
-    // Count networks matching current filter
-    int matchCount = 0;
-    for (const auto& net : networks) {
-        if (matchesFilter(net)) matchCount++;
+void SpectrumMode::drawFilterBar(M5Canvas& canvas, uint16_t fg) {
+    // Count networks matching current filter:
+    // - denom = total matches in band (ignores min RSSI)
+    // - numer = matches that should actually render in the current viewport (min RSSI + intersects view)
+    int matchTotal = 0;
+    int matchInView = 0;
+
+    int minRssi = Config::wifi().spectrumMinRssi;
+    if (minRssi < RSSI_MIN) minRssi = RSSI_MIN;
+    if (minRssi > RSSI_MAX) minRssi = RSSI_MAX;
+
+    float viewLeft = viewCenterMHz - (viewWidthMHz * 0.5f);
+    float viewRight = viewCenterMHz + (viewWidthMHz * 0.5f);
+    const float SINC_HALF_WIDTH = 22.0f;  // Must match drawGaussianLobe() range
+
+    if (viewBand == SpectrumBand::BAND_24) {
+        for (const auto& net : networks) {
+            if (!matchesFilter(net)) continue;
+            matchTotal++;
+
+            if (net.rssi < minRssi) continue;
+            float c = net.displayFreqMHz;
+            bool intersects = (c + SINC_HALF_WIDTH >= viewLeft) && (c - SINC_HALF_WIDTH <= viewRight);
+            if (intersects) matchInView++;
+        }
+    } else {
+        NetworkRecon::CriticalSection lock;
+        const auto& recon = NetworkRecon::getNetworks();
+        for (size_t i = 0; i < recon.size(); i++) {
+            const DetectedNetwork& net = recon[i];
+            if (net.channel <= 14) continue;
+
+            SpectrumRenderNet tmp = {};
+            tmp.channel = net.channel;
+            tmp.rssi = net.rssi;
+            tmp.authmode = net.authmode;
+            tmp.hasPMF = true;  // Unknown on 5GHz scan output; don't advertise deauthability.
+            tmp.isHidden = net.isHidden || (net.ssid[0] == '\0');
+            if (!matchesFilterRender(tmp)) continue;
+            matchTotal++;
+
+            if (net.rssi < minRssi) continue;
+            float c = channelToFreq(net.channel);
+            bool intersects = (c + SINC_HALF_WIDTH >= viewLeft) && (c - SINC_HALF_WIDTH <= viewRight);
+            if (intersects) matchInView++;
+        }
     }
     
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
+    canvas.setTextColor(fg);
     canvas.setTextDatum(top_left);
-    
+
     // Build filter status string
     char buf[40];
     const char* filterName;
@@ -1011,11 +1677,11 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
     switch (filter) {
         case SpectrumFilter::VULN:
             filterName = "VULN";
-            suffix = matchCount == 1 ? "TARGET" : "TARGETS";
+            suffix = matchTotal == 1 ? "TARGET" : "TARGETS";
             break;
         case SpectrumFilter::SOFT:
             filterName = "SOFT";
-            suffix = matchCount == 1 ? "TARGET" : "TARGETS";
+            suffix = matchTotal == 1 ? "TARGET" : "TARGETS";
             break;
         case SpectrumFilter::HIDDEN:
             filterName = "HIDDEN";
@@ -1024,11 +1690,11 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
         case SpectrumFilter::ALL:
         default:
             filterName = "ALL";
-            suffix = matchCount == 1 ? "AP" : "APs";
+            suffix = matchTotal == 1 ? "AP" : "APs";
             break;
     }
     
-    snprintf(buf, sizeof(buf), "[F] %s: %d %s", filterName, matchCount, suffix);
+    snprintf(buf, sizeof(buf), "[F] %s: %d/%d %s", filterName, matchInView, matchTotal, suffix);
     canvas.drawString(buf, 2, XP_BAR_Y);
     
     // Stress test indicator (right side)
@@ -1039,10 +1705,32 @@ void SpectrumMode::drawFilterBar(M5Canvas& canvas) {
         canvas.drawString(stressBuf, 238, XP_BAR_Y);
         canvas.setTextDatum(top_left);
     }
+    // 5GHz availability/count (right side, if no stress test)
+    else if (has5GHzScanData()) {
+        uint16_t cnt5 = 0;
+        {
+            NetworkRecon::CriticalSection lock;
+            const auto& recon = NetworkRecon::getNetworks();
+            for (size_t i = 0; i < recon.size(); i++) {
+                if (recon[i].channel > 14) cnt5++;
+            }
+        }
+        char c5Buf[16];
+        if (viewBand == SpectrumBand::BAND_5) {
+            snprintf(c5Buf, sizeof(c5Buf), "R>%d", minRssi);
+        } else {
+            snprintf(c5Buf, sizeof(c5Buf), "5G:%u", (unsigned)cnt5);
+        }
+        canvas.setTextDatum(top_right);
+        canvas.setTextColor(fg);  // COLOR_ACCENT == COLOR_FG
+        canvas.drawString(c5Buf, 238, XP_BAR_Y);
+        canvas.setTextDatum(top_left);
+        canvas.setTextColor(fg);
+    }
 }
 
 // Draw dial mode info bar (top-right when device upright)
-void SpectrumMode::drawDialInfo(M5Canvas& canvas) {
+void SpectrumMode::drawDialInfo(M5Canvas& canvas, uint16_t fg) {
     if (!dialMode && !renderSelected.valid) return;
     
     // Show channel info at top-right, above spectrum
@@ -1055,17 +1743,21 @@ void SpectrumMode::drawDialInfo(M5Canvas& canvas) {
     
     // Format pps
     char ppsStr[8];
-    if (displayPps >= 1000) {
-        snprintf(ppsStr, sizeof(ppsStr), "%.1fk", displayPps / 1000.0f);
+    uint32_t pps = displayPps;
+    if (viewBand == SpectrumBand::BAND_5 && JanusHog::getCurrentOp() == C5Op::PACKET_MONITOR) {
+        pps = JanusHog::getPacketsPerSecond();
+    }
+    if (pps >= 1000) {
+        snprintf(ppsStr, sizeof(ppsStr), "%.1fk", pps / 1000.0f);
     } else {
-        snprintf(ppsStr, sizeof(ppsStr), "%lu", displayPps);
+        snprintf(ppsStr, sizeof(ppsStr), "%lu", pps);
     }
     
     // Format: "CH7 2442MHz 42pps" or "LCK7 2442MHz 42pps"
     snprintf(info, sizeof(info), "%s%d %dMHz %spps", prefix, channel, freq, ppsStr);
     
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG);
+    canvas.setTextColor(fg);
     canvas.setTextDatum(top_right);  // top-right align
     canvas.drawString(info, 236, infoY);
     canvas.setTextDatum(top_left);  // reset
@@ -1073,26 +1765,21 @@ void SpectrumMode::drawDialInfo(M5Canvas& canvas) {
 
 // Draw animated noise floor at spectrum baseline
 // Creates realistic "grass" effect like a real spectrum analyzer
-void SpectrumMode::drawNoiseFloor(M5Canvas& canvas) {
+void SpectrumMode::drawNoiseFloor(M5Canvas& canvas, uint16_t fg) {
     int baseY = SPECTRUM_BOTTOM;
-    
+
     // Draw noise floor line with random jitter
     for (int x = SPECTRUM_LEFT; x < SPECTRUM_RIGHT; x++) {
-        // Get random noise amplitude (0-7 pixels)
         uint8_t noise = fastNoise();
-        
-        // Noise extends downward from baseline (into waterfall area slightly)
-        // and upward a tiny bit to create organic "grass" look
+
         int noiseUp = noise / 2;      // 0-3 pixels up
         int noiseDown = noise / 4;    // 0-1 pixels down
-        
-        // Draw vertical noise line at this X
+
         if (noiseUp > 0) {
-            canvas.drawFastVLine(x, baseY - noiseUp, noiseUp, COLOR_FG);
+            canvas.drawFastVLine(x, baseY - noiseUp, noiseUp, fg);
         }
-        // Small dots below baseline for texture
         if (noiseDown > 0 && (x % 3) == 0) {
-            canvas.drawPixel(x, baseY + 1, COLOR_FG);
+            canvas.drawPixel(x, baseY + 1, fg);
         }
     }
 }
@@ -1105,19 +1792,22 @@ void SpectrumMode::updateSpectrumBuffers() {
         spectrumBuffer[i] = NOISE_FLOOR_DB + (fastNoise() % 4) - 2;  // -94 to -90 dB noise
     }
     
-    // Accumulate signal from each visible network
+    // Accumulate signal from each visible network (current view band)
+    const int bufWidth = SPECTRUM_WIDTH;
+    float bufPixelToFreq = viewWidthMHz / (float)bufWidth;
+    float bufLeftFreq = viewCenterMHz - viewWidthMHz / 2;
+
     for (uint16_t n = 0; n < renderCount; n++) {
         const SpectrumRenderNet& net = renderNets[n];
         if (!matchesFilterRender(net)) continue;
-        
+
         float centerFreq = net.displayFreqMHz;
         int8_t rssi = net.rssi;
-        
+
         // Draw sinc lobe into buffer
-        for (int x = 0; x < SPECTRUM_WIDTH; x++) {
+        for (int x = 0; x < bufWidth; x++) {
             // Convert X to frequency
-            float freq = viewCenterMHz - viewWidthMHz / 2 + 
-                        (float)x * viewWidthMHz / SPECTRUM_WIDTH;
+            float freq = bufLeftFreq + (float)x * bufPixelToFreq;
             float dist = freq - centerFreq;
             
             // Get sinc amplitude
@@ -1171,9 +1861,9 @@ void SpectrumMode::updateWaterfall() {
 }
 
 // Draw waterfall display - historical spectrum scrolling down
-void SpectrumMode::drawWaterfall(M5Canvas& canvas) {
+void SpectrumMode::drawWaterfall(M5Canvas& canvas, uint16_t fg) {
     // Draw horizontal separator line above waterfall
-    canvas.drawFastHLine(SPECTRUM_LEFT, WATERFALL_TOP - 1, SPECTRUM_WIDTH, COLOR_FG);
+    canvas.drawFastHLine(SPECTRUM_LEFT, WATERFALL_TOP - 1, SPECTRUM_WIDTH, fg);
     
     // Draw waterfall rows (oldest at top, newest at bottom)
     for (int row = 0; row < WATERFALL_ROWS; row++) {
@@ -1206,7 +1896,7 @@ void SpectrumMode::drawWaterfall(M5Canvas& canvas) {
                 }
                 
                 if (drawPixel) {
-                    canvas.drawPixel(SPECTRUM_LEFT + x, screenY, COLOR_FG);
+                    canvas.drawPixel(SPECTRUM_LEFT + x, screenY, fg);
                 }
             }
         }
@@ -1214,12 +1904,12 @@ void SpectrumMode::drawWaterfall(M5Canvas& canvas) {
 }
 
 // Draw client monitoring overlay [P3] [P12] [P14] [P15]
-void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
+void SpectrumMode::drawClientOverlay(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     // [P12] Draw in mainCanvas area only (y=0 to y=90 max)
     // XP bar is at y=91, drawn separately in draw()
-    
+
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_FG, COLOR_BG);
+    canvas.setTextColor(fg, bg);
     
     // Bounds check [P3]
     if (!renderMonitor.valid) {
@@ -1270,10 +1960,10 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
         
         // Highlight selected row
         if (selected) {
-            canvas.fillRect(0, y, 240, LINE_HEIGHT, COLOR_FG);
-            canvas.setTextColor(COLOR_BG, COLOR_FG);
+            canvas.fillRect(0, y, 240, LINE_HEIGHT, fg);
+            canvas.setTextColor(bg, fg);
         } else {
-            canvas.setTextColor(COLOR_FG, COLOR_BG);
+            canvas.setTextColor(fg, bg);
         }
         
         // Format: "1. Vendor  XX:XX:XX  -XXdB >> Xs"
@@ -1312,7 +2002,7 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
     }
     
     // Scroll indicators
-    canvas.setTextColor(COLOR_FG, COLOR_BG);
+    canvas.setTextColor(fg, bg);
     if (clientScrollOffset > 0) {
         canvas.setTextDatum(top_right);
         canvas.drawString("^", 236, 18);  // More above
@@ -1324,22 +2014,22 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
     
     // Draw client detail popup if active
     if (clientDetailActive) {
-        drawClientDetail(canvas);
+        drawClientDetail(canvas, fg, bg);
     }
-    
+
     // Draw reveal mode overlay (persistent toast with live count)
     if (revealingClients) {
         int boxW = 160;
         int boxH = 40;
         int boxX = (240 - boxW) / 2;
         int boxY = (90 - boxH) / 2;
-        
+
         // Black border then inverted fill
-        canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-        canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-        
+        canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, bg);
+        canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, fg);
+
         // Black text on inverted background
-        canvas.setTextColor(COLOR_BG, COLOR_FG);
+        canvas.setTextColor(bg, fg);
         canvas.setTextDatum(middle_center);
         canvas.drawString("WAKIE WAKIE", 120, boxY + 12);
         
@@ -1351,7 +2041,7 @@ void SpectrumMode::drawClientOverlay(M5Canvas& canvas) {
 }
 
 // Draw client detail popup - modal overlay with full client info
-void SpectrumMode::drawClientDetail(M5Canvas& canvas) {
+void SpectrumMode::drawClientDetail(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     // Bounds validation - close popup if client no longer exists
     if (!renderMonitor.valid) {
         clientDetailActive = false;
@@ -1380,11 +2070,11 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas) {
     const int boxY = (canvas.height() - boxH) / 2 - 5;
     
     // Black border then pink fill (standard popup pattern)
-    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, COLOR_BG);
-    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
-    
+    canvas.fillRoundRect(boxX - 2, boxY - 2, boxW + 4, boxH + 4, 8, bg);
+    canvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, fg);
+
     // Black text on pink background
-    canvas.setTextColor(COLOR_BG, COLOR_FG);
+    canvas.setTextColor(bg, fg);
     canvas.setTextDatum(top_center);
     canvas.setTextSize(1);
     
@@ -1428,7 +2118,7 @@ void SpectrumMode::drawClientDetail(M5Canvas& canvas) {
     canvas.setTextDatum(top_left);
 }
 
-void SpectrumMode::drawSpectrum(M5Canvas& canvas) {
+void SpectrumMode::drawSpectrum(M5Canvas& canvas, uint16_t fg, uint16_t bg) {
     // Copy pointers to avoid heap allocations in render loop
     const size_t maxCount = renderCount;
     const size_t cap = (maxCount > MAX_SPECTRUM_NETWORKS) ? MAX_SPECTRUM_NETWORKS : maxCount;
@@ -1453,6 +2143,10 @@ void SpectrumMode::drawSpectrum(M5Canvas& canvas) {
 
     size_t start = 0;
     size_t topLimit = Config::wifi().spectrumTopN;
+    // 5GHz scans are typically sparse; always render all matching entries for stability/clarity.
+    if (viewBand == SpectrumBand::BAND_5) {
+        topLimit = 0;
+    }
     if (topLimit > MAX_SPECTRUM_NETWORKS) topLimit = MAX_SPECTRUM_NETWORKS;
     if (topLimit > 0 && visibleCount > topLimit) {
         start = visibleCount - topLimit;
@@ -1476,7 +2170,7 @@ void SpectrumMode::drawSpectrum(M5Canvas& canvas) {
             activity = channelActivityRate[net.channel];
         }
         uint8_t seed = (uint8_t)(net.bssid[0] ^ net.bssid[2] ^ net.bssid[5]);
-        drawGaussianLobe(canvas, freq, net.rssi, isSelected, activity, seed);
+        drawGaussianLobe(canvas, freq, net.rssi, isSelected, activity, seed, fg);
     }
 }
 
@@ -1501,18 +2195,20 @@ static float getGaussianAmplitude(float dist) {
     return GAUSSIAN_LUT[lutIdx] + frac * (GAUSSIAN_LUT[lutIdx + 1] - GAUSSIAN_LUT[lutIdx]);
 }
 
-void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz, 
-                                     int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed) {
+void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
+                                     int8_t rssi, bool filled, uint16_t activityPps, uint8_t seed, uint16_t fg) {
     // Sinc-based carrier wave rendering with visible side lobes
     // Real RF signals have sinc shape: main lobe + decaying side lobes
     // Extended range to ±22MHz to show side lobes like a real spectrum analyzer
 
-    float center = constrain(centerFreqMHz, MIN_CENTER_MHZ, MAX_CENTER_MHZ);
+    float center = centerFreqMHz;
+    float bandMin = (viewBand == SpectrumBand::BAND_24) ? BAND_MIN_MHZ : BAND5_MIN_MHZ;
+    float bandMax = (viewBand == SpectrumBand::BAND_24) ? BAND_MAX_MHZ : BAND5_MAX_MHZ;
     
     // Sinc extends ±22MHz (to show side lobes)
     const float SINC_HALF_WIDTH = 22.0f;
-    float startFreq = fmax(center - SINC_HALF_WIDTH, BAND_MIN_MHZ);
-    float endFreq = fmin(center + SINC_HALF_WIDTH, BAND_MAX_MHZ);
+    float startFreq = fmax(center - SINC_HALF_WIDTH, bandMin);
+    float endFreq = fmin(center + SINC_HALF_WIDTH, bandMax);
     
     int peakY = rssiToY(rssi);
     int baseY = SPECTRUM_BOTTOM;
@@ -1529,7 +2225,10 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
     if (rightX < SPECTRUM_LEFT || leftX > SPECTRUM_RIGHT) return;
     leftX = max(leftX, SPECTRUM_LEFT);
     rightX = min(rightX, SPECTRUM_RIGHT);
-    
+
+    // Precompute X→freq mapping for the loop
+    float effectiveWidth = (float)(SPECTRUM_RIGHT - SPECTRUM_LEFT);
+
     // === SINC CARRIER WAVE: Draw as connected line segments ===
     // Activity-based animation (subtle vertical jitter)
     int8_t jitterOffset = 0;
@@ -1539,16 +2238,18 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
         activityRatio = (float)capped / 400.0f;
         float jitterAmp = 2.0f * activityRatio;
         uint32_t phaseMs = (uint32_t)((millis() + seed * 31u) * 8u) % 1000u;
-        float phase = (float)phaseMs / 1000.0f;
-        jitterOffset = (int8_t)(jitterAmp * sinf(phase * TWO_PI_F));
+        // Fast sine via 64-entry LUT (replaces sinf ~70 cycles with 1-cycle array lookup)
+        uint8_t phaseIdx = (uint8_t)((phaseMs * 64u) / 1000u) & 63;
+        jitterOffset = (int8_t)(jitterAmp * (float)fastSinQ7(phaseIdx) * (1.0f / 127.0f));
     }
 
     // Micro amplitude flutter (keeps center frequency stable)
     float flutterAmp = 0.02f + 0.03f * activityRatio;  // 2%..5%
     uint32_t periodMs = 1800u - (uint32_t)(activityRatio * 1000.0f);  // 1800..800ms
     uint32_t flutterPhaseMs = (millis() + seed * 53u) % periodMs;
-    float flutterPhase = (float)flutterPhaseMs / (float)periodMs;
-    float flutter = 1.0f + flutterAmp * sinf(flutterPhase * TWO_PI_F);
+    // Fast sine via LUT (replaces second sinf call)
+    uint8_t flutterIdx = (uint8_t)((flutterPhaseMs * 64u) / periodMs) & 63;
+    float flutter = 1.0f + flutterAmp * ((float)fastSinQ7(flutterIdx) / 127.0f);
     int lobeHeightMod = (int)(lobeHeight * flutter);
     int maxHeight = baseY - SPECTRUM_TOP;
     if (lobeHeightMod < 1) lobeHeightMod = 1;
@@ -1572,9 +2273,9 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
     bool prevValid = false;
     
     for (int x = leftX; x <= rightX; x++) {
-        // Convert X back to frequency
-        float freq = viewCenterMHz - viewWidthMHz / 2 + 
-                    (float)(x - SPECTRUM_LEFT) * viewWidthMHz / (SPECTRUM_RIGHT - SPECTRUM_LEFT);
+        // Convert X back to frequency (use effective width for mapping)
+        float freq = viewCenterMHz - viewWidthMHz / 2 +
+                    (float)(x - SPECTRUM_LEFT) * viewWidthMHz / effectiveWidth;
         float dist = freq - center;
         
         // Get sinc amplitude (includes side lobes)
@@ -1588,13 +2289,13 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
             // Filled: draw vertical line from baseline to curve
             if (y < baseY) {
                 if (shimmerMod == 1 || ((uint8_t)(x + shimmerPhase) % shimmerMod) == 0) {
-                    canvas.drawFastVLine(x, y, baseY - y, COLOR_FG);
+                    canvas.drawFastVLine(x, y, baseY - y, fg);
                 }
             }
         } else {
             // Outline: connect to previous point
             if (prevValid && (prevY < baseY || y < baseY)) {
-                canvas.drawLine(prevX, prevY, x, y, COLOR_FG);
+                canvas.drawLine(prevX, prevY, x, y, fg);
             }
         }
         
@@ -1608,12 +2309,12 @@ void SpectrumMode::drawGaussianLobe(M5Canvas& canvas, float centerFreqMHz,
         // Left edge
         int leftEdgeY = baseY - (int)(lobeHeightMod * getSincAmplitude(startFreq - center));
         if (leftEdgeY < baseY) {
-            canvas.drawLine(leftX, baseY, leftX, leftEdgeY, COLOR_FG);
+            canvas.drawLine(leftX, baseY, leftX, leftEdgeY, fg);
         }
         // Right edge
         int rightEdgeY = baseY - (int)(lobeHeightMod * getSincAmplitude(endFreq - center));
         if (rightEdgeY < baseY) {
-            canvas.drawLine(rightX, rightEdgeY, rightX, baseY, COLOR_FG);
+            canvas.drawLine(rightX, rightEdgeY, rightX, baseY, fg);
         }
     }
 }
@@ -1635,6 +2336,10 @@ int SpectrumMode::rssiToY(int8_t rssi) {
 }
 
 float SpectrumMode::channelToFreq(uint8_t channel) {
+    // 5GHz band: freq = 5000 + channel * 5
+    if (channel >= 36) {
+        return 5000.0f + channel * 5.0f;
+    }
     // 2.4GHz band: Ch1=2412MHz, 5MHz spacing, Ch13=2472MHz
     if (channel < 1) channel = 1;
     if (channel > 13) channel = 13;
@@ -1891,7 +2596,6 @@ void SpectrumMode::onBeacon(const uint8_t* bssid, uint8_t channel, bool channelT
                 if (!pendingReveal) {
                     strncpy(pendingRevealSSID, ssid, 32);
                     pendingRevealSSID[32] = 0;
-                    pendingRevealSSID[33] = 0; // Extra safety null terminator
                     pendingReveal = true;
                 }
             }
@@ -2005,7 +2709,7 @@ void SpectrumMode::promiscuousCallback(const wifi_promiscuous_pkt_t* pkt, wifi_p
     if (busy) return;  // [P1] Main thread is iterating
     
     // Count all packets for PPS display in dial mode
-    ppsCounter++;
+    ppsCounter.fetch_add(1, std::memory_order_relaxed);
     
     if (!pkt || !pkt->payload) return;
     
@@ -2143,6 +2847,10 @@ bool SpectrumMode::matchesFilter(const SpectrumNetwork& net) {
 }
 
 bool SpectrumMode::matchesFilterRender(const SpectrumRenderNet& net) {
+    // 5GHz scan output doesn't expose PMF (SOFT) reliably; don't hide networks.
+    if (viewBand == SpectrumBand::BAND_5 && filter == SpectrumFilter::SOFT) {
+        return true;
+    }
     switch (filter) {
         case SpectrumFilter::VULN:
             return isVulnerable(net.authmode);
@@ -2192,11 +2900,15 @@ void SpectrumMode::detectPMFBits(const uint8_t* payload, uint16_t len, bool& mfp
             if (rsnOffset + 2 > rsnEnd) break;
 
             uint16_t pairwiseCount = payload[rsnOffset] | (payload[rsnOffset + 1] << 8);
-            rsnOffset += 2 + (pairwiseCount * 4);
+            { uint32_t skip = 2u + (uint32_t)pairwiseCount * 4u;
+              if (skip > (uint32_t)(rsnEnd - rsnOffset)) break;
+              rsnOffset += (uint16_t)skip; }
             if (rsnOffset + 2 > rsnEnd) break;
 
             uint16_t akmCount = payload[rsnOffset] | (payload[rsnOffset + 1] << 8);
-            rsnOffset += 2 + (akmCount * 4);
+            { uint32_t skip = 2u + (uint32_t)akmCount * 4u;
+              if (skip > (uint32_t)(rsnEnd - rsnOffset)) break;
+              rsnOffset += (uint16_t)skip; }
             if (rsnOffset + 2 > rsnEnd) break;
 
             // RSN Capabilities - IEEE 802.11-2016 Table 9-133
@@ -2299,9 +3011,8 @@ void SpectrumMode::trackClient(const uint8_t* bssid, const uint8_t* clientMac, i
             pendingClientBeep = true;
         }
         
-        Serial.printf("[SPECTRUM] New client: %02X:%02X:%02X:%02X\n",
-            clientMac[0], clientMac[1], clientMac[2],
-            clientMac[3], clientMac[4], clientMac[5]);
+        // Defer logging — Serial.printf unsafe in WiFi callback context
+        pendingClientBeep = true;
     }
 }
 

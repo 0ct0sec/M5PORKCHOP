@@ -34,7 +34,7 @@ enum class NoticeChannel : uint8_t {
 };
 
 // Theme count and extern declaration (actual array in display.cpp)
-static const uint8_t THEME_COUNT = 15;
+static const uint8_t THEME_COUNT = 16;
 extern const PorkTheme THEMES[THEME_COUNT];
 
 // Dynamic color getters (use these instead of macros)
@@ -80,14 +80,17 @@ public:
     // Helper functions
     static void pushAll();
     static void showBootSplash();  // 3-screen boot animation
-    static void showInfoBox(const String& title, const String& line1, 
-                           const String& line2 = "", bool blocking = true);
-    static bool showConfirmBox(const String& title, const String& message);
+    static void showInfoBox(const char* title, const char* line1,
+                           const char* line2 = "", bool blocking = true);
+    static bool showConfirmBox(const char* title, const char* message);
     static void showProgress(const String& title, uint8_t percent);
     static void showProgress(const char* title, uint8_t percent);
     static void showToast(const String& message, uint32_t durationMs = 2000);  // Quick non-blocking message
     static void showToast(const char* message, uint32_t durationMs = 2000);    // Literal-friendly overload
     static void notify(NoticeKind kind, const String& message,
+                       uint32_t durationMs = 0,
+                       NoticeChannel channel = NoticeChannel::AUTO);
+    static void notify(NoticeKind kind, const char* message,
                        uint32_t durationMs = 0,
                        NoticeChannel channel = NoticeChannel::AUTO);
     static void showLevelUp(uint8_t oldLevel, uint8_t newLevel);  // RPG level up popup
@@ -102,10 +105,10 @@ public:
     static void setLED(uint8_t r, uint8_t g, uint8_t b);  // Static LED glow
     
     // PWNED banner (shown in top bar for 1 minute after capture)
-    static void showLoot(const String& ssid);
+    static void showLoot(const char* ssid);
     
     // Bottom bar overlay (for confirmation dialogs)
-    static void setBottomOverlay(const String& message);  // Set custom bottom bar text
+    static void setBottomOverlay(const char* message);  // Set custom bottom bar text
     static void clearBottomOverlay();                     // Clear overlay, restore normal
     
     // Status indicators
@@ -122,8 +125,28 @@ public:
     // Screenshot
     static bool takeScreenshot();     // Save screen to SD card, returns success
     static bool isSnapping() { return snapping; }  // True during screenshot save
-    
+
+    // Screen shake effect (captures, impacts)
+    static void triggerScreenShake(uint8_t intensity = 3, uint16_t durationMs = 200);
+    static bool isShaking();
+    static float getShakeDecay();      // 1.0 at start → 0.0 at end
+    static uint8_t getShakeIntensity();
+
+    // Temporarily release the main canvas sprite (~26KB) to free heap for
+    // memory-heavy blocking operations (e.g. TLS sync). Caller MUST restore it
+    // before the next render. Safe only while the render loop is blocked.
+    // mainCanvas is backed by a fixed static buffer (never heap-allocated) so it
+    // never fragments the heap. During TLS sync the same buffer is lent to mbedTLS
+    // as a scratch arena (see TlsArena) — these accessors expose it for that.
+    static uint8_t* mainCanvasBuffer();
+    static size_t   mainCanvasBufferSize();
+
 private:
+    // Screen shake state
+    static bool screenShakeActive;
+    static uint32_t screenShakeStart;
+    static uint16_t screenShakeDuration;
+    static uint8_t screenShakeIntensity;
     static M5Canvas topBar;
     static M5Canvas mainCanvas;
     static M5Canvas bottomBar;
@@ -158,7 +181,7 @@ private:
     
     static void drawTopBar();
     static void drawBottomBar();
-    static void drawTopBarMessageTwoLineDirect();
+    static void drawTopBarMessageTwoLineDirect(int offsetX = 0, int offsetY = 0);
     static void drawModeInfo(M5Canvas& canvas, PorkchopMode mode);
     static void drawSettingsScreen(M5Canvas& canvas);
     static void drawAboutScreen(M5Canvas& canvas);

@@ -1,27 +1,8 @@
-// Diagnostics Menu - System status snapshot
+// DEPRECATED (v0.2.0): compatibility shim for renamed DiagDataMenu.
+// Prefer: #include "diagdata_menu.h" and type DiagDataMenu.
 #pragma once
 
-#include <Arduino.h>
-#include <M5Unified.h>
+#include "diagdata_menu.h"
 
-class DiagnosticsMenu {
-public:
-    static void show();
-    static void hide();
-    static void update();
-    static bool isActive() { return active; }
-    static void draw(M5Canvas& canvas);
+using DiagnosticsMenu = DiagDataMenu;
 
-private:
-    static bool active;
-    static bool keyWasPressed;
-    static uint16_t cachedWpaCracked;
-    static uint16_t cachedWigleUploaded;
-    static uint32_t lastStatRefreshMs;
-    static uint32_t statRefreshIntervalMs;
-    static void saveSnapshot();
-    static void resetWiFi();
-    static void logHeapSnapshot();
-    static void collectGarbage();
-    static void refreshStats();
-};

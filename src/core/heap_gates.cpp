@@ -85,4 +85,20 @@ bool canGrow(size_t minFreeHeap, float minFragRatio) {
     return canGrow(snapshot(), minFreeHeap, minFragRatio);
 }
 
+void waitForLwipCleanup() {
+    size_t prevFree = ESP.getFreeHeap();
+    size_t prevLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    uint32_t waitStart = millis();
+
+    while ((millis() - waitStart) < HeapPolicy::kLwipCleanupWaitMaxMs) {
+        delay(HeapPolicy::kLwipCleanupPollMs);
+        yield();
+        size_t curFree = ESP.getFreeHeap();
+        size_t curLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        if (curFree == prevFree && curLargest == prevLargest) break;
+        prevFree = curFree;
+        prevLargest = curLargest;
+    }
+}
+
 }  // namespace HeapGates

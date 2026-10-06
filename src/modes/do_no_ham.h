@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <esp_wifi.h>
 #include <vector>
+#include <atomic>
 #include "oink.h"  // Reuse DetectedNetwork, CapturedPMKID, CapturedHandshake
 #include "../core/network_recon.h"
 
@@ -84,12 +85,12 @@ public:
     static void injectTestNetwork(const uint8_t* bssid, const char* ssid, uint8_t channel, int8_t rssi, wifi_auth_mode_t authmode, bool hasPMF);
     
 private:
-    static bool running;
+    static std::atomic<bool> running;
     static DNHState state;
     static uint8_t currentChannel;
     static uint8_t channelIndex;
     static uint32_t dwellStartTime;
-    static bool dwellResolved;
+    static volatile bool dwellResolved;
     
     // Data storage (uses shared networks from NetworkRecon)
     // networks vector is now in NetworkRecon

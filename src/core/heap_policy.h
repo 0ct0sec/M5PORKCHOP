@@ -4,10 +4,19 @@
 #include <cstdint>
 
 namespace HeapPolicy {
-    // TLS gating thresholds
+    // TLS gating thresholds. The ~16KB mbedTLS IN buffer comes from the static
+    // arena (core/tls), so the heap only needs the ~16KB OUT buffer + handshake
+    // — hence ~20KB contiguous, not the ~35KB an un-arena'd handshake needed.
     static constexpr size_t kMinHeapForTls = 35000;
-    static constexpr size_t kMinContigForTls = 35000;
-    static constexpr size_t kProactiveTlsConditioning = 45000;
+    static constexpr size_t kMinContigForTls = 20000;
+    static constexpr size_t kProactiveTlsConditioning = 28000;
+
+    // Mid-upload heap pacing (Tls::streamFile). A big upload outruns the WiFi
+    // link, so un-acked data piles up in heap and can collapse it mid-write
+    // (observed minFree=2616). Drain below the soft floor; abort below the hard.
+    static constexpr size_t kTlsWriteSoftFloor = 24000;  // start draining below this
+    static constexpr size_t kTlsWriteHardFloor = 14000;  // clean-abort below this
+    static constexpr uint32_t kTlsWriteDrainMs   = 3000; // max wait for drain per stall
 
     // General allocation safety thresholds
     static constexpr size_t kMinHeapForOinkNetworkAdd = 30000;
@@ -17,11 +26,11 @@ namespace HeapPolicy {
 
     // Heap stabilization / recovery thresholds
     static constexpr size_t kHeapStableThreshold = 50000;
-    static constexpr size_t kFileServerMinHeap = 40000;
-    static constexpr size_t kFileServerMinLargest = 30000;
-    static constexpr size_t kFileServerLogThreshold = 60000;
-    static constexpr size_t kFileServerUiMinFree = 12000;
-    static constexpr size_t kFileServerUiMinLargest = 8000;
+    static constexpr size_t kXferServerMinHeap = 40000;
+    static constexpr size_t kXferServerMinLargest = 30000;
+    static constexpr size_t kXferServerLogThreshold = 60000;
+    static constexpr size_t kXferServerUiMinFree = 12000;
+    static constexpr size_t kXferServerUiMinLargest = 8000;
 
     // Allocation slack (allocator overhead / fragmentation cushion)
     static constexpr size_t kReserveSlackSmall = 256;
@@ -95,9 +104,11 @@ namespace HeapPolicy {
     static constexpr uint32_t kConditioningFinalDelayMs = 50;
     static constexpr uint32_t kBrewDefaultDwellMs = 1000;
     static constexpr uint32_t kBrewAutoDwellMs = 1200;
-    // FileServer LWIP async cleanup polling
-    static constexpr uint32_t kFileServerLwipWaitMaxMs = 500;   // Max wait for async LWIP cleanup
-    static constexpr uint32_t kFileServerLwipPollMs = 50;       // Poll interval
+    // LWIP async TCP cleanup polling
+    // lwip_close() returns immediately but TCP PCB/buffers are freed by LWIP
+    // timer task on a 250-500ms cycle. Poll until heap stabilizes.
+    static constexpr uint32_t kLwipCleanupWaitMaxMs = 500;
+    static constexpr uint32_t kLwipCleanupPollMs = 50;
 
     // WiFi/BLE settle delays used during conditioning/reset
     static constexpr uint32_t kWiFiModeDelayMs = 50;

@@ -1,6 +1,6 @@
 // WiFi File Server implementation
 
-#include "fileserver.h"
+#include "xfer_server.h"
 #include <esp_heap_caps.h>
 #include <esp_wifi.h>
 #include <SD.h>
@@ -14,7 +14,7 @@
 #include "../core/heap_gates.h"
 #include "../core/heap_policy.h"
 #include "../core/xp.h"
-#include "../ui/swine_stats.h"
+#include "../ui/flexes_screen.h"
 #include "../core/sd_layout.h"
 #include "../core/config.h"
 #include "wigle.h"
@@ -37,17 +37,17 @@
 #endif
 
 // Static members
-WebServer* FileServer::server = nullptr;
-FileServerState FileServer::state = FileServerState::IDLE;
-char FileServer::statusMessage[64] = "Ready";
-char FileServer::targetSSID[64] = "";
-char FileServer::targetPassword[64] = "";
-uint32_t FileServer::connectStartTime = 0;
-uint32_t FileServer::lastReconnectCheck = 0;
-uint64_t FileServer::sessionRxBytes = 0;
-uint64_t FileServer::sessionTxBytes = 0;
-uint32_t FileServer::sessionUploadCount = 0;
-uint32_t FileServer::sessionDownloadCount = 0;
+WebServer* XferServer::server = nullptr;
+XferServerState XferServer::state = XferServerState::IDLE;
+char XferServer::statusMessage[64] = "Ready";
+char XferServer::targetSSID[64] = "";
+char XferServer::targetPassword[64] = "";
+uint32_t XferServer::connectStartTime = 0;
+uint32_t XferServer::lastReconnectCheck = 0;
+uint64_t XferServer::sessionRxBytes = 0;
+uint64_t XferServer::sessionTxBytes = 0;
+uint32_t XferServer::sessionUploadCount = 0;
+uint32_t XferServer::sessionDownloadCount = 0;
 
 // File upload state (needs to be declared early for stop() to access it)
 static File uploadFile;
@@ -121,7 +121,7 @@ static void logHeapStatus(const char* label) {
 
 static void logHeapStatusIfLow(const char* label) {
     size_t freeHeap = ESP.getFreeHeap();
-    if (freeHeap < HeapPolicy::kFileServerLogThreshold) {
+    if (freeHeap < HeapPolicy::kXferServerLogThreshold) {
         size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
         FS_LOGF("[FILESERVER] %s low heap free=%u largest=%u\n", label ? label : "low heap", (unsigned int)freeHeap, (unsigned int)largest);
     }
@@ -132,7 +132,7 @@ static bool isUiHeapLow(size_t* outFree, size_t* outLargest) {
     size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     if (outFree) *outFree = freeHeap;
     if (outLargest) *outLargest = largest;
-    return (freeHeap < HeapPolicy::kFileServerUiMinFree) || (largest < HeapPolicy::kFileServerUiMinLargest);
+    return (freeHeap < HeapPolicy::kXferServerUiMinFree) || (largest < HeapPolicy::kXferServerUiMinLargest);
 }
 
 static size_t sendProgmemResponse(WebServer* srv, int status, const char* contentType, const char* data) {
@@ -224,6 +224,12 @@ static String mapUiPathToFs(const String& path) {
     if (path.isEmpty()) return path;
     if (SDLayout::usingNewLayout()) return path;
     
+    // Mixed-layout safety: if the path exists on-disk, do not remap it.
+    // This prevents "virtual folder" remaps from hiding real directories.
+    if (SD.exists(path.c_str())) {
+        return path;
+    }
+
     const char* root = SDLayout::newRoot();
     const size_t rootLen = root ? strlen(root) : 0;
     if (rootLen == 0) return path;
@@ -239,6 +245,12 @@ static String mapUiPathToFs(const String& path) {
     // Path starts with root - check what follows
     const char* suffix = p + rootLen;
     const size_t suffixLen = pathLen - rootLen;
+
+    // If the stripped suffix exists as a legacy path (e.g. /handshakes), use it.
+    // This keeps the web UI stable when the SD is still on the legacy layout.
+    if (suffixLen > 0 && suffix[0] == '/' && SD.exists(suffix)) {
+        return String(suffix);  // Only one String allocation for result
+    }
     
     // Direct virtual folder mappings (e.g., /porkchop/config -> /)
     static const char* const VIRTUAL_FOLDERS[] = {
@@ -510,8 +522,8 @@ static void scanXpAwards() {
 
     // Gate: defer scan if heap is too low for SD reads + vector operations
     HeapGates::GateStatus gate = HeapGates::checkGate(
-        HeapPolicy::kFileServerMinHeap,
-        HeapPolicy::kFileServerMinLargest);
+        HeapPolicy::kXferServerMinHeap,
+        HeapPolicy::kXferServerMinLargest);
     if (gate.failure != HeapGates::TlsGateFailure::None) {
         xpScanPending = true;
         return;
@@ -634,9 +646,9 @@ static const char* pickMoodName(uint8_t flags, bool debuff) {
         uint8_t mask = (1 << i);
         if (flags & mask) {
             if (debuff) {
-                return SwineStats::getDebuffName((PorkDebuff)mask);
+                return FlexesScreen::getDebuffName((PorkDebuff)mask);
             }
-            return SwineStats::getBuffName((PorkBuff)mask);
+            return FlexesScreen::getBuffName((PorkBuff)mask);
         }
     }
     return "N0N3";
@@ -679,7 +691,7 @@ static const char* buildSwineSummaryJson() {
 
     const WiGLE::WigleUserStats stats = WiGLE::getUserStats();
 
-    const BuffState buffs = SwineStats::calculateBuffs();
+    const BuffState buffs = FlexesScreen::calculateBuffs();
     const char* moodType = "NONE";
     const char* moodName = "N0N3";
     if (buffs.buffs) {
@@ -2650,15 +2662,15 @@ async function saveEdit() {
     addSysLog('EDIT SAVING: ' + originalPath);
 
     try {
-        await queuedFetch('/delete?f=' + encodeURIComponent(tempPath));
-        await queuedFetch('/delete?f=' + encodeURIComponent(backupPath));
+        await queuedFetch('/delete?f=' + encodeURIComponent(tempPath), {method:'POST'});
+        await queuedFetch('/delete?f=' + encodeURIComponent(backupPath), {method:'POST'});
         await uploadTextToDevice(tempPath, text, 'text/plain');
         const renameOrig = await queuedFetch('/api/rename?old=' + encodeURIComponent(originalPath) + '&new=' + encodeURIComponent(backupPath));
         if (renameOrig.ok) backupCreated = true;
         const renameTemp = await queuedFetch('/api/rename?old=' + encodeURIComponent(tempPath) + '&new=' + encodeURIComponent(originalPath));
         if (!renameTemp.ok) throw new Error('RENAME FAILED');
         if (backupCreated) {
-            await queuedFetch('/delete?f=' + encodeURIComponent(backupPath));
+            await queuedFetch('/delete?f=' + encodeURIComponent(backupPath), {method:'POST'});
         }
         editDirty = false;
         updateEditMeta();
@@ -2669,7 +2681,7 @@ async function saveEdit() {
         if (backupCreated) {
             await queuedFetch('/api/rename?old=' + encodeURIComponent(backupPath) + '&new=' + encodeURIComponent(originalPath));
         }
-        await queuedFetch('/delete?f=' + encodeURIComponent(tempPath));
+        await queuedFetch('/delete?f=' + encodeURIComponent(tempPath), {method:'POST'});
         addSysLog('EDIT SAVE FAILED: ' + describeError(e));
     }
 }
@@ -2808,7 +2820,7 @@ async function createFolder() {
     const path = (pane.path === '/' ? '' : pane.path) + '/' + name;
     
     try {
-        const resp = await queuedFetch('/mkdir?f=' + encodeURIComponent(path));
+        const resp = await queuedFetch('/mkdir?f=' + encodeURIComponent(path), {method:'POST'});
         if (resp.ok) {
             addSysLog('SPAWNED: ' + name);
             hideModal();
@@ -3447,9 +3459,9 @@ BACKSPACE      PARENT FOLDER
 </html>
 )rawliteral";
 
-void FileServer::init() {
+void XferServer::init() {
     refreshSdPaths();
-    state = FileServerState::IDLE;
+    state = XferServerState::IDLE;
     snprintf(statusMessage, sizeof(statusMessage), "%s", "Ready");
     targetSSID[0] = '\0';
     targetPassword[0] = '\0';
@@ -3459,8 +3471,8 @@ void FileServer::init() {
     sessionDownloadCount = 0;
 }
 
-bool FileServer::start(const char* ssid, const char* password) {
-    if (state != FileServerState::IDLE) {
+bool XferServer::start(const char* ssid, const char* password) {
+    if (state != XferServerState::IDLE) {
         return true;
     }
 
@@ -3502,13 +3514,13 @@ bool FileServer::start(const char* ssid, const char* password) {
     WiFiUtils::hardReset();
     WiFi.begin(targetSSID, targetPassword);
     
-    state = FileServerState::CONNECTING;
+    state = XferServerState::CONNECTING;
     connectStartTime = millis();
     
     return true;
 }
 
-void FileServer::startServer() {
+void XferServer::startServer() {
     snprintf(statusMessage, sizeof(statusMessage), "%s", WiFi.localIP().toString().c_str());
     logWiFiStatus("startServer");
 
@@ -3518,15 +3530,15 @@ void FileServer::startServer() {
     // Heap guard before WebServer allocation - prevent OOM on ADV/tight heap
     {
         HeapGates::GateStatus gate = HeapGates::checkGate(
-            HeapPolicy::kFileServerMinHeap,
-            HeapPolicy::kFileServerMinLargest);
+            HeapPolicy::kXferServerMinHeap,
+            HeapPolicy::kXferServerMinLargest);
         if (gate.failure != HeapGates::TlsGateFailure::None) {
             FS_LOGF("[FILESERVER] Low heap for WebServer: free=%u largest=%u\n",
                           (unsigned)gate.freeHeap, (unsigned)gate.largestBlock);
             snprintf(statusMessage, sizeof(statusMessage), "%s", "Low heap");
             MDNS.end();
             WiFiUtils::shutdown();
-            state = FileServerState::IDLE;
+            state = XferServerState::IDLE;
             return;
         }
     }
@@ -3537,7 +3549,7 @@ void FileServer::startServer() {
         snprintf(statusMessage, sizeof(statusMessage), "%s", "Server alloc fail");
         MDNS.end();
         WiFiUtils::shutdown();
-        state = FileServerState::IDLE;
+        state = XferServerState::IDLE;
         return;
     }
 
@@ -3555,14 +3567,14 @@ void FileServer::startServer() {
     server->on("/api/creds", HTTP_POST, handleCredsSave);
     server->on("/download", HTTP_GET, handleDownload);
     server->on("/upload", HTTP_POST, handleUpload, handleUploadProcess);
-    server->on("/delete", HTTP_GET, handleDelete);
-    server->on("/rmdir", HTTP_GET, handleDelete);
-    server->on("/mkdir", HTTP_GET, handleMkdir);
+    server->on("/delete", HTTP_POST, handleDelete);
+    server->on("/rmdir", HTTP_POST, handleDelete);
+    server->on("/mkdir", HTTP_POST, handleMkdir);
     server->onNotFound(handleNotFound);
 
     server->begin();
 
-    state = FileServerState::RUNNING;
+    state = XferServerState::RUNNING;
     lastReconnectCheck = millis();
 
     xpLastScanMs = 0;
@@ -3579,8 +3591,8 @@ void FileServer::startServer() {
     xpWigleCacheComplete = false;
 }
 
-void FileServer::stop() {
-    if (state == FileServerState::IDLE) {
+void XferServer::stop() {
+    if (state == XferServerState::IDLE) {
         return;
     }
     // Close any pending upload file
@@ -3604,8 +3616,8 @@ void FileServer::stop() {
         size_t prevFree = ESP.getFreeHeap();
         uint32_t waitStart = millis();
 
-        while ((millis() - waitStart) < HeapPolicy::kFileServerLwipWaitMaxMs) {
-            delay(HeapPolicy::kFileServerLwipPollMs);
+        while ((millis() - waitStart) < HeapPolicy::kLwipCleanupWaitMaxMs) {
+            delay(HeapPolicy::kLwipCleanupPollMs);
             size_t curLargest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
             size_t curFree = ESP.getFreeHeap();
             if (curFree == prevFree && curLargest == prevLargest) break;
@@ -3619,7 +3631,7 @@ void FileServer::stop() {
                 (unsigned)(millis() - waitStart));
     }
     
-    state = FileServerState::IDLE;
+    state = XferServerState::IDLE;
     snprintf(statusMessage, sizeof(statusMessage), "%s", "OFFLINE");
     sessionRxBytes = 0;
     sessionTxBytes = 0;
@@ -3638,13 +3650,13 @@ void FileServer::stop() {
     xpWigleCacheComplete = false;
 }
 
-void FileServer::update() {
+void XferServer::update() {
     switch (state) {
-        case FileServerState::CONNECTING:
-        case FileServerState::RECONNECTING:
+        case XferServerState::CONNECTING:
+        case XferServerState::RECONNECTING:
             updateConnecting();
             break;
-        case FileServerState::RUNNING:
+        case XferServerState::RUNNING:
             updateRunning();
             break;
         default:
@@ -3652,7 +3664,7 @@ void FileServer::update() {
     }
 }
 
-void FileServer::updateConnecting() {
+void XferServer::updateConnecting() {
     uint32_t elapsed = millis() - connectStartTime;
     
     if (WiFi.status() == WL_CONNECTED) {
@@ -3670,11 +3682,11 @@ void FileServer::updateConnecting() {
         snprintf(statusMessage, sizeof(statusMessage), "%s", "LINK FAILED");
         logWiFiStatus("connect timeout");
         WiFiUtils::shutdown();
-        state = FileServerState::IDLE;
+        state = XferServerState::IDLE;
     }
 }
 
-void FileServer::updateRunning() {
+void XferServer::updateRunning() {
     if (!XP_WPA_AWARDED_FILE || !XP_WIGLE_AWARDED_FILE) {
         refreshSdPaths();
     }
@@ -3729,21 +3741,21 @@ void FileServer::updateRunning() {
             // Restart connection
             WiFiUtils::hardReset();
             WiFi.begin(targetSSID, targetPassword);
-            state = FileServerState::RECONNECTING;
+            state = XferServerState::RECONNECTING;
             connectStartTime = millis();
         }
     }
 }
 
-uint64_t FileServer::getSDFreeSpace() {
+uint64_t XferServer::getSDFreeSpace() {
     return SD.totalBytes() - SD.usedBytes();
 }
 
-uint64_t FileServer::getSDTotalSpace() {
+uint64_t XferServer::getSDTotalSpace() {
     return SD.totalBytes();
 }
 
-void FileServer::handleRoot() {
+void XferServer::handleRoot() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
@@ -3764,7 +3776,7 @@ void FileServer::handleRoot() {
     logHeapStatus("after /");
 }
 
-void FileServer::handleStyle() {
+void XferServer::handleStyle() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
@@ -3783,7 +3795,7 @@ void FileServer::handleStyle() {
     sessionTxBytes += sent;
 }
 
-void FileServer::handleScript() {
+void XferServer::handleScript() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
@@ -3802,7 +3814,7 @@ void FileServer::handleScript() {
     sessionTxBytes += sent;
 }
 
-void FileServer::handleSwine() {
+void XferServer::handleSwine() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
@@ -3815,7 +3827,7 @@ void FileServer::handleSwine() {
     sessionTxBytes += strlen(json);
 }
 
-void FileServer::handleSDInfo() {
+void XferServer::handleSDInfo() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
@@ -3850,17 +3862,34 @@ void FileServer::handleSDInfo() {
     logHeapStatusIfLow("after /api/sdinfo");
 }
 
-void FileServer::handleCreds() {
+// Escape a string for JSON (handles " and \ only; control chars unlikely in API keys)
+static void jsonEscapeStr(char* dst, size_t dstSize, const char* src) {
+    size_t di = 0;
+    for (size_t si = 0; src[si] && di < dstSize - 2; si++) {
+        if (src[si] == '"' || src[si] == '\\') {
+            if (di + 2 >= dstSize - 1) break;
+            dst[di++] = '\\';
+        }
+        dst[di++] = src[si];
+    }
+    dst[di] = '\0';
+}
+
+void XferServer::handleCreds() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
         return;
     }
     const WiFiConfig& w = Config::wifi();
-    char json[256];
+    char eKey[80], eName[80], eToken[80];
+    jsonEscapeStr(eKey, sizeof(eKey), w.wpaSecKey);
+    jsonEscapeStr(eName, sizeof(eName), w.wigleApiName);
+    jsonEscapeStr(eToken, sizeof(eToken), w.wigleApiToken);
+    char json[384];
     snprintf(json, sizeof(json),
              "{\"wpaSecKey\":\"%s\",\"wigleApiName\":\"%s\",\"wigleApiToken\":\"%s\"}",
-             w.wpaSecKey, w.wigleApiName, w.wigleApiToken);
+             eKey, eName, eToken);
     server->sendHeader("Connection", "close");
     server->sendHeader("Cache-Control", "no-store");
     server->send(200, "application/json", json);
@@ -3887,7 +3916,7 @@ static const char* jsonExtractStr(const char* body, const char* key) {
     return buf;
 }
 
-void FileServer::handleCredsSave() {
+void XferServer::handleCredsSave() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
@@ -3942,7 +3971,7 @@ void FileServer::handleCredsSave() {
     server->send(200, "application/json", "{\"ok\":true}");
 }
 
-void FileServer::handleFileList() {
+void XferServer::handleFileList() {
     String dir = mapUiPathToFs(server->arg("dir"));
     bool full = server->arg("full") == "1";
     uint16_t limit = server->arg("limit").toInt();
@@ -4056,7 +4085,7 @@ void FileServer::handleFileList() {
     listActive.store(false);
 }
 
-void FileServer::handleDownload() {
+void XferServer::handleDownload() {
     String path = mapUiPathToFs(server->arg("f"));
     String dir = mapUiPathToFs(server->arg("dir"));  // For ZIP download
     logRequest(server, "REQ");
@@ -4192,7 +4221,7 @@ void FileServer::handleDownload() {
     logHeapStatusIfLow("after /download");
 }
 
-void FileServer::handleUpload() {
+void XferServer::handleUpload() {
     logRequest(server, "REQ");
     if (uploadRejected.load()) {
         server->sendHeader("Connection", "close");
@@ -4204,7 +4233,7 @@ void FileServer::handleUpload() {
     server->send(200, "text/plain", "OK");
 }
 
-void FileServer::handleUploadProcess() {
+void XferServer::handleUploadProcess() {
     HTTPUpload& upload = server->upload();
     
     if (upload.status == UPLOAD_FILE_START) {
@@ -4237,9 +4266,10 @@ void FileServer::handleUploadProcess() {
             }
         }  // dirArg String freed here before SD operations
         
-        // Security: prevent directory traversal
+        // Security: prevent directory traversal and absolute-path escape
         const char* filename = upload.filename.c_str();
-        if (strstr(filename, "..") != nullptr || strstr(uploadDirBuf, "..") != nullptr) {
+        if (strstr(filename, "..") != nullptr || strstr(uploadDirBuf, "..") != nullptr ||
+            filename[0] == '/') {
             uploadRejected.store(true);
             uploadActive.store(false);
             return;
@@ -4386,13 +4416,13 @@ static bool deletePathRecursiveInternal(const char* path, size_t pathLen, uint8_
 }
 
 // Public wrapper - starts recursion at depth 0
-bool FileServer::deletePathRecursive(const String& path) {
+bool XferServer::deletePathRecursive(const String& path) {
     recursiveOpLastYield = millis();  // FIX: Reset yield state for new operation
     recursiveOpCounter = 0;
     return deletePathRecursiveInternal(path.c_str(), path.length(), 0);
 }
 
-void FileServer::handleDelete() {
+void XferServer::handleDelete() {
     String path = mapUiPathToFs(server->arg("f"));
     logRequest(server, "REQ");
     if (isTransferBusy()) {
@@ -4423,7 +4453,7 @@ void FileServer::handleDelete() {
         }
 }
 
-void FileServer::handleBulkDelete() {
+void XferServer::handleBulkDelete() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
@@ -4501,7 +4531,7 @@ void FileServer::handleBulkDelete() {
     server->send(200, "application/json", response);
 }
 
-void FileServer::handleMkdir() {
+void XferServer::handleMkdir() {
     String path = mapUiPathToFs(server->arg("f"));
     logRequest(server, "REQ");
     if (isTransferBusy()) {
@@ -4530,7 +4560,7 @@ void FileServer::handleMkdir() {
         }
 }
 
-void FileServer::handleRename() {
+void XferServer::handleRename() {
     String oldPath = mapUiPathToFs(server->arg("old"));
     String newPath = mapUiPathToFs(server->arg("new"));
     logRequest(server, "REQ");
@@ -4561,7 +4591,7 @@ void FileServer::handleRename() {
         }
 }
 
-bool FileServer::copyFileChunked(const String& srcPath, const String& dstPath) {
+bool XferServer::copyFileChunked(const String& srcPath, const String& dstPath) {
     // Copy a file in chunks to limit heap usage and avoid heap fragmentation.
     // Use a fixed static buffer to avoid repeated malloc/free cycles on the ESP32 heap.
     if (srcPath == dstPath) {
@@ -4630,7 +4660,7 @@ bool FileServer::copyFileChunked(const String& srcPath, const String& dstPath) {
 
 // FIX: Added depth tracking to prevent stack overflow on deep directories
 // FIX: Optimized to use char buffers for path building to reduce heap allocs in recursion
-bool FileServer::copyPathRecursive(const String& srcPath, const String& dstPath, uint8_t depth) {
+bool XferServer::copyPathRecursive(const String& srcPath, const String& dstPath, uint8_t depth) {
     if (depth > MAX_RECURSION_DEPTH) {
         FS_LOGF("[FILESERVER] Copy depth limit exceeded at: %s\n", srcPath.c_str());
         return false;
@@ -4706,7 +4736,7 @@ bool FileServer::copyPathRecursive(const String& srcPath, const String& dstPath,
     }
 }
 
-void FileServer::handleCopy() {
+void XferServer::handleCopy() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
@@ -4810,7 +4840,7 @@ void FileServer::handleCopy() {
     server->send(200, "application/json", response);
 }
 
-void FileServer::handleMove() {
+void XferServer::handleMove() {
     logRequest(server, "REQ");
     if (isTransferBusy()) {
         sendBusyResponse(server);
@@ -4923,12 +4953,12 @@ void FileServer::handleMove() {
     server->send(200, "application/json", response);
 }
 
-void FileServer::handleNotFound() {
+void XferServer::handleNotFound() {
     logRequest(server, "REQ");
     server->sendHeader("Connection", "close");
     server->send(404, "text/plain", "404: V01D");
 }
 
-const char* FileServer::getHTML() {
+const char* XferServer::getHTML() {
     return HTML_TEMPLATE;
 }

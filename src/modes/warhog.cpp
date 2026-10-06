@@ -14,6 +14,7 @@
 #include "../core/heap_policy.h"
 #include "../core/heap_health.h"
 #include "../core/network_recon.h"
+#include "../core/janus_hog.h"
 #include "../core/wsl_bypasser.h"
 #include "../core/sdlog.h"
 #include "../core/sd_layout.h"
@@ -61,10 +62,10 @@ static const int SD_RETRY_DELAY_MS = 10;
 // Files larger than this will be rotated to a new file
 static const size_t WIGLE_FILE_MAX_SIZE = 400000;
 
-// Graceful stop request flag for background scan task
-static volatile bool stopRequested = false;
+// Graceful stop request flag for background scan task (atomic: cross-core visibility)
+static std::atomic<bool> stopRequested{false};
 // Set by scan task just before self-deleting, used for safe cleanup in stop()
-static volatile bool scanTaskExited = false;
+static std::atomic<bool> scanTaskExited{false};
 
 // Helper: Open SD file with retry logic
 static File openFileWithRetry(const char* path, const char* mode) {
@@ -114,12 +115,12 @@ char WarhogMode::currentFilename[128] = {0};
 char WarhogMode::currentWigleFilename[128] = {0};
 
 // Scan state
-bool WarhogMode::scanInProgress = false;
+volatile bool WarhogMode::scanInProgress = false;
 uint32_t WarhogMode::scanStartTime = 0;
 
 // Background scan task statics
 TaskHandle_t WarhogMode::scanTaskHandle = NULL;
-volatile int WarhogMode::scanResult = -2;  // -2 = not started, -1 = running, >=0 = complete
+std::atomic<int> WarhogMode::scanResult{-2};  // -2 = not started, -1 = running, >=0 = complete
 
 // Scan task check: returns true if should abort
 static inline bool shouldAbortScan() {
@@ -248,16 +249,18 @@ void WarhogMode::start() {
     scanInProgress = false;
     scanStartTime = 0;
 
-    // Ensure GPS is in continuous mode regardless of software state
-    // FIX: Addresses issue where GPS doesn't show until mode restart
-    GPS::ensureContinuousMode();
+    // Ensure GPS is in continuous mode — unless C5 is using the same pins
+    // (GPS was intentionally slept by JanusHog::init() to avoid UART conflict)
+    if (GPS::isActive() || !JanusHog::isConnected()) {
+        GPS::ensureContinuousMode();
+    }
     
     running = true;
     lastScanTime = 0;  // Trigger immediate scan
     
     // Set grass speed for wardriving - animation controlled by GPS lock in update()
     Avatar::setGrassSpeed(200);  // Slower than OINK (~5 FPS)
-    Avatar::setGrassMoving(GPS::hasFix());  // Start based on current GPS status
+    Avatar::setGrassMoving(GPS::hasFix() || JanusHog::hasC5GPSFix());
     
     Display::setWiFiStatus(true);
     Mood::onWarhogUpdate();  // Show WARHOG phrase on start
@@ -270,25 +273,27 @@ void WarhogMode::stop() {
     
     // Signal task to stop gracefully
     stopRequested = true;
-    scanTaskExited = false;
 
-    // Wait briefly for background scan to notice stopRequested
+    // Wait for background scan task to exit
     if (scanInProgress && scanTaskHandle != NULL) {
-        // Give task up to 500ms to exit gracefully
-        for (int i = 0; i < 10 && scanTaskHandle != NULL; i++) {
+        // Wait for scanTaskExited (the authoritative atomic flag) — not the handle,
+        // which is racy between the task self-deleting and us reading it.
+        for (int i = 0; i < 10 && !scanTaskExited.load(); i++) {
             delay(50);
         }
-        // Force cleanup if task didn't exit in time
-        if (scanTaskHandle != NULL) {
-            Serial.println("[WARHOG] Force-deleting scan task");
-            vTaskDelete(scanTaskHandle);
+        if (scanTaskExited.load()) {
+            // Task exited cleanly — it already called vTaskDelete(NULL).
+            // Handle may or may not be NULL yet; just clear it.
             scanTaskHandle = NULL;
-        }
-        // Only call scanDelete if task exited cleanly (not mid-scan-processing)
-        if (scanTaskExited) {
             WiFi.scanDelete();
         } else {
-            // Task was force-killed — WiFi state may be inconsistent.
+            // Task didn't exit in time (stuck in WiFi.scanNetworks blocking call).
+            // Force-delete with the saved handle.
+            Serial.println("[WARHOG] Force-deleting scan task");
+            TaskHandle_t h = scanTaskHandle;
+            scanTaskHandle = NULL;
+            if (h) vTaskDelete(h);
+            // WiFi state may be inconsistent after force-kill.
             // Soft reset keeps driver alive (avoid RX buffer realloc on fragmented heap).
             WiFi.disconnect(false, true);
             delay(50);
@@ -299,7 +304,8 @@ void WarhogMode::stop() {
     
     // Stop grass animation
     Avatar::setGrassMoving(false);
-    
+    Avatar::waveRipple(WaveMode::NONE);
+
     running = false;
     
     // Put GPS to sleep if power management enabled
@@ -368,6 +374,7 @@ void WarhogMode::update() {
     static uint32_t lastPhraseTime = 0;
     static bool lastGPSState = false;
     static uint32_t lastHeapCheck = 0;
+    static uint32_t lastC5ScanReqMs = 0;
     
     // Periodic heap monitoring (every 30 seconds)
     if (now - lastHeapCheck >= 30000) {
@@ -377,16 +384,27 @@ void WarhogMode::update() {
         lastHeapCheck = now;
     }
 
-    // Update grass animation based on GPS fix status
-    bool hasGPSFix = GPS::hasFix();
+    // Update grass animation based on GPS fix status (local or C5)
+    bool hasGPSFix = GPS::hasFix() || JanusHog::hasC5GPSFix();
     if (hasGPSFix != lastGPSState) {
         Avatar::setGrassMoving(hasGPSFix);
         lastGPSState = hasGPSFix;
     }
-    
+
+    // Continuous sat-stream waves: pulse INCOMING while GPS active
+    static uint32_t lastWaveRefresh = 0;
+    if (hasGPSFix && now - lastWaveRefresh >= 2400) {  // match CYCLE_MS
+        GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
+        uint8_t sats = gps.satellites;
+        // Map sat count to wave intensity (ring count 1-3)
+        uint8_t intensity = (sats >= 8) ? 3 : (sats >= 5) ? 2 : 1;
+        Avatar::waveRipple(WaveMode::INCOMING, intensity);
+        lastWaveRefresh = now;
+    }
+
     // Distance tracking for XP (every 5 seconds when GPS is available)
     if (hasGPSFix && now - lastDistanceCheck >= 5000) {
-        GPSData gps = GPS::getData();
+        GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
         if (lastGPSLat != 0 && lastGPSLon != 0) {
             double distance = haversineMeters(lastGPSLat, lastGPSLon, gps.latitude, gps.longitude);
             // Filter out GPS jitter (<5m) and teleportation (>1km)
@@ -431,6 +449,13 @@ void WarhogMode::update() {
     
     // Start new scan if interval elapsed and not already scanning
     if (now - lastScanTime >= scanInterval) {
+        // Best-effort: keep C5 scan data fresh for dual-band logging.
+        if (JanusHog::isConnected() && JanusHog::isReady()) {
+            if (lastC5ScanReqMs == 0 || (now - lastC5ScanReqMs) >= 30000) {
+                (void)JanusHog::requestScan();
+                lastC5ScanReqMs = now;
+            }
+        }
         performScan();
         lastScanTime = now;
     }
@@ -629,7 +654,7 @@ void WarhogMode::appendWigleEntry(const uint8_t* bssid, const char* ssid,
     f.print(",");
     
     // FirstSeen (timestamp) - use GPS time if available, else millis
-    GPSData gps = GPS::getData();
+    GPSData gps = GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
     if (gps.date > 0 && gps.time > 0) {
         // date format: DDMMYY, time format: HHMMSSCC
         uint8_t day = gps.date / 10000;
@@ -674,9 +699,13 @@ void WarhogMode::processScanResults() {
         return;
     }
     
-    // Get current GPS data - check for valid fix
+    // Get current GPS data - check for valid fix, fall back to C5 GPS if local unavailable
     GPSData gpsData = GPS::getData();
     bool hasGPS = GPS::hasFix();
+    if (!hasGPS && JanusHog::hasC5GPSFix()) {
+        gpsData = JanusHog::getC5GPSData();
+        hasGPS = true;
+    }
     
     SDLOG("WARHOG", "Processing %d networks (GPS: %s)", n, hasGPS ? "yes" : "no");
     
@@ -702,7 +731,7 @@ void WarhogMode::processScanResults() {
 
         // Mark as seen and update bounty reservoir before any file writes
         bloomAdd(seenBloom, SEEN_BLOOM_MASK, SEEN_BLOOM_HASHES, bssidKey);
-        bountySeenTotal++;
+        if (bountySeenTotal < UINT32_MAX) bountySeenTotal++;
         if (bountyPoolCount < BOUNTY_POOL_SIZE) {
             bountyPool[bountyPoolCount++] = bssidKey;
         } else {
@@ -759,12 +788,106 @@ void WarhogMode::processScanResults() {
                 
                 // WiGLE format export (HDOP * 5 as rough accuracy estimate in meters)
                 double accuracy = gpsData.hdop > 0 ? gpsData.hdop * 5.0 : 10.0;
+                if (gpsData.coasting && accuracy < 30.0) accuracy = 30.0;
                 appendWigleEntry(bssidPtr, ssid, rssi, channel, authmode,
                                 gpsData.latitude, gpsData.longitude, gpsData.altitude, accuracy);
                 
                 savedCount++;
                 geotaggedThisScan++;
                 XP::addXP(XPEvent::WARHOG_LOGGED);  // +2 XP for geotagged network
+            }
+        }
+    }
+
+    // --- Dual-band add-on: 5GHz networks from JanusHog (injected into recon) ---
+    if (JanusHog::isConnected()) {
+        struct C5Net {
+            uint8_t bssid[6];
+            char ssid[33];
+            int8_t rssi;
+            uint8_t channel;
+            wifi_auth_mode_t authmode;
+        };
+
+        static C5Net c5nets[64]; // bounded snapshot, avoids holding recon lock during SD writes
+        uint8_t c5count = 0;
+
+        uint32_t nowMs = millis();
+        NetworkRecon::enterCritical();
+        for (const auto& net : NetworkRecon::getNetworks()) {
+            if (net.source != NET_SOURCE_C5) continue;
+            if (net.channel <= 14 || net.channel > 165) continue;
+            // Keep wardrive output "live" even if UI keeps C5 nets longer.
+            if (nowMs - net.lastSeen > 120000) continue;
+            if (c5count >= (uint8_t)(sizeof(c5nets) / sizeof(c5nets[0]))) break;
+
+            memcpy(c5nets[c5count].bssid, net.bssid, 6);
+            strncpy(c5nets[c5count].ssid, net.ssid, 32);
+            c5nets[c5count].ssid[32] = '\0';
+            c5nets[c5count].rssi = (net.rssiAvg != 0) ? net.rssiAvg : net.rssi;
+            c5nets[c5count].channel = net.channel;
+            c5nets[c5count].authmode = net.authmode;
+            c5count++;
+        }
+        NetworkRecon::exitCritical();
+
+        for (uint8_t i = 0; i < c5count; i++) {
+            const C5Net& cn = c5nets[i];
+            uint64_t bssidKey = bssidToKey(cn.bssid);
+
+            if (bloomTest(seenBloom, SEEN_BLOOM_MASK, SEEN_BLOOM_HASHES, bssidKey)) {
+                continue;
+            }
+
+            bloomAdd(seenBloom, SEEN_BLOOM_MASK, SEEN_BLOOM_HASHES, bssidKey);
+            if (bountySeenTotal < UINT32_MAX) bountySeenTotal++;
+            if (bountyPoolCount < BOUNTY_POOL_SIZE) {
+                bountyPool[bountyPoolCount++] = bssidKey;
+            } else {
+                uint32_t pick = esp_random() % bountySeenTotal;
+                if (pick < BOUNTY_POOL_SIZE) {
+                    bountyPool[pick] = bssidKey;
+                }
+            }
+
+            // Basic validation (mirror local scan guards)
+            if (cn.channel == 0 || cn.channel > 165) continue;
+
+            totalNetworks++;
+            newThisScan++;
+
+            switch (cn.authmode) {
+                case WIFI_AUTH_OPEN:
+                    openNetworks++;
+                    XP::addXP(XPEvent::NETWORK_OPEN);
+                    break;
+                case WIFI_AUTH_WEP:
+                    wepNetworks++;
+                    XP::addXP(XPEvent::NETWORK_WEP);
+                    break;
+                case WIFI_AUTH_WPA3_PSK:
+                case WIFI_AUTH_WPA2_WPA3_PSK:
+                    wpaNetworks++;
+                    XP::addXP(XPEvent::NETWORK_WPA3);
+                    break;
+                default:
+                    wpaNetworks++;
+                    XP::addXP(XPEvent::NETWORK_FOUND);
+                    break;
+            }
+
+            if (Config::isSDAvailable() && hasGPS) {
+                appendCSVEntry(cn.bssid, cn.ssid, cn.rssi, cn.channel, cn.authmode,
+                               gpsData.latitude, gpsData.longitude, gpsData.altitude);
+
+                double accuracy = gpsData.hdop > 0 ? gpsData.hdop * 5.0 : 10.0;
+                if (gpsData.coasting && accuracy < 30.0) accuracy = 30.0;
+                appendWigleEntry(cn.bssid, cn.ssid, cn.rssi, cn.channel, cn.authmode,
+                                 gpsData.latitude, gpsData.longitude, gpsData.altitude, accuracy);
+
+                savedCount++;
+                geotaggedThisScan++;
+                XP::addXP(XPEvent::WARHOG_LOGGED);
             }
         }
     }
@@ -779,11 +902,11 @@ void WarhogMode::processScanResults() {
 }
 
 bool WarhogMode::hasGPSFix() {
-    return GPS::hasFix();
+    return GPS::hasFix() || JanusHog::hasC5GPSFix();
 }
 
 GPSData WarhogMode::getGPSData() {
-    return GPS::getData();
+    return GPS::hasFix() ? GPS::getData() : JanusHog::getC5GPSData();
 }
 
 // Export functions - data is already on disk, these are for format conversion
@@ -880,4 +1003,3 @@ void WarhogMode::generateFilename(char* buf, size_t bufSize, const char* ext) {
                 millis(), (uint16_t)esp_random(), ext);
     }
 }
-

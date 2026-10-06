@@ -1,6 +1,6 @@
-// Diagnostics Menu - System status snapshot
+// DiagData Menu - System status snapshot
 
-#include "diagnostics_menu.h"
+#include "diagdata_menu.h"
 #include <M5Cardputer.h>
 #include <SD.h>
 #include <time.h>
@@ -18,21 +18,21 @@
 #include <esp_wifi.h>
 
 // Static member initialization
-bool DiagnosticsMenu::active = false;
-bool DiagnosticsMenu::keyWasPressed = false;
-uint16_t DiagnosticsMenu::cachedWpaCracked = 0;
-uint16_t DiagnosticsMenu::cachedWigleUploaded = 0;
-uint32_t DiagnosticsMenu::lastStatRefreshMs = 0;
-uint32_t DiagnosticsMenu::statRefreshIntervalMs = 2000;  // tighter refresh interval
+bool DiagDataMenu::active = false;
+bool DiagDataMenu::keyWasPressed = false;
+uint16_t DiagDataMenu::cachedWpaCracked = 0;
+uint16_t DiagDataMenu::cachedWigleUploaded = 0;
+uint32_t DiagDataMenu::lastStatRefreshMs = 0;
+uint32_t DiagDataMenu::statRefreshIntervalMs = 2000;  // tighter refresh interval
 
-void DiagnosticsMenu::show() {
+void DiagDataMenu::show() {
     active = true;
     keyWasPressed = true;  // Ignore the Enter that brought us here
     lastStatRefreshMs = 0; // force immediate refresh
     HeapHealth::setKnuthEnabled(true);
 }
 
-void DiagnosticsMenu::hide() {
+void DiagDataMenu::hide() {
     active = false;
     HeapHealth::setKnuthEnabled(false);
     // Release caches when leaving
@@ -40,7 +40,7 @@ void DiagnosticsMenu::hide() {
     WiGLE::freeUploadedListMemory();
 }
 
-void DiagnosticsMenu::update() {
+void DiagDataMenu::update() {
     if (!active) return;
 
     bool anyPressed = M5Cardputer.Keyboard.isPressed();
@@ -94,7 +94,7 @@ void DiagnosticsMenu::update() {
     }
 }
 
-void DiagnosticsMenu::saveSnapshot() {
+void DiagDataMenu::saveSnapshot() {
     // Create a diagnostic snapshot with system information
     if (!SD.exists("/")) {
         Display::notify(NoticeKind::WARNING, "NO SD CARD");
@@ -170,12 +170,12 @@ void DiagnosticsMenu::saveSnapshot() {
     file.close();
 }
 
-void DiagnosticsMenu::resetWiFi() {
+void DiagDataMenu::resetWiFi() {
     // Avoid driver teardown to prevent esp_wifi_init 257 on fragmented heap.
     WiFiUtils::hardReset();
 }
 
-void DiagnosticsMenu::logHeapSnapshot() {
+void DiagDataMenu::logHeapSnapshot() {
     if (!Config::isSDAvailable()) {
         Display::setTopBarMessage("NO SD CARD", 2000);
         return;
@@ -207,7 +207,7 @@ void DiagnosticsMenu::logHeapSnapshot() {
     f.close();
 }
 
-void DiagnosticsMenu::collectGarbage() {
+void DiagDataMenu::collectGarbage() {
     // Free optional caches to claw back heap
     WPASec::freeCacheMemory();
     WiGLE::freeUploadedListMemory();
@@ -215,7 +215,7 @@ void DiagnosticsMenu::collectGarbage() {
     yield();
 }
 
-void DiagnosticsMenu::refreshStats() {
+void DiagDataMenu::refreshStats() {
     // Skip refresh if network ops are busy to avoid heap churn
     if (!WPASec::isBusy()) {
         cachedWpaCracked = WPASec::getCrackedCount();
@@ -228,7 +228,7 @@ void DiagnosticsMenu::refreshStats() {
     lastStatRefreshMs = millis();
 }
 
-void DiagnosticsMenu::draw(M5Canvas& canvas) {
+void DiagDataMenu::draw(M5Canvas& canvas) {
     if (!active) return;
 
     canvas.fillSprite(COLOR_BG);
